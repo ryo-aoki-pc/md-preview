@@ -7,9 +7,10 @@ import shutil
 import tempfile
 import unittest
 import zipfile
+from unittest import mock
 from xml.sax.saxutils import escape
 
-import helpers  # noqa: F401
+import helpers
 
 import openpyxl
 
@@ -134,6 +135,34 @@ class NormalizeTest(unittest.TestCase):
         self.assertNotEqual(workbook.sheet_name_for(3, "見出し: [とても] 長い/見出し*の名前" * 3, used), name)
 
 
+class FontTest(unittest.TestCase):
+    def test_font_entry_matches(self):
+        family = "HackGen Console NF"
+        for entry in ("HackGen Console NF Regular (TrueType)", "HackGen Console NF Bold (TrueType)",
+                      "Foo & HackGen Console NF (TrueType)", "hackgen console nf"):
+            self.assertTrue(workbook.font_entry_matches(entry, family), entry)
+        for entry in ("HackGen35 Console NF Regular (TrueType)", "HackGen NF Regular (TrueType)",
+                      "HackGen Console NFX Regular (TrueType)", "BIZ UDGothic & BIZ UDPGothic (TrueType)"):
+            self.assertFalse(workbook.font_entry_matches(entry, family), entry)
+
+    def test_font_name(self):
+        # 環境変数が最優先。無ければ HackGen Console NF が入っているかで決める
+        with mock.patch.dict(os.environ, {"MDTABLE_FONT": "Consolas"}):
+            with mock.patch.object(workbook, "font_installed", return_value=True):
+                self.assertEqual(workbook.font_name(), "Consolas")
+        with mock.patch.dict(os.environ):
+            os.environ.pop("MDTABLE_FONT", None)
+            with mock.patch.object(workbook, "font_installed", return_value=True):
+                self.assertEqual(workbook.font_name(), "HackGen Console NF")
+            with mock.patch.object(workbook, "font_installed", return_value=False):
+                self.assertEqual(workbook.font_name(), "BIZ UDゴシック")
+
+    @unittest.skipUnless(os.name == "nt", "Windows のフォントの登録を見る")
+    def test_registered_fonts(self):
+        self.assertFalse(workbook.font_installed("mdtable に無い書体 0123"))
+        self.assertIsInstance(workbook.font_installed(workbook.PREFERRED_FONT), bool)
+
+
 class ExportImportTest(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="mdtable-test-")
@@ -173,6 +202,16 @@ class ExportImportTest(unittest.TestCase):
         self.assertEqual(sheet["B3"].number_format, "@")
         self.assertTrue(sheet["A1"].font.b)
         self.assertEqual(book[workbook.META_SHEET].sheet_state, "veryHidden")
+
+    def test_font(self):
+        with mock.patch.dict(os.environ, {"MDTABLE_FONT": "Consolas"}):
+            self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        sheet = book[self.sheet(1)]
+        index = book[workbook.INDEX_SHEET]
+        for cell in (sheet["A1"], sheet["B2"], index["A1"], index["B4"]):
+            self.assertEqual(cell.font.name, "Consolas", cell.coordinate)
+        self.assertEqual(sheet.column_dimensions["A"].font.name, "Consolas")
 
     def test_edit_and_import(self):
         self.export()
@@ -264,6 +303,88 @@ class ExportImportTest(unittest.TestCase):
         self.assertEqual(report.errors, [])
         self.assertFalse(report.changed)
         self.assertTrue(any("適用済み" in m for m in report.messages))
+
+    def test_applied_twice_after_normalizing(self):
+        # 表の下に足した行のセルの配置が列と違う（多いほうにそろえる）、セルの文字が収束する形に
+        # 直る（- y⏎z → - y⏎  z）のどちらがあっても、もう一度取り込むと「適用済み」
+        write(self.md, "| a | b |\n|---|:---:|\n| 1 | 2 |\n")
+        self.export()
+        edit_sheet(self.xlsx, self.sheet(1), {"A3": "x", "B3": "- y\nz"})
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertTrue(any("配置が混在" in w for w in report.warnings))
+        self.assertIn("| x | <ul><li>y<br>z</li></ul> |", read(self.md))
+        after = read(self.md)
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertFalse(report.changed)
+        self.assertTrue(any("適用済み" in m for m in report.messages))
+        self.assertEqual(read(self.md), after)
+
+    def test_many_tables_with_body(self):
+        # 本文と 7 つの表がある見本（docs/verification/multi-tables.md）で 5 つの表を編集しても、
+        # 表の外の行（足した空行を除く）と、編集していない表は 1 文字も変わらない
+        with open(os.path.join(helpers.ROOT, "docs", "verification", "multi-tables.md"),
+                  encoding="utf-8", newline="") as handle:
+            original = handle.read()
+        write(self.md, original)
+        self.export()
+        edit_sheet(self.xlsx, self.sheet(1), {"B3": "0.2.0", "A4": "フォント", "B4": "HackGen Console NF",
+                                              "C4": "- 入っていれば使う\n- 無ければ BIZ UDゴシック"})
+        edit_sheet(self.xlsx, self.sheet(2), {"B2": "`python scripts/setup-mdtable.py`\n（リポジトリの外に入れる）"})
+        edit_sheet(self.xlsx, self.sheet(3), {"B3": "セル結合ができる\n\n```html\n<td rowspan=\"2\">結合</td>\n```"})
+        edit_sheet(self.xlsx, self.sheet(4), {"C3": "```sh\nsudo dnf install -y epel-release\n```",
+                                              "C4": "ln\n: シンボリックリンクを作る"})
+        edit_sheet(self.xlsx, self.sheet(5), {"B2": "編集（**Excel** で開く）"})
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        edited = read(self.md)
+
+        def split(text):
+            regions = helpers.regions(text)
+            lines = text.split("\n")
+            covered = {i for r in regions for i in range(r.start, r.end + 1)}
+            outside = [line for i, line in enumerate(lines) if i not in covered and line.strip()]
+            tables = ["\n".join(lines[r.start:r.end + 1]) for r in regions]
+            return outside, tables, [r.kind for r in regions]
+
+        outside_before, tables_before, _ = split(original)
+        outside_after, tables_after, kinds = split(edited)
+        self.assertEqual(outside_after, outside_before)
+        self.assertEqual(len(tables_after), 7)
+        self.assertEqual([i + 1 for i in range(7) if tables_before[i] != tables_after[i]], [1, 2, 3, 4, 5])
+        self.assertEqual(kinds, ["pipe", "pipe", "html", "html", "pipe", "pipe", "pipe"])
+        # HTML にした表 3 の直後のリストは、空行を足してリストのまま
+        self.assertIn("</table>\n\n- 表のすぐ後のリスト（空行なし）", edited)
+        report = sync.import_workbook(self.xlsx)
+        self.assertFalse(report.changed)
+        self.assertEqual(len([m for m in report.messages if "適用済み" in m]), 5)
+
+    def test_merged_cells_keep_text_format(self):
+        # 結合で隠れるセルも、左上のセルと同じ書式（文字列の書式）にする。Excel で結合を解いて
+        # 入力しても文字列のまま。openpyxl は読むときに隠れるセルの書式を捨てるので、XML で確かめる
+        write(self.md, '<table>\n<tr><th rowspan="2">a</th><th>b</th></tr>\n<tr><td>c</td></tr>\n</table>\n')
+        self.export()
+        with zipfile.ZipFile(self.xlsx) as book:
+            sheet = book.read("xl/worksheets/sheet2.xml").decode("utf-8")
+            styles = book.read("xl/styles.xml").decode("utf-8")
+        self.assertIn('<mergeCell ref="A1:A2"', sheet)
+        top = re.search(r'<c r="A1" s="(\d+)"', sheet).group(1)
+        covered = re.search(r'<c r="A2" s="(\d+)"', sheet).group(1)
+        self.assertEqual(covered, top)
+        xfs = re.findall(r"<xf [^>]*>", re.search(r"<cellXfs[^>]*>(.*?)</cellXfs>", styles, re.S).group(1))
+        self.assertIn('numFmtId="49"', xfs[int(covered)])
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertFalse(report.changed)
+
+    def test_column_style_alignment(self):
+        # パイプ表の列の配置を列のスタイルにも付け、表の下の行に入力したセルも同じ配置にする
+        write(self.md, "| a | b |\n|---|:---:|\n| 1 | 2 |\n")
+        self.export()
+        sheet = openpyxl.load_workbook(self.xlsx)[self.sheet(1)]
+        self.assertEqual(sheet.column_dimensions["B"].alignment.horizontal, "center")
+        self.assertIsNone(sheet.column_dimensions["A"].alignment.horizontal)
 
     def test_line_endings_and_bom(self):
         # C4・D17: 改行コードと BOM を保ち、改行コードを変えても衝突しない

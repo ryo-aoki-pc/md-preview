@@ -119,6 +119,22 @@ def _render(region, model, warnings):
     return html_table.render(region, model, warnings), None
 
 
+def _already_applied(sheet_model, region, md):
+    """シートの内容を今の表に書き戻しても変わらないか（取り込んだブックをもう一度取り込んだとき）。
+
+    書き戻すときに列の配置を多いほうにそろえたり、セルの文字を収束する形に直したりするので、
+    モデルではなく、書き戻した行が今の行と同じかで決める。
+    """
+    model = _normalized_sheet_model(sheet_model, region)
+    if model.same_content(region.parsed.model):
+        return True
+    try:
+        lines, _ = _render(region, model, [])
+    except NotRepresentable:
+        return False
+    return lines == md.lines[region.start:region.end + 1]
+
+
 def _locate(table, regions, by_hash):
     candidates = by_hash.get(table.source_hash, [])
     if table.occurrence < len(candidates):
@@ -160,8 +176,7 @@ def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False):
         if region is None:
             positional = regions[table.number - 1] if 0 < table.number <= len(regions) else None
             if positional is not None and positional.excluded is None:
-                current = _normalized_sheet_model(table.model, positional)
-                if current.same_content(positional.parsed.model):
+                if _already_applied(table.model, positional, md):
                     report.messages.append("%s: 適用済み（変更なし）" % label)
                     continue
                 if force:
