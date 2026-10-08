@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "md-table-excel"
+dynamic = ["version"]
+description = "GLFM の Markdown にある表（パイプ表・HTML の表）を Excel で編集して書き戻す"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["openpyxl>=3.1.5,<4"]
+
+[project.scripts]
+mdtable = "mdtable.cli:main"
+
+[tool.setuptools]
+packages = ["mdtable"]
+
+[tool.setuptools.dynamic]
+version = { attr = "mdtable.__version__" }
