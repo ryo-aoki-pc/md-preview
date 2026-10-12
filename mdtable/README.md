@@ -1,5 +1,10 @@
 # md-table-excel
 
+導入・利用・更新は [AlmaLinux 10 の手順](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md) / [Windows 11 の手順](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md) に集約している。設定仕様・開発者向け操作・過去の検証・ロールバックはこのリポジトリで管理する。
+
+移動先は[集約対応表](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/dev/consolidation-map.md)で確認する。
+
+
 GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して、元の文書に書き戻すツール（`mdtable` コマンド）です。Markdown の表（パイプ表）と HTML の表のどちらも扱い、セルの中は Excel 上でも Markdown の記法で書けます。
 
 [設計と変換の規則](docs/reference/readme.md) / [検証記録](docs/verification/readme.md)
@@ -14,50 +19,13 @@ GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して
 
 ## 導入
 
-Python 3.9 以降が要ります。Windows は `scoop install python` で入ります。このリポジトリのフォルダーで実行します。
+[AlmaLinux 10](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-を導入更新する任意) / [Windows 11](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-を導入更新する任意)
 
-Windows（PowerShell）:
-
-```powershell
-python scripts/setup-mdtable.py
-```
-
-Linux / macOS:
-
-```sh
-python3 scripts/setup-mdtable.py
-```
-
-- リポジトリの外に専用の仮想環境を作り、mdtable と [openpyxl](pyproject.toml) を入れる。置き場所は Windows が `%LOCALAPPDATA%\md-table-excel`、Linux が `~/.local/share/md-table-excel`（`--install-dir` で変えられる）
-- 起動用のコマンド `mdtable` を、Windows は `%USERPROFILE%\.local\bin`、Linux / macOS は `~/.local/bin` に置く（`--bin-dir` で変えられる）。そこが `PATH` に無ければ知らせる
-- `--check` は導入の状態を確かめるだけで、何も変えない。リポジトリを更新したら、導入し直す
-- Linux で仮想環境を作るときに `ensurepip` のエラーが出たら、その OS の Python の venv 用のパッケージを入れてから再実行する（AlmaLinux は `sudo dnf install python3-pip`、Ubuntu は `sudo apt install python3-venv`）
+macOS はリポジトリのフォルダーで `python3 scripts/setup-mdtable.py` を実行する。
 
 ## 使い方
 
-Windows では、`edit` で Excel を開いて編集し、閉じたら書き戻せます。
-
-```powershell
-mdtable list README.md
-mdtable edit README.md
-```
-
-- `list` は文書の表の番号・行・種類・大きさ・場所（リストの中など）・直前の見出しを出す
-- `edit` は一時フォルダーにブックを書き出して Excel で開く。編集して保存し、Excel を閉じてから Enter を押すと書き戻す。`--table 3`（3 番目の表）や `--table L120`（120 行目を含む表）で表を選べる
-- 書き戻せないとき（衝突など）や Ctrl+C で止めたときはブックを残し、取り込み直すコマンドを表示する
-
-ブックをファイルとして残すときは、`export` と `import` を使います。
-
-```powershell
-mdtable export README.md
-mdtable import README.tables.xlsx --dry-run
-mdtable import README.tables.xlsx
-```
-
-- `export` は Markdown と同じフォルダーに `README.tables.xlsx` を書く（`-o` で変えられる）。既にあれば `--force` を付けない限り上書きしない
-- `import` はブックに記録した Markdown に書き戻す（`--md` で変えられる）。`--dry-run` は差分を出すだけで書き戻さない
-- 書き出した後に Markdown の表を変えていたら、衝突として何も書き戻さない（`--force` でブックの内容で上書きする）。一度書き戻したブックをもう一度取り込むと「適用済み」になる
-- 取り込みが終わったら、ブックは消してよい
+[AlmaLinux 10](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-で-markdown-の表を-excel-と往復する) / [Windows 11](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-で-markdown-の表を-excel-と往復する)
 
 ## セルの書き方
 
@@ -89,16 +57,8 @@ mdtable import README.tables.xlsx
 
 ## Excel で編集するときの注意
 
-- セルは文字列の書式（`@`）になっている。書式をクリアしたセルや、別のブック・Web から「すべて貼り付け」したセルでは、Excel が入力を数値や日付に変えることがある（`1/2` → 日付、`3.10` → 3.1 など）。日付になったセルがあると取り込みは止まる
-- 貼り付けは「値のみ」か、セルの編集中（F2・数式バー）に行う
-- オートコレクト（`(c)` → `©` など）は入力を変える。コードを書くなら Excel の [ファイル] → [オプション] で切る
-- 見出し行の直下に行を挿入すると、見出しの書式が写る（HTML の表では `<th>` になる）。[挿入オプション] で「下と同じ書式を適用」を選ぶ
-- [セルを結合して中央揃え] は中央揃えも付く。結合だけなら [セルを結合]
-- 「テーブルとして書式設定」（Ctrl+T）は使わない
-- セルの一部だけの書式（文字の色・斜体など）は書き戻さない。強調は `**` などで書く
-- シート名の変更・並べ替えはよい。シートを消した表は変更なしとして扱う。足したシートは読まない
-- 表から離れたセルに書いた値は無視する（警告を出す）
-- フォントは、書き出す PC に HackGen Console NF が入っていればそれ、無ければ BIZ UDゴシック（`\` が `¥` に見える）。環境変数 `MDTABLE_FONT` にフォント名を入れると、そのフォントにする
+
+[AlmaLinux 10](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-のブックを-excel-で編集するときの注意) / [Windows 11](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-のブックを-excel-で編集するときの注意)
 
 ## 対象外になる表
 
