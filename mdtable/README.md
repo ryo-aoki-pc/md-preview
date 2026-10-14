@@ -19,7 +19,7 @@ GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して
 
 ## 導入
 
-[AlmaLinux 10](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-を導入更新する任意) / [Windows 11](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-を導入更新する任意)
+[AlmaLinux 10](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-を導入更新する) / [Windows 11](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-を導入更新する)
 
 macOS はリポジトリのフォルダーで `python3 scripts/setup-mdtable.py` を実行する。
 
