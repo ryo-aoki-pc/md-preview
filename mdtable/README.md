@@ -1,13 +1,21 @@
 # md-table-excel
 
-導入・利用・更新は [AlmaLinux 10 の手順](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md) / [Windows 11 の手順](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md) に集約している。設定仕様・開発者向け操作・過去の検証・ロールバックはこのリポジトリで管理する。
-
-移動先は[集約対応表](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/dev/consolidation-map.md)で確認する。
-
-
 GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して、元の文書に書き戻すツール（`mdtable` コマンド）です。Markdown の表（パイプ表）と HTML の表のどちらも扱い、セルの中は Excel 上でも Markdown の記法で書けます。
 
-[設計と変換の規則](docs/reference/readme.md) / [検証記録](docs/verification/readme.md)
+## 導入
+
+- 対象: AlmaLinux 10 と Windows 11 の自分のユーザー。Python 3.9 以上と git が要る
+- `~/md-table-excel`（Windows は `%USERPROFILE%\md-table-excel`）に clone し、`scripts/setup-mdtable.py` で、リポジトリの外の専用の仮想環境に入れる。起動コマンドは `~/.local/bin` に置く
+- 手順は setup-notes にある。更新も同じ項で行う
+
+| | AlmaLinux 10 | Windows 11 |
+| --- | --- | --- |
+| 導入・更新 | [mdtable を導入・更新する](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-を導入更新する) | [mdtable を導入・更新する](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-を導入更新する) |
+| 使い方 | [mdtable で Markdown の表を Excel と往復する](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-で-markdown-の表を-excel-と往復する) | [mdtable で Markdown の表を Excel と往復する](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-で-markdown-の表を-excel-と往復する) |
+| Excel で編集するときの注意 | [mdtable のブックを Excel で編集するときの注意](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-のブックを-excel-で編集するときの注意) | [mdtable のブックを Excel で編集するときの注意](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-のブックを-excel-で編集するときの注意) |
+| 戻す | [ロールバック](docs/extra/readme.md#ロールバック) | [Windows 11 のロールバック](docs/extra/readme.md#windows-11-のロールバック) |
+
+- macOS（未検証）: clone したフォルダーで `python3 scripts/setup-mdtable.py` を実行する。起動コマンドは `~/.local/bin/mdtable`
 
 ## できること
 
@@ -16,16 +24,6 @@ GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して
 - セルの中に、箇条書き・番号付きリスト・説明リスト・コードブロック（言語名を書けば GitLab でシンタックスハイライトされる）を Markdown の記法で書ける
 - 説明リスト・番号付きリスト・箇条書き・引用（アラート）・脚注の中で字下げされた表も扱える
 - Markdown の表でセルを結合したり、セルにコードブロックを書いたりすると、HTML の表にして書き戻す
-
-## 導入
-
-[AlmaLinux 10](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-を導入更新する) / [Windows 11](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-を導入更新する)
-
-macOS はリポジトリのフォルダーで `python3 scripts/setup-mdtable.py` を実行する。
-
-## 使い方
-
-[AlmaLinux 10](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-で-markdown-の表を-excel-と往復する) / [Windows 11](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-で-markdown-の表を-excel-と往復する)
 
 ## セルの書き方
 
@@ -55,11 +53,6 @@ macOS はリポジトリのフォルダーで `python3 scripts/setup-mdtable.py`
 
 詳しくは[設計と変換の規則](docs/reference/readme.md)にあります。
 
-## Excel で編集するときの注意
-
-
-[AlmaLinux 10](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-のブックを-excel-で編集するときの注意) / [Windows 11](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-のブックを-excel-で編集するときの注意)
-
 ## 対象外になる表
 
 次の表は書き出さず、目次と `list` に理由を出します。GitLab でも崩れて表示されるものが多く、直してから使います。
@@ -69,10 +62,10 @@ macOS はリポジトリのフォルダーで `python3 scripts/setup-mdtable.py`
 - 見出し行が引用やリストの続きの行（遅延行）になっている Markdown の表
 - セルに制御文字がある、1 つのセルが Excel の上限（32,767 文字）を超える表
 
-## テスト
+## 文書
 
-```sh
-python3 -B -m unittest discover -s tests -v
-```
-
-Windows では `python -B -m unittest discover -s tests -v` です。openpyxl が要るので、導入した仮想環境の Python で動かします。手元の文書と comrak での確認は[検証記録](docs/verification/readme.md)にあります。
+- [設計と変換の規則](docs/reference/readme.md)
+- [ロールバック](docs/extra/readme.md)
+- [検証記録](docs/verification/readme.md): 手元の文書と comrak での確認、Excel の実機での確認とその手順
+- テストのコマンドと、変更するときの決まりは [AGENTS.md](AGENTS.md)
+- 旧手順書の移動先: setup-notes の[集約対応表](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/dev/consolidation-map.md)

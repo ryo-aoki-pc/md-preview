@@ -127,6 +127,29 @@ python -B -m unittest discover -s tests -v
 - HTML の表で Markdown として書いたセル（コードスパンやリンクのあるセル）は `<p>` に入る。GitLab の CSS では段落の上の余白は 0 なのでほかのセルと上がそろい、下に 16px の余白が付く分だけ、その行が少し高くなる
 - 見本の取り込みは、自動テスト（`tests/test_workbook.py` の `test_many_tables_with_body`）でも確かめる。このテストを足した 120 件が、Windows（Python 3.14.8、comrak と手元の文書を含む）、WSL の AlmaLinux 10（Python 3.12.13）、Python 3.9.25 で成功した（Windows 以外は 4 件を飛ばす）
 
+## ロールバックの検証（2026-10-15）
+
+[ロールバック](../extra/readme.md)の手順を、文書のコードブロックをそのまま取り出して流し、入れたものが消えるかを確かめた。対象は、この記録を足したコミットの `docs/extra/readme.md` と、mdtable 0.1.0 の `scripts/setup-mdtable.py`。
+
+### ロールバックを確かめた環境
+
+- WSL の AlmaLinux 10（Python 3.12.13）。使い捨ての `HOME`（`/tmp` の下）で、`XDG_DATA_HOME` を外し、`PATH` は `~/.local/bin` と OS の既定だけにした
+- Windows 11 Pro 10.0.26300 の Windows PowerShell 5.1（scoop の Python 3.14.8）。使い捨ての `USERPROFILE`・`LOCALAPPDATA` を設定したプロセスで流した
+
+### ロールバックの結果
+
+- どちらも、clone → `setup-mdtable.py` → `--check`（`導入済み: mdtable 0.1.0`）の後に、ロールバックの手順で、起動コマンド（AlmaLinux 10 はシンボリックリンクの `~/.local/bin/mdtable`、Windows は写しの `mdtable.exe`）・仮想環境（`~/.local/share/md-table-excel`・`%LOCALAPPDATA%\md-table-excel`）・clone が消えた
+- AlmaLinux 10 では、`command -v` が何も出さず、`ls -d` が 3 つとも `No such file or directory` を出した。Windows では、`Test-Path` が手順 2 で `False` を 2 つ、手順 4 で `False` を 1 つ出した
+- 残ったのは、空の `~/.local/bin`・`~/.local/share` と、pip のキャッシュ（AlmaLinux 10 の `~/.cache/pip`）
+- レビューの指摘で、仮想環境の場所の決め方（`XDG_DATA_HOME` が絶対パスのときだけ使う）と、clone の確かめ（どのブランチにも push していないコミットと stash も見る）・確認の表示を直した後も、同じ方法で流し直し、同じ結果だった
+- Windows の手順 2 の `Get-Command` は、試したプロセスの PATH に、この PC に入っている本物の `~/.local/bin` も入っていたので、そちらの `mdtable.exe` を出した。使い捨ての場所の起動コマンドが消えたことは、`Test-Path` で確かめた
+
+### ロールバックで未検証のこと
+
+- macOS
+- mdtable や、それが開いた Excel のブックが動いている間に消すとき（Windows でファイルが使用中になる場合）
+- 使い捨てではない、本物のホームでの実行
+
 ## Excel 実機での確認の手順
 
 Excel のある PC で行い、結果をこの記録に新しい節として足す。Excel が保存したブックの形（共有文字列など）が、テストの `excel_shape`（Excel の保存の形の模擬）と違えば、模擬とテストを直す。ブックそのものは作成者名などが入るので、リポジトリに入れない。

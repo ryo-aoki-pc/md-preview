@@ -4,16 +4,11 @@
 
 利用者への回答・質問・報告は、常に日本語で書く（コードのコメントなどの言語は、このファイルのほかの決まりに従う）。
 
-GLFM の文書にある表（パイプ表・HTML の表）を Excel で編集して書き戻す `mdtable` コマンド。使い方は [README.md](README.md)、設計の理由と変換の規則は [docs/reference/readme.md](docs/reference/readme.md)、検証記録は [docs/verification/readme.md](docs/verification/readme.md)。
+GLFM の文書にある表（パイプ表・HTML の表）を Excel で編集して書き戻す `mdtable` コマンド。セルの書き方と書き戻しの規則は [README.md](README.md)、設計の理由と変換の規則は [docs/reference/readme.md](docs/reference/readme.md)、ロールバックは [docs/extra/readme.md](docs/extra/readme.md)、検証記録は [docs/verification/readme.md](docs/verification/readme.md)。
 
 ## 導入手順の正本
 
-Windows 11・AlmaLinux 10 の導入・利用・更新・任意操作は、setup-notes の [windows-setup.md](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md) と [almalinux-setup.md](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md) に集約する。既存の手順も対象とする。
-
-- 固有の仕様・他 OS の手順・開発者検査・理由・注意・検証記録・ロールバックが残る文書は保持する
-- 案内だけになった旧文書は削除する。README から上の2冊と[集約対応表](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/dev/consolidation-map.md)へ案内する
-
-文書規則は、Windows・AlmaLinux の実行手順には上の正本へ適用する。操作や移動先を変えたら正本・README・集約対応表・参照情報を同期し、過去の検証本文は保持する。共通 bash 設定が読むツールの初期化を `~/.bashrc` に直接追記しない。
+導入・更新・使い方の手順は、setup-notes の [almalinux-setup.md](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable) と [windows-setup.md](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable) の「mdtable」とその子の項にある。このリポジトリには置かない。macOS の導入（README の 1 行）とロールバック（`docs/extra/readme.md`）は、このリポジトリに置く。
 
 ## 構成
 
@@ -24,9 +19,12 @@ Windows 11・AlmaLinux 10 の導入・利用・更新・任意操作は、setup-
 - `mdtable/html_table.py`・`htmltok.py`・`cell_from_html.py` — HTML の表の範囲・字句解析・格子・セルの変換・差し替えと作り直し
 - `mdtable/cell_syntax.py` — Excel のセルの Markdown をパイプ表のセル・HTML の表のセルにする（とその逆）
 - `mdtable/workbook.py` — ブックの書き出しと読み込み。`mdtable/sync.py` — 書き出し・取り込みの手順と、書き戻した結果の確かめ
-- `mdtable/cli.py` — コマンド（list / export / import / edit）
-- `scripts/setup-mdtable.py` — リポジトリ外の仮想環境への導入
+- `mdtable/model.py` — 表のモデル（Excel と Markdown の間で受け渡す形）と、セルの文字の正規化。`mdtable/textwidth.py` — 文字の表示幅
+- `mdtable/cli.py` — コマンド（list / export / import / edit）。`mdtable/__main__.py` は `python -m mdtable`、`mdtable/__init__.py` は版（`__version__`）
+- `scripts/setup-mdtable.py` — リポジトリ外の仮想環境への導入。`pyproject.toml` — パッケージの定義（`readme = "README.md"` なので、README はパッケージの説明にもなる）
 - `tests/` — unittest。`test_oracles.py` は環境変数を設定したときだけ、手元の文書と comrak で確かめる
+- `docs/reference/readme.md` — 設計と変換の規則。`docs/extra/readme.md` — ロールバック
+- `docs/verification/readme.md` — 検証記録と、Excel の実機での確認の手順。同じ場所の `multi-tables.md`（`tests/test_workbook.py` が読む）と `excel-check.md`（Excel の確認に使う）は記録ではなく見本の文書。テストと手順が読むので移さない
 
 ## テスト
 
@@ -45,6 +43,13 @@ python3 -B -m unittest discover -s tests -v
 - 変えていない表・行・セルを 1 文字も変えないことを崩さない（`tests/test_tables.py`・`test_workbook.py` の往復のテスト）
 - ソースは LF。Windows の Python でファイルを書き換えるときは `newline=""` か `newline="\n"` を付ける
 - 文書（README・docs）は日本語。検証していないことを「動く」と書かない。検証記録の過去の節は書き換えず、新しい節を足す
+
+## 文書の置き場所
+
+- 導入・利用・更新の手順は正本に置き、README の「導入」の表から正本の項へ直接リンクする（手順書の先頭やカテゴリの見出しへはリンクしない）。執筆規則は setup-notes の `docs/dev/writing-rules.md`
+- `docs/extra/` はロールバックと注意点、`docs/reference/` は背景と規則、`docs/verification/` は検証記録（環境・日付・対象コミット・実出力・未確認事項）。テストのコマンドは上の「テスト」
+- 案内だけになった文書・節は消し、旧パスと移動先を setup-notes の集約対応表に足す。消すときは参照元のリンクを付け替える（検証記録は、削除前の固定コミットの URL にする）
+- 導入先（仮想環境・起動コマンドの場所）を変えたら、正本の「mdtable を導入・更新する」と `docs/extra/readme.md` を合わせて直し、ロールバックを確かめ直して検証記録に足す
 
 ## 共同作業の規則
 
