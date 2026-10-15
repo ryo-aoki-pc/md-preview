@@ -13,17 +13,6 @@
 - GitLab の描画は gitlab.com（19.5.0-pre）の Markdown API（`POST /api/v4/markdown`、`gfm: true`）。トークンは環境変数 `GITLAB_TOKEN` から読み、送ったのは下の見本の文書だけ
 - WSL の AlmaLinux 10（Python 3.12.13、openpyxl 3.1.5）と、podman の `python:3.9-slim`（Python 3.9.25、openpyxl 3.1.5）
 
-### 自動テスト
-
-```powershell
-$env:MDTABLE_COMRAK_DIR = "$env:LOCALAPPDATA\nvim-data\glfm-format"
-$env:MDTABLE_CORPUS = "$HOME\docs"
-python -B -m unittest discover -s tests -v
-```
-
-- Windows: 112 件すべて成功（comrak と手元の文書の確認を含む）
-- WSL の AlmaLinux 10・Python 3.9.25: 環境変数を付けずに 112 件が成功（comrak と手元の文書の確認の 3 件は飛ばす）
-
 ### 手元の文書（docs 配下の 217 本・608 表）
 
 - 表の検出: 葉のブロック（段落・見出し・コード・HTML ブロック・区切り線・表）の種類・行・祖先と、表の行が、全 217 本で comrak の構文木と一致した。決めた規則はこの突き合わせで確かめた（例: `| a \\| b |` は comrak では区切られない）
@@ -59,8 +48,6 @@ python -B -m unittest discover -s tests -v
 
 ### 未検証
 
-- Excel 実機（この PC に Excel が無い）。下の手順で確かめる
-- `edit` で実際に Excel を開く流れ（テストでは開く処理を置き換えて確かめた）
 - LibreOffice・Google スプレッドシート・Excel for Mac、macOS、Raspberry Pi
 
 ## Excel 実機での確認（2026-10-09）
@@ -94,11 +81,6 @@ python -B -m unittest discover -s tests -v
 - 表の下の行に入力したセルに列の配置が付かず、パイプ表で「配置が混在」の警告が出た。列のスタイルにも列の配置を付けた
 - 取り込んだブックをもう一度取り込むと、列の配置をそろえた表が衝突になった。書き戻した結果が今の行と同じなら「適用済み」にした（セルの文字を収束する形に直した表も同じ）
 - 目次の A1 の「Markdown」が切れていた。A 列を広げた
-
-### 直した後の自動テスト
-
-- Windows（Python 3.14.8、comrak と手元の文書を含めて）: 119 件すべて成功
-- WSL の AlmaLinux 10（Python 3.12.13）と podman の `python:3.9-slim`（Python 3.9.25）: 119 件が成功（comrak と手元の文書の 3 件と、Windows のフォントの登録の 1 件は飛ばす）
 
 ### Excel での確認で未検証のこと
 

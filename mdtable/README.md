@@ -68,4 +68,3 @@ GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して
 - [ロールバック](docs/extra/readme.md)
 - [検証記録](docs/verification/readme.md): 手元の文書と comrak での確認、Excel の実機での確認とその手順
 - テストのコマンドと、変更するときの決まりは [AGENTS.md](AGENTS.md)
-- 旧手順書の移動先: setup-notes の[集約対応表](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/dev/consolidation-map.md)
