@@ -1,6 +1,6 @@
 # Excel での確認用の文書
 
-[検証記録](readme.md)の「Excel 実機での確認の手順」で使う文書です。この文書の写しを書き出して、Excel で開きます。
+[検証記録](https://github.com/ryo-aoki-pc/setup-notes-verification/blob/main/repos/md-table-excel/docs/verification/readme.md)の「Excel 実機での確認の手順」で使う文書です。この文書の写しを書き出して、Excel で開きます。
 
 ## Markdown の表
 

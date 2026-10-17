@@ -66,5 +66,5 @@ GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して
 
 - [設計と変換の規則](docs/reference/readme.md)
 - [ロールバック](docs/extra/readme.md)
-- [検証記録](docs/verification/readme.md): 手元の文書と comrak での確認、Excel の実機での確認とその手順
+- [検証記録](https://github.com/ryo-aoki-pc/setup-notes-verification/blob/main/repos/md-table-excel/docs/verification/readme.md): 手元の文書と comrak での確認、Excel の実機での確認とその手順
 - テストのコマンドと、変更するときの決まりは [AGENTS.md](AGENTS.md)

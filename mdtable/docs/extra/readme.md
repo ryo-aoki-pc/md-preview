@@ -1,6 +1,6 @@
 # mdtable のロールバック
 
-[手順書（AlmaLinux 10）](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-を導入更新する)・[手順書（Windows 11）](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-を導入更新する)・[検証記録](../verification/readme.md)・[参考資料](../reference/readme.md)
+[手順書（AlmaLinux 10）](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/almalinux-setup.md#mdtable-を導入更新する)・[手順書（Windows 11）](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#mdtable-を導入更新する)・[検証記録](https://github.com/ryo-aoki-pc/setup-notes-verification/blob/main/repos/md-table-excel/docs/verification/readme.md)・[参考資料](../reference/readme.md)
 
 - setup-notes の「mdtable を導入・更新する」で入れたものを消す。消すのは、起動コマンド・専用の仮想環境・clone の 3 つ
 - Python・git と、`~/.local/bin` を PATH に足した設定は、ほかのコマンドも使うので残す

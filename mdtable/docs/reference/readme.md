@@ -1,6 +1,6 @@
 # 設計と変換の規則
 
-[README](../../README.md) / [ロールバック](../extra/readme.md) / [検証記録](../verification/readme.md)
+[README](../../README.md) / [ロールバック](../extra/readme.md) / [検証記録](https://github.com/ryo-aoki-pc/setup-notes-verification/blob/main/repos/md-table-excel/docs/verification/readme.md)
 
 ## 全体の流れ
 
@@ -11,7 +11,7 @@
 
 ## comrak に合わせた理由
 
-GitLab は Markdown を comrak で解析します。表の検出や「HTML ブロックの中のどこが Markdown か」を自前で決めると、GitLab と違う所を表として読んだり、書き戻した表が GitLab で崩れたりします。そこで comrak の `src/parser/mod.rs`・`table.rs`・`scanners.re` の規則をそのまま Python に移しました。手元の文書 217 本で、葉のブロックの種類・行・祖先と表の行が comrak の構文木と一致することを確かめています（[検証記録](../verification/readme.md)）。
+GitLab は Markdown を comrak で解析します。表の検出や「HTML ブロックの中のどこが Markdown か」を自前で決めると、GitLab と違う所を表として読んだり、書き戻した表が GitLab で崩れたりします。そこで comrak の `src/parser/mod.rs`・`table.rs`・`scanners.re` の規則をそのまま Python に移しました。手元の文書 217 本で、葉のブロックの種類・行・祖先と表の行が comrak の構文木と一致することを確かめています（[検証記録](https://github.com/ryo-aoki-pc/setup-notes-verification/blob/main/repos/md-table-excel/docs/verification/readme.md)）。
 
 comrak の主な規則:
 
@@ -76,7 +76,7 @@ comrak の主な規則:
 
 ## 制限
 
-- Excel 実機（Windows の Excel 2021）では、開く・入力・行の挿入・シート名の変更・結合の解除・保存・`edit` を COM で確かめました。キー入力に固有の動き（オートコレクトなど）と、Excel for the web・Excel for Mac・LibreOffice は未検証です（[検証記録](../verification/readme.md)）
+- Excel 実機（Windows の Excel 2021）では、開く・入力・行の挿入・シート名の変更・結合の解除・保存・`edit` を COM で確かめました。キー入力に固有の動き（オートコレクトなど）と、Excel for the web・Excel for Mac・LibreOffice は未検証です（[検証記録](https://github.com/ryo-aoki-pc/setup-notes-verification/blob/main/repos/md-table-excel/docs/verification/readme.md)）
 - セルの一部だけの書式や色は書き戻しません
 - HTML の表で、中身も変えたセルの属性（`align` 以外）は、表を作り直したときに引き継げません（警告を出します）
 - 文字の `_x000D_` はセルに書けません（Excel が改行に変えるため）
