@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = await readFile(new URL("../src/sticky-table.js", import.meta.url), "utf8");
 const context = { module: { exports: {} } };
 vm.runInNewContext(source, context, { filename: "src/sticky-table.js" });
-const { buildGrid, frozenRegion, rebuildBorders } = context.module.exports;
+const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary } = context.module.exports;
 const th = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: true });
 const td = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: false });
 const many = (count, make = td) => Array.from({ length: count }, () => make());
@@ -489,4 +489,139 @@ test("罫線を付け直す計算は格子と元の罫線を書き換えない",
   assert.equal(JSON.stringify({ grid, borders }), before);
   rebuilt[0].right.width = 99;
   assert.equal(JSON.stringify({ grid, borders }), before);
+});
+
+// 境目は全体を固定しない範囲で選び、結合セルを分けない。
+test("表 A の行の境目は見出しと本文の rowspan をまたがない", () => {
+  const model = buildGrid(samples.A());
+  const boundaries = plain(usableRowBoundaries(model));
+  assert.ok(boundaries.includes(0));
+  assert.ok(boundaries.includes(2));
+  assert.ok(!boundaries.includes(1));
+  assert.ok(!boundaries.includes(3));
+  assert.equal(stepBoundary(boundaries, 2, 1), 8);
+  assert.ok(!boundaries.includes(model.rowCount));
+  for (const boundary of boundaries) {
+    assert.ok(!model.cells.some((cell) => cell.row < boundary && boundary < cell.row + cell.rowspan));
+  }
+});
+
+test("表 C の列の境目は固定する見出しの結合だけを避ける", () => {
+  const model = buildGrid(samples.C());
+  const withHeaders = plain(usableColBoundaries(model, 2));
+  assert.ok(withHeaders.includes(0));
+  assert.ok(withHeaders.includes(2));
+  assert.ok(!withHeaders.includes(1));
+  assert.ok(!withHeaders.includes(model.colCount));
+  assert.deepEqual(plain(usableColBoundaries(model, 0)), Array.from({ length: model.colCount }, (_, index) => index));
+});
+
+test("本文の colspan は使える列の境目を狭めない", () => {
+  const model = buildGrid(body([many(4, th), [td(1, 4)], many(4)]));
+  assert.deepEqual(plain(usableColBoundaries(model, 1)), [0, 1, 2, 3]);
+  assert.deepEqual(plain(usableColBoundaries(model, 2)), [0]);
+});
+
+test("rowspan=0 の中間の行は境目に使わず、次のまとまりを使う", () => {
+  const model = buildGrid([
+    group("tbody", [[td(0), td()], [td()], [td()]]),
+    group("tbody", [many(2), many(2)]),
+  ]);
+  assert.deepEqual(plain(usableRowBoundaries(model)), [0, 3, 4]);
+});
+
+test("空の表と 1 マスの表では全行や全列の境目を作らない", () => {
+  const empty = buildGrid([]);
+  assert.deepEqual(plain(usableRowBoundaries(empty)), []);
+  assert.deepEqual(plain(usableColBoundaries(empty, 0)), []);
+  const single = buildGrid(body([[td()]]));
+  assert.deepEqual(plain(usableRowBoundaries(single)), [0]);
+  assert.deepEqual(plain(usableColBoundaries(single, 0)), [0]);
+});
+
+test("境目の増減は最も近い使える数へ進み、端なら進めない", () => {
+  const boundaries = [0, 2, 5];
+  assert.equal(stepBoundary(boundaries, 0, 1), 2);
+  assert.equal(stepBoundary(boundaries, 2, 1), 5);
+  assert.equal(stepBoundary(boundaries, 5, 1), null);
+  assert.equal(stepBoundary(boundaries, 5, -1), 2);
+  assert.equal(stepBoundary(boundaries, 2, -1), 0);
+  assert.equal(stepBoundary(boundaries, 0, -1), null);
+  assert.equal(stepBoundary(boundaries, 3, 1), 5);
+  assert.equal(stepBoundary(boundaries, 3, -1), 2);
+  assert.equal(stepBoundary([], 0, 1), null);
+  assert.equal(stepBoundary([], 0, -1), null);
+});
+
+test("使える境目とその増減の計算は入力を書き換えない", () => {
+  const model = buildGrid(samples.C());
+  const modelBefore = JSON.stringify(model);
+  const boundaries = usableRowBoundaries(model);
+  usableColBoundaries(model, 2);
+  const boundariesBefore = JSON.stringify(boundaries);
+  stepBoundary(boundaries, 2, 1);
+  stepBoundary(boundaries, 2, -1);
+  assert.equal(JSON.stringify(model), modelBefore);
+  assert.equal(JSON.stringify(boundaries), boundariesBefore);
+});
+
+// 行数を選び直したときは、その行数で自動の列数を計算し直す。
+test("表 C は行を 0 と 2 のどちらにしても行の見出しを 2 列残す", () => {
+  const model = buildGrid(samples.C());
+  const automatic = frozenRegion(model);
+  assert.deepEqual(plain(frozenRegion(model, null)), plain(automatic));
+  for (const rows of [0, 2]) {
+    const region = frozenRegion(model, rows);
+    assert.deepEqual(dimensions(region), [rows, 2]);
+    assert.equal(region.headerCols, 2);
+    assert.equal(region.roles[0].top, rows === 2);
+    assert.equal(region.roles[0].left, true);
+  }
+});
+
+test("選んだ行数より後の行だけで行の見出しの列数を数え直す", () => {
+  const model = buildGrid(body([
+    many(4, th),
+    [th(), td(), td(), td()],
+    [th(), th(), td(), td()],
+    [th(), th(), td(), td()],
+  ]));
+  const automatic = frozenRegion(model);
+  assert.deepEqual(dimensions(automatic), [1, 1]);
+  assert.equal(automatic.headerCols, 1);
+  const zero = frozenRegion(model, 0);
+  assert.deepEqual(dimensions(zero), [0, 1]);
+  assert.equal(zero.headerCols, 1);
+  const two = frozenRegion(model, 2);
+  assert.deepEqual(dimensions(two), [2, 2]);
+  assert.equal(two.headerCols, 2);
+});
+
+test("選んだ行数に入れた colspan だけが自動の列数を広げる", () => {
+  const model = buildGrid(body([
+    many(5, th),
+    [th(1, 3), td(), td()],
+    [th(), td(), td(), td(), td()],
+    [th(), td(), td(), td(), td()],
+  ]));
+  const one = frozenRegion(model, 1);
+  assert.deepEqual(dimensions(one), [1, 1]);
+  assert.equal(one.headerCols, 1);
+  assert.deepEqual(plain(one.roles[5]), { top: false, left: false, cross: true });
+  const two = frozenRegion(model, 2);
+  assert.deepEqual(dimensions(two), [2, 3]);
+  assert.equal(two.headerCols, 1);
+  assert.deepEqual(plain(two.roles[5]), { top: true, left: true, cross: false });
+  assert.deepEqual(dimensions(frozenRegion(model, 0)), [0, 1]);
+  assert.deepEqual(plain(frozenRegion(model, null)), plain(frozenRegion(model)));
+});
+
+test("行数を指定する範囲の計算も格子を書き換えない", () => {
+  const model = buildGrid(samples.C());
+  const before = JSON.stringify(model);
+  const regions = [frozenRegion(model), frozenRegion(model, null), frozenRegion(model, 0), frozenRegion(model, 2)];
+  assert.equal(JSON.stringify(model), before);
+  regions[2].roles[0].left = false;
+  assert.equal(JSON.stringify(model), before);
+  assert.equal(regions[3].roles[0].left, true);
 });

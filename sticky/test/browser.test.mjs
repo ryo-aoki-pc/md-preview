@@ -181,6 +181,17 @@ async function createPage(directory, version) {
       section.id = "workaround";
       section.append(original);
       document.body.append(section);
+      const originalC = Array.from(document.querySelectorAll(".file-content table")).filter(table => table.parentElement.closest("table, .md")?.matches(".file-content"))[2].cloneNode(true);
+      const headC = originalC.tHead;
+      const bodyC = document.createElement("tbody");
+      bodyC.append(...Array.from(headC.rows));
+      originalC.insertBefore(bodyC, originalC.tBodies[0]);
+      headC.remove();
+      const sectionC = document.createElement("div");
+      sectionC.className = "md";
+      sectionC.id = "workaround-c";
+      sectionC.append(originalC);
+      document.body.append(sectionC);
     }
   `;
   const finish = `
@@ -191,6 +202,30 @@ async function createPage(directory, version) {
     }
     window.__workaroundTable = document.querySelector("#workaround table");
     if (window.__workaroundTable) window.__workaroundTable.style.minWidth = "1800px";
+    window.__workaroundC = document.querySelector("#workaround-c table");
+    if (window.__workaroundC) window.__workaroundC.style.minWidth = "1800px";
+    // 固定する行を増やすと、自動の列が 1 から 2 へ広がる表を用意する。
+    const autoColumnsSection = document.createElement("div");
+    autoColumnsSection.className = "md";
+    autoColumnsSection.id = "auto-columns-case";
+    const autoColumnsTable = document.createElement("table");
+    autoColumnsTable.style.minWidth = "1800px";
+    const autoColumnsBody = autoColumnsTable.createTBody();
+    for (let r = 0; r < 22; r++) {
+      const row = autoColumnsBody.insertRow();
+      for (let c = 0; c < 3; c++) {
+        if (r === 1 && c === 1) continue;
+        const cell = document.createElement(r === 0 || c === 0 ? "th" : "td");
+        if (r === 1 && c === 0) cell.colSpan = 2;
+        cell.textContent = r === 1 && c === 0 ? "結合した行見出し" : "自動列の値 " + r + "-" + c;
+        if (c === 2) cell.style.minWidth = "1400px";
+        else if (cell.colSpan === 1) cell.style.minWidth = "100px";
+        row.append(cell);
+      }
+    }
+    autoColumnsSection.append(autoColumnsTable);
+    document.body.append(autoColumnsSection);
+    window.__autoColumnsTable = autoColumnsTable;
     window.__beforeHtml = Array.from(document.querySelectorAll(".md"), md => md.innerHTML);
     window.__nestedBefore = window.__fixtureTables.G.querySelector("table").outerHTML;
     window.__smallBefore = { text: window.__fixtureTables.F.textContent, rows: window.__fixtureTables.F.rows.length };
@@ -543,6 +578,7 @@ async function checkContinuousMutations(cdp) {
 
 async function checkDynamic(cdp, bookmarklet) {
   await cdp.evaluate(bookmarklet);
+  assert.equal(await cdp.evaluate("Array.from(window.__mdTableSticky.records.values()).every(record => record.override.rows === null && record.override.cols === null)"), true, "解除して再実行すると選んだ数を覚えず自動から始める");
   await cdp.evaluate(`(() => {
     const table = document.createElement("table");
     table.style.minWidth = "1800px";
@@ -615,6 +651,7 @@ async function checkDynamic(cdp, bookmarklet) {
   await cdp.evaluate(`(() => {
     const table = window.__dynamicTable;
     window.__dynamicOwnWrapper = table.parentElement;
+    window.__dynamicBar = window.__mdTableSticky.records.get(table).bar.element;
     const outer = document.createElement("div");
     outer.className = "gl-table-shadow-overlay gl-my-5";
     const scroll = document.createElement("div");
@@ -627,14 +664,230 @@ async function checkDynamic(cdp, bookmarklet) {
   })()`);
   await waitFor(cdp, "!window.__dynamicOwnWrapper.isConnected && window.__dynamicTable.parentElement.hasAttribute('data-sticky-header')", "後からできた GitLab の包みへ移れない");
   assert.equal(await cdp.evaluate("window.__mdTableSticky.records.get(window.__dynamicTable).wrapper === null"), true, "自作の包みの記録も外す");
+  assert.equal(await cdp.evaluate("window.__dynamicGitLabWrapper.previousElementSibling === window.__dynamicBar"), true, "GitLab の包みへ移した後も帯を外の前へ移す");
+  await cdp.evaluate(`(() => {
+    const record = window.__mdTableSticky.records.get(window.__dynamicTable);
+    record.bar.element.querySelector('[data-md-table-sticky-action="cols-minus"]').click();
+  })()`);
+  assert.equal(await cdp.evaluate("window.__mdTableSticky.records.get(window.__dynamicTable).override.cols"), 0, "手動の数を選んだ表を対象外にする");
+  await cdp.evaluate(`(() => {
+    const table = window.__dynamicTable;
+    table.setAttribute("data-table-fields", "");
+    const marker = document.createTextNode(" ");
+    table.append(marker);
+    window.__dynamicMarker = marker;
+  })()`);
+  await waitFor(cdp, "!window.__mdTableSticky.records.has(window.__dynamicTable)", "対象外になった表の記録を外す");
+  assert.equal(await cdp.evaluate("window.__dynamicBar.isConnected"), false, "対象外になった表の帯も消す");
+  await cdp.evaluate("window.__dynamicTable.removeAttribute('data-table-fields'); window.__dynamicMarker.remove()");
+  await waitFor(cdp, "!!window.__mdTableSticky.records.get(window.__dynamicTable)?.bar", "再び対象になった表へ帯を戻す");
+  assert.equal(await cdp.evaluate("(() => { const selected = window.__mdTableSticky.records.get(window.__dynamicTable).override; return selected.rows === null && selected.cols === null; })()"), true, "新しく処理する表は自動から始める");
+  await cdp.evaluate("window.__dynamicBar = window.__mdTableSticky.records.get(window.__dynamicTable).bar.element");
   await cdp.evaluate("window.__dynamicTable.remove(); window.__dynamicGitLabWrapper.remove()");
   await waitFor(cdp, "!window.__mdTableSticky.records.has(window.__dynamicTable)", "切り離した表の記録が残る");
+  assert.equal(await cdp.evaluate("window.__dynamicBar.isConnected"), false, "切り離した表の帯も消す");
   await cdp.evaluate(bookmarklet);
   assert.deepEqual(
     await cdp.evaluate("Array.from(document.querySelectorAll('.md'), md => md.innerHTML)"),
     await cdp.evaluate("window.__beforeHtml"),
     "動的な処理の後も元の Markdown の DOM へ戻す",
   );
+}
+
+// 帯の操作は実際のボタンを押し、当てた値とスクロール中の位置を確かめる。
+async function exerciseControls(version) {
+  const checks = [];
+  const check = (pass, message) => checks.push({ pass: !!pass, message });
+  const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const waitLayout = async predicate => {
+    const started = performance.now();
+    while (!predicate() && performance.now() - started < 1500) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    return predicate();
+  };
+  const state = window.__mdTableSticky;
+  const barOf = record => record.bar?.element || null;
+  const action = (record, name) => barOf(record).querySelector('[data-md-table-sticky-action="' + name + '"]');
+  const count = (record, name) => barOf(record).querySelector('[data-md-table-sticky-count="' + name + '"]').textContent;
+  const records = Array.from(state.records.values());
+  const bars = Array.from(document.querySelectorAll('[data-md-table-sticky-bar]'));
+  const expected = records.filter(record => !record.skipped && (record.region.rows || record.region.cols));
+  check(bars.length === expected.length, '固定の対象になる表ごとに帯を 1 つ置く');
+  for (const record of records) {
+    const bar = barOf(record);
+    const needed = expected.includes(record);
+    check(!!bar === needed, '固定の対象かどうかで帯の有無を決める: ' + record.table.rows[0]?.textContent.trim());
+    if (!bar) continue;
+    const scroll = record.table.parentElement;
+    const anchor = record.wrapper || scroll.closest('.gl-table-shadow-overlay') || scroll;
+    check(bar.nextElementSibling === anchor && bar.parentElement === anchor.parentElement && !scroll.contains(bar), '帯をスクロールの範囲の外のすぐ前に置く');
+    check(bars.filter(candidate => candidate === bar).length === 1, '同じ表の帯を重ねない');
+    check(bar.textContent.includes('固定') && bar.textContent.includes('行') && bar.textContent.includes('列'), '帯に固定する向きを表示する');
+    for (const button of bar.querySelectorAll('button')) {
+      check(button.type === 'button' && !!button.getAttribute('aria-label') && button.title === button.getAttribute('aria-label'), 'ボタンに種類と日本語の説明を付ける');
+    }
+  }
+  const inspect = record => {
+    const rows = record.layout?.rows || 0;
+    const cols = record.layout?.cols || 0;
+    const rowBoundaries = [];
+    const colBoundaries = [];
+    for (let k = 0; k < record.model.rowCount; k++) {
+      if (!record.model.cells.some(cell => cell.row < k && k < cell.row + cell.rowspan)) rowBoundaries.push(k);
+    }
+    for (let k = 0; k < record.model.colCount; k++) {
+      if (!record.model.cells.some(cell => cell.row < rows && cell.col < k && k < cell.col + cell.colspan)) colBoundaries.push(k);
+    }
+    for (const [axis, value, boundaries] of [['rows', rows, rowBoundaries], ['cols', cols, colBoundaries]]) {
+      const automatic = record.override[axis] === null;
+      check(count(record, axis) === String(value) + (automatic ? '（自動）' : ''), '数の表示を実際に当てた数と自動の状態に合わせる: ' + axis);
+      check(action(record, axis + '-minus').disabled === !boundaries.some(k => k < value), '減らすボタンの端を実際の数に合わせる: ' + axis);
+      check(action(record, axis + '-plus').disabled === !boundaries.some(k => k > value), '増やすボタンの端を実際の数に合わせる: ' + axis);
+    }
+    check(action(record, 'auto').disabled === (record.override.rows === null && record.override.cols === null), '自動のときだけ自動ボタンを押せなくする');
+  };
+  for (const record of expected) inspect(record);
+  const tableA = version === '19.5' ? window.__workaroundTable : window.__fixtureTables.A;
+  const a = state.records.get(tableA);
+  const barA = barOf(a);
+  const scrollA = tableA.parentElement;
+  scrollA.scrollIntoView({ block: 'start', inline: 'nearest' });
+  scrollA.scrollTop = 0;
+  scrollA.scrollLeft = 0;
+  await frame();
+  const beforeBar = barA.getBoundingClientRect();
+  const cacheA = a.borderCache;
+  check(a.layout.rows === 2 && count(a, 'rows') === '2（自動）', '表 A は自動の 2 行から始める');
+  action(a, 'rows-plus').click();
+  await frame();
+  // 本文の「東」は 6 行を結合しているので、2 の次に使える境目は 8 になる。
+  check(a.layout.rows === 8 && a.override.rows === 8, '表 A の行を増やすと rowspan をまたぐ 3〜7 を飛ばして 8 にする');
+  inspect(a);
+  scrollA.scrollTop = 200;
+  scrollA.scrollLeft = 300;
+  await frame();
+  const third = Array.from(tableA.rows[2].cells).find(cell => cell.rowSpan === 1);
+  const thirdIndex = Array.from(tableA.rows).flatMap(row => Array.from(row.cells)).indexOf(third);
+  const thirdRect = third.getBoundingClientRect();
+  const scrollRect = scrollA.getBoundingClientRect();
+  check(a.layout.roles[thirdIndex].top && getComputedStyle(third).position === 'sticky' && Math.abs(thirdRect.top - scrollRect.top - scrollA.clientTop - a.layout.rowOffsets[2]) <= 1, '行を増やすと 3 行目のセルも上に固定する');
+  const afterBar = barA.getBoundingClientRect();
+  check(Math.abs(afterBar.top - beforeBar.top) <= 1 && Math.abs(afterBar.left - beforeBar.left) <= 1, '表を縦横にスクロールしても帯は動かない');
+  action(a, 'auto').click();
+  await frame();
+  check(a.layout.rows === 2 && a.override.rows === null && a.override.cols === null, '自動を押すと表 A の 2 行へ戻す');
+  action(a, 'rows-minus').click();
+  await frame();
+  check(a.layout.rows === 0 && a.override.rows === 0, '表 A の行を減らすと境目 1 を飛ばして 0 にする');
+  inspect(a);
+  const second = tableA.rows[1].cells[0];
+  scrollA.scrollTop = 0;
+  await frame();
+  const secondTop = second.getBoundingClientRect().top;
+  scrollA.scrollTop = 200;
+  await frame();
+  check(!a.layout.roles.some(role => role.top) && getComputedStyle(second).position !== 'sticky' && Math.abs(second.getBoundingClientRect().top - secondTop + 200) <= 1, '行 0 を選ぶと 2 行目の見出しは本文と一緒に動く');
+  action(a, 'auto').click();
+  await frame();
+  check(a.layout.rows === 2 && a.borderCache === cacheA, '自動に戻しても罫線の計算は使い回す');
+  inspect(a);
+  const tableC = version === '19.5' ? window.__workaroundC : window.__fixtureTables.C;
+  const c = state.records.get(tableC);
+  check(c.layout.rows === 2 && c.layout.cols === 2, '表 C は結合した角に合わせて 2 行 2 列から始める');
+  action(c, 'cols-minus').click();
+  await frame();
+  check(c.layout.cols === 0 && c.override.cols === 0 && !c.layout.roles.some(role => role.left), '表 C の列を減らすと境目 1 を飛ばして 0 にし、左の固定を外す');
+  inspect(c);
+  action(c, 'rows-minus').click();
+  action(c, 'cols-plus').click();
+  await frame();
+  check(c.layout.rows === 0 && c.layout.cols === 1, '行を固定しないときは表 C の列 1 の境目も選べる');
+  action(c, 'rows-plus').click();
+  await frame();
+  check(c.layout.rows === 2 && c.override.cols === 0 && c.layout.cols === 0, '行を増やして列の境目が使えなくなったら選んだ数以下へ戻す');
+  inspect(c);
+  action(c, 'auto').click();
+  await frame();
+  check(c.layout.cols === 2, '自動を押すと表 C の 2 列へ戻す');
+  inspect(c);
+  const autoColumns = state.records.get(window.__autoColumnsTable);
+  check(autoColumns.layout.rows === 1 && autoColumns.layout.cols === 1 && autoColumns.override.cols === null, '自動列の標本は 1 行 1 列から始める');
+  action(autoColumns, 'rows-plus').click();
+  await frame();
+  const merged = window.__autoColumnsTable.rows[1].cells[0];
+  check(autoColumns.layout.rows === 2 && autoColumns.layout.cols === 2 && autoColumns.override.cols === null, '行を手動で増やすと結合セルに合わせて自動の列を 2 へ広げる');
+  check(getComputedStyle(merged).position === 'sticky' && merged.style.left === '0px', '新しく固定した結合セルを左にも固定する');
+  inspect(autoColumns);
+  action(autoColumns, 'rows-minus').click();
+  await frame();
+  check(autoColumns.layout.rows === 1 && autoColumns.layout.cols === 1 && autoColumns.override.cols === null, '行を減らすと自動の列も 1 へ戻す');
+  inspect(autoColumns);
+  action(autoColumns, 'rows-plus').click();
+  await frame();
+  action(autoColumns, 'cols-minus').click();
+  await frame();
+  check(autoColumns.layout.rows === 2 && autoColumns.layout.cols === 0 && autoColumns.override.cols === 0 && !autoColumns.layout.roles.some(role => role.left), '広がった自動の列を減らすと使えない境目 1 を飛ばして 0 にする');
+  inspect(autoColumns);
+  action(autoColumns, 'auto').click();
+  await frame();
+  check(autoColumns.layout.rows === 1 && autoColumns.layout.cols === 1 && autoColumns.override.rows === null && autoColumns.override.cols === null, '自動列の標本も自動へ戻す');
+  inspect(autoColumns);
+  const f = state.records.get(window.__fixtureTables.F);
+  check(f.layout.cols === 0 && f.layout.colOffsets[1] > f.scroll.clientWidth / 2, '小さい表 F は半分の上限で列を外す');
+  check(!!barOf(f), '行を固定する表 F にも帯を出す');
+  action(f, 'cols-plus').click();
+  await frame();
+  check(f.layout.cols === 1 && f.override.cols === 1 && f.layout.roles.some(role => role.left), '利用者が選んだ列の数を半分の上限より優先する');
+  inspect(f);
+  action(f, 'rows-minus').click();
+  action(f, 'cols-minus').click();
+  await frame();
+  check(f.layout.rows === 0 && f.layout.cols === 0 && !!barOf(f)?.isConnected, '行列とも 0 を選んでも帯を残す');
+  check(getComputedStyle(f.table).borderCollapse === 'collapse', '行列とも 0 を選んだ表の罫線を元に戻す');
+  inspect(f);
+  action(f, 'auto').click();
+  await frame();
+  inspect(f);
+  const originalSmallScrollStyle = f.scroll.getAttribute('style');
+  try {
+    f.scroll.style.setProperty('max-height', '30px', 'important');
+    check(await waitLayout(() => f.layout?.rows === 0 && f.layout?.cols === 0), '小さい表の高さを狭めると両方向の自動固定を外す');
+    const keptBar = !!barOf(f)?.isConnected;
+    check(keptBar, '両方向とも上限で 0 になっても帯を残す');
+    check(f.override.rows === null && f.override.cols === null, '両方向とも上限で外した表も自動の状態を保つ');
+    if (keptBar) {
+      inspect(f);
+      check(!action(f, 'rows-plus').disabled && !action(f, 'cols-plus').disabled, '両方向とも自動で 0 の帯から数を増やせる');
+      action(f, 'rows-plus').click();
+      action(f, 'cols-plus').click();
+      await frame();
+      check(f.layout.rows === 1 && f.layout.cols === 1 && f.override.rows === 1 && f.override.cols === 1, '両方向の + で半分の上限より選んだ数を優先して固定し直す');
+      check(f.layout.roles.some(role => role.top && role.left) && getComputedStyle(f.table).borderCollapse === 'separate', '両方向を選び直すと角の固定と罫線の付け直しを戻す');
+      inspect(f);
+    }
+  } finally {
+    if (barOf(f) && (f.override.rows !== null || f.override.cols !== null)) action(f, 'auto').click();
+    if (originalSmallScrollStyle === null) {
+      f.scroll.getAttribute('style');
+      f.scroll.removeAttribute('style');
+    } else {
+      f.scroll.setAttribute('style', originalSmallScrollStyle);
+    }
+  }
+  check(await waitLayout(() => f.layout?.rows === 1 && f.layout?.cols === 0), '小さい表の包みを元に戻すと自動の行 1・列 0 へ戻す');
+  inspect(f);
+  const displays = new Map(bars.map(bar => [bar, getComputedStyle(bar).display]));
+  window.dispatchEvent(new Event('beforeprint'));
+  check(bars.every(bar => getComputedStyle(bar).display === 'none'), '印刷の前はすべての帯を隠す');
+  window.dispatchEvent(new Event('afterprint'));
+  check(bars.every(bar => getComputedStyle(bar).display === displays.get(bar)), '印刷の後は帯の表示を戻す');
+  return checks;
+}
+
+async function checkControls(cdp, version) {
+  const checks = await cdp.evaluate('(' + exerciseControls.toString() + ')(' + JSON.stringify(version) + ')');
+  for (const result of checks) assert.equal(result.pass, true, result.message);
 }
 
 function near(actual, expected, message) {
@@ -772,6 +1025,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         assert.ok(visibleDivider.left >= -1 && visibleDivider.left <= 40, "区切りの中身は見えている範囲の左へ残る");
         assert.equal(await cdp.evaluate("window.__fixtureTables.G.querySelector('table').outerHTML === window.__nestedBefore"), true, "入れ子の表には手を加えない");
         assert.equal(await cdp.evaluate("window.__fixtureTables.F.textContent === window.__smallBefore.text && window.__fixtureTables.F.rows.length === window.__smallBefore.rows"), true, "小さい表の中身を保つ");
+        await checkControls(cdp, version);
         assert.equal(await cdp.evaluate("window.__fixtureTables.H.closest('details').open"), false, "details はまだ閉じている");
         await cdp.evaluate("window.__fixtureTables.H.closest('details').open = true");
         let expanded = false;
@@ -788,8 +1042,14 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         for (const cell of hPosition.H.top) near(cell.actual, cell.expected, "H の上の位置");
         for (const cell of hPosition.H.left) near(cell.actual, cell.expected, "H の左の位置");
         await cdp.evaluate("window.__fixtureTables.H.closest('details').removeAttribute('open')");
+        await cdp.evaluate(`(() => {
+          const record = window.__mdTableSticky.records.get(window.__fixtureTables.A);
+          record.bar.element.querySelector('[data-md-table-sticky-action="rows-minus"]').click();
+        })()`);
+        assert.equal(await cdp.evaluate("window.__mdTableSticky.records.get(window.__fixtureTables.A).override.rows"), 0, "手動の数を選んだ状態で解除する");
         await cdp.evaluate(bookmarklet);
         assert.equal(await cdp.evaluate("typeof window.__mdTableSticky"), "undefined", "固定の状態を消す");
+        assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-bar]').length"), 0, "固定を外すと帯も消す");
         const restored = await cdp.evaluate("Array.from(document.querySelectorAll('.md'), md => md.innerHTML)");
         const before = await cdp.evaluate("window.__beforeHtml");
         assert.deepEqual(restored, before, "もう一度押すと Markdown の DOM を元へ戻す");

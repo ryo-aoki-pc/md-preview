@@ -59,30 +59,33 @@
     }));
   }
 
-  function frozenRegion(model) {
+  function frozenRegion(model, selectedRows = null) {
     const { rowCount, colCount, cells, grid } = model;
     if (!rowCount || !colCount || model.overlap) {
       return { rows: 0, cols: 0, headerCols: 0, roles: cellRoles(model, 0, 0) };
     }
-    let leading = 0;
-    for (let r = 0; r < rowCount; r += 1) {
-      const anchors = cells.filter((cell) => cell.row === r);
-      if (!anchors.length || !anchors.every((cell) => cell.header)) break;
-      leading += 1;
-    }
-    const headCount = model.groups.filter((group) => group.kind === "thead").reduce((sum, group) => sum + group.rowCount, 0);
-    let rows = Math.max(1, leading, headCount);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const cell of cells) {
-        if (cell.row < rows && cell.row + cell.rowspan > rows) {
-          rows = cell.row + cell.rowspan;
-          changed = true;
+    let rows = selectedRows;
+    if (rows === null) {
+      let leading = 0;
+      for (let r = 0; r < rowCount; r += 1) {
+        const anchors = cells.filter((cell) => cell.row === r);
+        if (!anchors.length || !anchors.every((cell) => cell.header)) break;
+        leading += 1;
+      }
+      const headCount = model.groups.filter((group) => group.kind === "thead").reduce((sum, group) => sum + group.rowCount, 0);
+      rows = Math.max(1, leading, headCount);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const cell of cells) {
+          if (cell.row < rows && cell.row + cell.rowspan > rows) {
+            rows = cell.row + cell.rowspan;
+            changed = true;
+          }
         }
       }
+      if (rows >= rowCount) rows = 0;
     }
-    if (rows >= rowCount) rows = 0;
     let headerCols = colCount - 1;
     let bodyRows = 0;
     for (let r = rows; r < rowCount; r += 1) {
@@ -99,7 +102,7 @@
     }
     if (!bodyRows) headerCols = 0;
     let cols = Math.max(1, headerCols);
-    changed = true;
+    let changed = true;
     while (changed) {
       changed = false;
       for (const cell of cells) {
@@ -162,8 +165,39 @@
     });
   }
 
+  function usableRowBoundaries(model) {
+    const boundaries = [];
+    for (let k = 0; k < model.rowCount; k += 1) {
+      if (!model.cells.some((cell) => cell.row < k && k < cell.row + cell.rowspan)) boundaries.push(k);
+    }
+    return boundaries;
+  }
+
+  function usableColBoundaries(model, rows) {
+    const boundaries = [];
+    for (let k = 0; k < model.colCount; k += 1) {
+      if (!model.cells.some((cell) => cell.row < rows && cell.col < k && k < cell.col + cell.colspan)) boundaries.push(k);
+    }
+    return boundaries;
+  }
+
+  function stepBoundary(boundaries, current, direction) {
+    if (direction > 0) return boundaries.find((boundary) => boundary > current) ?? null;
+    for (let i = boundaries.length - 1; i >= 0; i -= 1) {
+      if (boundaries[i] < current) return boundaries[i];
+    }
+    return null;
+  }
+
+  function lowerBoundary(boundaries, current) {
+    for (let i = boundaries.length - 1; i >= 0; i -= 1) {
+      if (boundaries[i] <= current) return boundaries[i];
+    }
+    return 0;
+  }
+
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { buildGrid, frozenRegion, rebuildBorders };
+    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary };
   }
   if (typeof document === "undefined") return;
 
@@ -439,6 +473,118 @@
     for (const [element, styles] of desired) applyOne(record, element, styles);
   }
 
+  function removeBar(record) {
+    if (!record.bar) return;
+    record.bar.element.remove();
+    record.bar = null;
+  }
+
+  function barAnchor(record) {
+    if (record.wrapper) return record.wrapper;
+    const parent = record.table.parentElement;
+    if (parent && parent.hasAttribute("data-sticky-header")) {
+      return parent.closest("div.gl-table-shadow-overlay") || parent;
+    }
+    return record.table;
+  }
+
+  function changeCount(record, action) {
+    if (!state.active || !record.table.isConnected) return;
+    write(() => {
+      if (action === "auto") {
+        record.override.rows = null;
+        record.override.cols = null;
+      } else {
+        const axis = action.startsWith("rows-") ? "rows" : "cols";
+        const current = record.layout ? record.layout[axis] : 0;
+        const rows = record.layout ? record.layout.rows : 0;
+        const boundaries = axis === "rows" ? usableRowBoundaries(record.model) : usableColBoundaries(record.model, rows);
+        const next = stepBoundary(boundaries, current, action.endsWith("plus") ? 1 : -1);
+        if (next === null) return;
+        record.override[axis] = next;
+      }
+      refresh(record);
+    });
+  }
+
+  function createBar(record) {
+    const element = document.createElement("div");
+    element.setAttribute("data-md-table-sticky-bar", "");
+    element.setAttribute("role", "group");
+    element.setAttribute("aria-label", "表の固定範囲");
+    setStyles(element, {
+      display: "flex", "align-items": "center", "flex-wrap": "wrap", gap: "8px",
+      width: "fit-content", "max-width": "100%", margin: "4px 0", padding: "2px 6px",
+      "font-size": "12px", "line-height": "1.5", "font-family": "inherit",
+      color: "var(--gl-text-color-subtle, #626168)", background: "var(--gl-background-color-default, #fff)",
+      border: "1px solid var(--gl-border-color-default, #dcdcde)", "border-radius": "4px",
+    });
+    const label = document.createElement("span");
+    label.textContent = "固定";
+    element.appendChild(label);
+    const buttons = {};
+    const counts = {};
+    function button(action, text, description) {
+      const node = document.createElement("button");
+      node.type = "button";
+      node.textContent = text;
+      node.setAttribute("data-md-table-sticky-action", action);
+      node.setAttribute("aria-label", description);
+      node.title = description;
+      setStyles(node, {
+        "font-size": "12px", "font-family": "inherit", "line-height": "1.5", padding: "0 5px",
+        "min-width": "22px", "min-height": "22px", margin: "0", "border-radius": "3px",
+        border: "1px solid var(--gl-border-color-default, #dcdcde)",
+        color: "var(--gl-text-color-default, #333238)", background: "var(--gl-background-color-default, #fff)",
+      });
+      node.addEventListener("click", () => {
+        if (!node.disabled) changeCount(record, action);
+      });
+      buttons[action] = node;
+      return node;
+    }
+    for (const [axis, text] of [["rows", "行"], ["cols", "列"]]) {
+      const group = document.createElement("span");
+      setStyles(group, { display: "inline-flex", "align-items": "center", gap: "4px" });
+      const name = document.createElement("span");
+      name.textContent = text;
+      const count = document.createElement("span");
+      count.setAttribute("data-md-table-sticky-count", axis);
+      counts[axis] = count;
+      group.append(name, button(axis + "-minus", "−", "固定する" + text + "を 1 つ減らす"), count, button(axis + "-plus", "+", "固定する" + text + "を 1 つ増やす"));
+      element.appendChild(group);
+    }
+    element.appendChild(button("auto", "自動", "固定する行と列を自動に戻す"));
+    return { element, buttons, counts };
+  }
+
+  function syncBar(record) {
+    const rows = record.layout ? record.layout.rows : 0;
+    const cols = record.layout ? record.layout.cols : 0;
+    const manual = record.override.rows !== null || record.override.cols !== null;
+    if (record.skipped || (!record.region.rows && !record.region.cols)) {
+      removeBar(record);
+      return;
+    }
+    if (!record.bar) record.bar = createBar(record);
+    const bar = record.bar;
+    const anchor = barAnchor(record);
+    if (bar.element.nextSibling !== anchor) anchor.before(bar.element);
+    const rowBoundaries = usableRowBoundaries(record.model);
+    const colBoundaries = usableColBoundaries(record.model, rows);
+    for (const [axis, value, boundaries] of [["rows", rows, rowBoundaries], ["cols", cols, colBoundaries]]) {
+      const text = String(value) + (record.override[axis] === null ? "（自動）" : "");
+      if (bar.counts[axis].textContent !== text) bar.counts[axis].textContent = text;
+      bar.buttons[axis + "-minus"].disabled = stepBoundary(boundaries, value, -1) === null;
+      bar.buttons[axis + "-plus"].disabled = stepBoundary(boundaries, value, 1) === null;
+    }
+    bar.buttons.auto.disabled = !manual;
+    for (const node of Object.values(bar.buttons)) {
+      setStyles(node, { opacity: node.disabled ? "0.45" : "1", cursor: node.disabled ? "default" : "pointer" });
+    }
+    bar.element.style.setProperty("display", record.printing ? "none" : "flex", "important");
+  }
+
   function nativeOverride(record, cell, element, rows) {
     const base = record.base.get(element);
     if (base && base.nativeTop && (rows || cell.row !== 0)) return { position: "static" };
@@ -447,6 +593,12 @@
 
   function refresh(record) {
     if (!state.active || !record.table.isConnected) return;
+    if (!eligible(record.table)) {
+      cleanup(record);
+      state.records.delete(record.table);
+      state.processed.delete(record.table);
+      return;
+    }
     const parts = tableParts(record.table);
     record.model = parts.model;
     record.region = frozenRegion(parts.model);
@@ -470,11 +622,25 @@
       apply(record, new Map());
       unwrapContainer(record);
       record.layout = null;
+      removeBar(record);
       return;
     }
-    if (!record.region.rows && !record.region.cols) {
+    if (record.override.rows !== null) record.override.rows = lowerBoundary(usableRowBoundaries(parts.model), record.override.rows);
+    let rows = record.override.rows === null ? record.region.rows : record.override.rows;
+    let cols = record.override.cols === null ? frozenRegion(parts.model, rows).cols : record.override.cols;
+    const manual = record.override.rows !== null || record.override.cols !== null;
+    if (!rows && !cols) {
       for (const [cell] of record.inners) unwrapInner(record, cell);
-      unwrapContainer(record);
+      if (manual) {
+        const scroll = scrollContainer(record);
+        if (record.scroll !== scroll) {
+          if (state.resize && record.scroll) state.resize.unobserve(record.scroll);
+          record.scroll = scroll;
+          if (state.resize) state.resize.observe(scroll);
+        }
+      } else {
+        unwrapContainer(record);
+      }
       for (const cell of parts.elements) remember(record, cell);
       const parent = record.table.parentElement;
       if (!sameStructure(record.nativeCache, parts) || record.nativeCache.parent !== parent) {
@@ -482,13 +648,18 @@
         record.nativeCache = { ...structureOf(parts), parent };
       }
       const desired = new Map();
+      if (record.wrapper) {
+        desired.set(record.wrapper, { "max-height": record.printing ? "none" : "70vh", overflow: "auto", width: "fit-content", "max-width": "100%", margin: "16px 0" });
+        desired.set(record.table, { display: "table", margin: "0", overflow: "visible" });
+      }
       parts.model.cells.forEach((cell, index) => {
         const element = parts.elements[index];
         const styles = nativeOverride(record, cell, element, 0);
         if (styles) desired.set(element, styles);
       });
       apply(record, desired);
-      record.layout = null;
+      record.layout = manual ? { rows: 0, cols: 0, roles: cellRoles(parts.model, 0, 0), rowOffsets: [], colOffsets: [], fixedHeight: 0, fixedWidth: 0 } : null;
+      syncBar(record);
       return;
     }
     const scroll = scrollContainer(record);
@@ -509,7 +680,10 @@
       applyOne(record, element, { ...retained, ...styles });
     }
     const visible = record.table.getBoundingClientRect();
-    if (!visible.width || !visible.height) return;
+    if (!visible.width || !visible.height) {
+      if (record.bar) syncBar(record);
+      return;
+    }
     const rebuilt = ensureBorders(record, parts);
     if (scrollChanged && !rebuilt) updateBase(record, parts.elements);
     desired.set(record.table, { ...tableStyles, "border-collapse": "separate", "border-spacing": "0" });
@@ -545,10 +719,14 @@
     } finally {
       parts.elements.forEach((cell, index) => restoreStyle(cell, saved[index]));
     }
-    let rows = record.region.rows;
-    let cols = record.region.cols;
-    if (rows && rowOffsets[rows] > scroll.clientHeight / 2) rows = 0;
-    if (cols && colOffsets[cols] > scroll.clientWidth / 2) cols = 0;
+    if (record.override.rows === null && rows && rowOffsets[rows] > scroll.clientHeight / 2) rows = 0;
+    if (record.override.cols === null) {
+      cols = frozenRegion(parts.model, rows).cols;
+    } else {
+      cols = lowerBoundary(usableColBoundaries(parts.model, rows), record.override.cols);
+      record.override.cols = cols;
+    }
+    if (record.override.cols === null && cols && colOffsets[cols] > scroll.clientWidth / 2) cols = 0;
     const roles = cellRoles(parts.model, rows, cols);
     const fixedHeight = rows ? rowOffsets[rows] : 0;
     const fixedWidth = cols ? colOffsets[cols] : 0;
@@ -564,6 +742,7 @@
       if (record.wrapper) desired.set(record.table, tableStyles);
       else desired.delete(record.table);
       apply(record, desired);
+      syncBar(record);
       return;
     }
     const background = "var(--gl-background-color-default, " + ancestorBackground(scroll) + ")";
@@ -613,9 +792,11 @@
       }
     });
     apply(record, desired);
+    syncBar(record);
   }
 
   function cleanup(record) {
+    removeBar(record);
     if (state.resize) {
       state.resize.unobserve(record.table);
       if (record.scroll) state.resize.unobserve(record.scroll);
@@ -652,7 +833,7 @@
         if (!state.processed.has(table)) {
           const record = {
             table, wrapper: null, scroll: null, originals: new Map(), applied: new Map(),
-            inners: new Map(), base: new Map(), borderCache: null, nativeCache: null, printing: false, skipped: false,
+            inners: new Map(), base: new Map(), borderCache: null, nativeCache: null, override: { rows: null, cols: null }, bar: null, printing: false, skipped: false,
           };
           state.records.set(table, record);
           state.processed.add(table);
@@ -679,6 +860,7 @@
     write(() => {
       for (const record of state.records.values()) {
         record.printing = printing;
+        if (record.bar) record.bar.element.style.setProperty("display", printing ? "none" : "flex", "important");
         if (!record.wrapper) continue;
         const styles = { "max-height": printing ? "none" : "70vh", overflow: "auto", width: "fit-content", "max-width": "100%", margin: "16px 0" };
         setStyles(record.wrapper, styles);
@@ -692,8 +874,9 @@
   state.observer = new MutationObserver(scheduleScan);
   if (typeof ResizeObserver !== "undefined") {
     state.resize = new ResizeObserver((entries) => {
+      const targets = new Set(entries.map((entry) => entry.target));
       for (const record of state.records.values()) {
-        if (entries.some((entry) => entry.target === record.table || entry.target === record.scroll)) requestRefresh(record);
+        if (targets.has(record.table) || targets.has(record.scroll)) requestRefresh(record);
       }
     });
   }
@@ -711,7 +894,9 @@
       window.clearTimeout(state.notification.timer);
       state.notification.element.remove();
     }
-    for (const record of state.records.values()) cleanup(record);
+    write(() => {
+      for (const record of state.records.values()) cleanup(record);
+    });
     state.records.clear();
     state.pending.clear();
     state.dirty.clear();

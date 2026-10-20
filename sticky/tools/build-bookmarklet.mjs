@@ -49,6 +49,7 @@ export function generateArtifacts(source) {
     '<textarea id="url" readonly spellcheck="false">' + escaped + "</textarea>",
     "<h2>使い方</h2>",
     "<p>GitLab の Markdown の表があるページで、登録したブックマークを押します。もう一度押すと元に戻ります。ページを読み込み直したら押し直してください。</p>",
+    "<p>表の上の帯の「−」「+」で、固定する行・列の数を変えられます。「自動」で両方を自動の数へ戻せます。</p>",
     "<p>対象は GitLab 19.5 以降、Chrome・Edge です。詳しい決まりと制限は README を見てください。</p>",
     "<script>",
     'document.getElementById("copy").addEventListener("click", async () => {',
