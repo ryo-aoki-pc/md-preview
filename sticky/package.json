@@ -1,0 +1,14 @@
+{
+  "name": "md-table-sticky",
+  "version": "0.1.0",
+  "description": "GitLab の Markdown の表で、先頭行・先頭列を固定してスクロールできるようにするブックマークレット。",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "build": "node tools/build-bookmarklet.mjs"
+  }
+}
