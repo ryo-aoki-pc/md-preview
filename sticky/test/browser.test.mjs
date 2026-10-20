@@ -159,7 +159,7 @@ async function launch(browser, directory) {
   throw new Error("DevToolsActivePort が作られなかった。 " + stderr.trim().slice(-800));
 }
 
-async function createPage(directory, version) {
+async function createPage(directory, version, mimicTables = true) {
   const [css, sample, mimic] = await Promise.all([
     readFile(path.join(fixtures, "gitlab.css"), "utf8"),
     readFile(path.join(fixtures, "sample.gitlab.html"), "utf8"),
@@ -198,8 +198,11 @@ async function createPage(directory, version) {
     const md = document.querySelector(".file-content");
     window.__fixtureTables = Object.fromEntries(Array.from(md.querySelectorAll("table")).filter(table => table.parentElement.closest("table, .md") === md).map((table, index) => [String.fromCharCode(65 + index), table]));
     for (const [name, table] of Object.entries(window.__fixtureTables)) {
-      if (name !== "F") table.style.minWidth = "1800px";
+      if (!["F", "J", "K"].includes(name)) table.style.minWidth = "1800px";
     }
+    // 描き直す前の API の HTML で、元の nowrap の指定も確かめる。
+    const nowrapTable = window.__fixtureTables.K;
+    window.__kInitialWrap = nowrapTable ? Array.from(nowrapTable.rows[0].cells, (_, col) => !Array.from(nowrapTable.rows).every(row => getComputedStyle(row.cells[col]).whiteSpace === "nowrap")) : null;
     window.__workaroundTable = document.querySelector("#workaround table");
     if (window.__workaroundTable) window.__workaroundTable.style.minWidth = "1800px";
     window.__workaroundC = document.querySelector("#workaround-c table");
@@ -226,14 +229,42 @@ async function createPage(directory, version) {
     autoColumnsSection.append(autoColumnsTable);
     document.body.append(autoColumnsSection);
     window.__autoColumnsTable = autoColumnsTable;
+    // 全行・全列になる小さい表でも、折り返しと全幅の操作を出す。
+    const noFreezeSection = document.createElement("div");
+    noFreezeSection.className = "md";
+    noFreezeSection.id = "no-freeze-case";
+    const noFreezeTable = document.createElement("table");
+    noFreezeTable.createTBody().insertRow().insertCell().textContent = "固定しない表の内容";
+    noFreezeSection.append(noFreezeTable);
+    document.body.append(noFreezeSection);
+    window.__noFreezeTable = noFreezeTable;
+    // 先頭の空の tr は、測る基準のセルが無いので対象から外す。
+    const emptyFirstRowSection = document.createElement("div");
+    emptyFirstRowSection.className = "md";
+    emptyFirstRowSection.id = "empty-first-row-case";
+    const emptyFirstRowTable = document.createElement("table");
+    const emptyFirstRowBody = emptyFirstRowTable.createTBody();
+    emptyFirstRowBody.insertRow();
+    const emptyFirstRowHeader = emptyFirstRowBody.insertRow();
+    for (const text of ["見出し", "値"]) {
+      const cell = document.createElement("th");
+      cell.textContent = text;
+      emptyFirstRowHeader.append(cell);
+    }
+    const emptyFirstRowData = emptyFirstRowBody.insertRow();
+    emptyFirstRowData.insertCell().textContent = "空の先頭行の後の内容";
+    emptyFirstRowData.insertCell().textContent = "測る基準の無い表";
+    emptyFirstRowSection.append(emptyFirstRowTable);
+    document.body.append(emptyFirstRowSection);
+    window.__emptyFirstRowTable = emptyFirstRowTable;
     window.__beforeHtml = Array.from(document.querySelectorAll(".md"), md => md.innerHTML);
     window.__nestedBefore = window.__fixtureTables.G.querySelector("table").outerHTML;
-    window.__smallBefore = { text: window.__fixtureTables.F.textContent, rows: window.__fixtureTables.F.rows.length };
+    window.__smallBefore = { text: window.__fixtureTables.F.textContent, rows: window.__fixtureTables.F.rows.length, width: window.__fixtureTables.F.getBoundingClientRect().width };
     window.__detailsBefore = window.__fixtureTables.H.closest("details").getAttribute("open");
     window.__fixtureReady = true;
   `;
-  const html = "<!doctype html>\n<html lang=\"ja\"><meta charset=\"utf-8\"><title>表の固定の試験</title><style>" + css + "</style><div class=\"file-content js-markup-content md\">" + sample + "</div><script>" + prepare + "</script><script>" + mimic + "</script><script>" + finish + "</script></html>\n";
-  const filename = path.join(directory, "fixture-" + version + ".html");
+  const html = "<!doctype html>\n<html lang=\"ja\"><meta charset=\"utf-8\"><title>表の固定の試験</title><style>" + css + "</style><div class=\"file-content js-markup-content md\">" + sample + "</div><script>" + prepare + "</script><script>" + (mimicTables ? mimic : "") + "</script><script>" + finish + "</script></html>\n";
+  const filename = path.join(directory, "fixture-" + version + (mimicTables ? "" : "-raw") + ".html");
   await writeFile(filename, html, "utf8");
   return pathToFileURL(filename).href;
 }
@@ -511,12 +542,18 @@ async function checkNativeFallbacks(cdp) {
     const unfrozen = await cdp.evaluate(`(() => {
       const table = window.__unfrozenNativeTable;
       const record = window.__mdTableSticky.records.get(table);
-      return { rows: record.region.rows, cols: record.region.cols, borders: record.borderCache, header: getComputedStyle(table.tHead.rows[0].cells[0]).position, bodies: Array.from(table.tBodies, body => getComputedStyle(body.rows[0].cells[0]).position), collapse: getComputedStyle(table).borderCollapse };
+      return { rows: record.region.rows, cols: record.region.cols, hasBorders: !!record.borderCache, header: getComputedStyle(table.tHead.rows[0].cells[0]).position, bodies: Array.from(table.tBodies, body => getComputedStyle(body.rows[0].cells[0]).position), collapse: getComputedStyle(table).borderCollapse };
     })()`);
-    assert.deepEqual(unfrozen, { rows: 0, cols: 0, borders: null, header: "sticky", bodies: ["static", "static"], collapse: "collapse" }, "全行・全列になる表は罫線を付け直さず、行 0 以外の固定を外す");
+    assert.deepEqual(unfrozen, { rows: 0, cols: 0, hasBorders: true, header: "sticky", bodies: ["static", "static"], collapse: "collapse" }, "全行・全列になる表は罫線を付け直さず、行 0 以外の固定を外す");
   } finally {
-    await cdp.evaluate("window.__unfrozenNativeWrapper.remove()");
+    await cdp.evaluate(`(() => {
+      const bar = window.__mdTableSticky.records.get(window.__unfrozenNativeTable)?.bar?.element;
+      window.__unfrozenNativeBar = bar;
+      window.__unfrozenNativeColumns = bar?.nextElementSibling;
+      window.__unfrozenNativeWrapper.remove();
+    })()`);
   }
+  await waitFor(cdp, "!window.__mdTableSticky.records.has(window.__unfrozenNativeTable) && !window.__unfrozenNativeBar?.isConnected && !window.__unfrozenNativeColumns?.isConnected", "切り離した表の記録・帯・列のチェックボックスが消えない");
 }
 
 async function waitFor(cdp, expression, message) {
@@ -664,7 +701,7 @@ async function checkDynamic(cdp, bookmarklet) {
   })()`);
   await waitFor(cdp, "!window.__dynamicOwnWrapper.isConnected && window.__dynamicTable.parentElement.hasAttribute('data-sticky-header')", "後からできた GitLab の包みへ移れない");
   assert.equal(await cdp.evaluate("window.__mdTableSticky.records.get(window.__dynamicTable).wrapper === null"), true, "自作の包みの記録も外す");
-  assert.equal(await cdp.evaluate("window.__dynamicGitLabWrapper.previousElementSibling === window.__dynamicBar"), true, "GitLab の包みへ移した後も帯を外の前へ移す");
+  assert.equal(await cdp.evaluate("window.__dynamicGitLabWrapper.previousElementSibling?.hasAttribute('data-md-table-sticky-columns') && window.__dynamicGitLabWrapper.previousElementSibling.previousElementSibling === window.__dynamicBar"), true, "GitLab の包みへ移した後も帯を外の前へ移す");
   await cdp.evaluate(`(() => {
     const record = window.__mdTableSticky.records.get(window.__dynamicTable);
     record.bar.element.querySelector('[data-md-table-sticky-action="cols-minus"]').click();
@@ -712,18 +749,20 @@ async function exerciseControls(version) {
   const count = (record, name) => barOf(record).querySelector('[data-md-table-sticky-count="' + name + '"]').textContent;
   const records = Array.from(state.records.values());
   const bars = Array.from(document.querySelectorAll('[data-md-table-sticky-bar]'));
-  const expected = records.filter(record => !record.skipped && (record.region.rows || record.region.cols));
-  check(bars.length === expected.length, '固定の対象になる表ごとに帯を 1 つ置く');
+  const expected = records.filter(record => !record.skipped && record.model.cells.length);
+  check(bars.length === expected.length, 'セルがある対象の表ごとに帯を 1 つ置く');
   for (const record of records) {
     const bar = barOf(record);
     const needed = expected.includes(record);
-    check(!!bar === needed, '固定の対象かどうかで帯の有無を決める: ' + record.table.rows[0]?.textContent.trim());
+    check(!!bar === needed, '対象の表かどうかで帯の有無を決める: ' + record.table.rows[0]?.textContent.trim());
     if (!bar) continue;
     const scroll = record.table.parentElement;
     const anchor = record.wrapper || scroll.closest('.gl-table-shadow-overlay') || scroll;
-    check(bar.nextElementSibling === anchor && bar.parentElement === anchor.parentElement && !scroll.contains(bar), '帯をスクロールの範囲の外のすぐ前に置く');
+    const columns = bar.nextElementSibling;
+    check(columns?.hasAttribute('data-md-table-sticky-columns') && columns.nextElementSibling === anchor && bar.parentElement === anchor.parentElement && !scroll.contains(bar) && !scroll.contains(columns), '帯と列のチェックボックスをスクロールの範囲の外のすぐ前に置く');
     check(bars.filter(candidate => candidate === bar).length === 1, '同じ表の帯を重ねない');
-    check(bar.textContent.includes('固定') && bar.textContent.includes('行') && bar.textContent.includes('列'), '帯に固定する向きを表示する');
+    if (record.region.rows || record.region.cols) check(bar.textContent.includes('固定') && bar.textContent.includes('行') && bar.textContent.includes('列'), '帯に固定する向きを表示する');
+    else check(['rows-minus', 'rows-plus', 'cols-minus', 'cols-plus', 'auto'].every(name => action(record, name).getClientRects().length === 0), '固定しない表では固定する向きと操作を隠す');
     for (const button of bar.querySelectorAll('button')) {
       check(button.type === 'button' && !!button.getAttribute('aria-label') && button.title === button.getAttribute('aria-label'), 'ボタンに種類と日本語の説明を付ける');
     }
@@ -890,6 +929,305 @@ async function checkControls(cdp, version) {
   for (const result of checks) assert.equal(result.pass, true, result.message);
 }
 
+
+// 折り返しと全幅の操作を DOM と計算値で確かめる。
+async function exerciseDisplayControls() {
+  const checks = [];
+  const check = (pass, message) => checks.push({ pass: !!pass, message });
+  const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const state = window.__mdTableSticky;
+  const barOf = record => record.bar.element;
+  const columnsOf = record => barOf(record).nextElementSibling;
+  const action = (record, name) => barOf(record).querySelector('[data-md-table-sticky-action="' + name + '"]');
+  const inputsOf = record => Array.from(columnsOf(record).querySelectorAll('input[data-md-table-sticky-column]'));
+  const elementsOf = record => Array.from(record.table.rows).flatMap(row => Array.from(row.cells));
+  const records = Array.from(state.records.values()).filter(record => !record.skipped && record.model.cells.length);
+  for (const record of records) {
+    const columns = columnsOf(record);
+    const inputs = inputsOf(record);
+    check(columns.hasAttribute('data-md-table-sticky-columns') && inputs.length === record.model.colCount, '対象の表に列の数だけ折り返しのチェックボックスを置く');
+    check(inputs.every((input, col) => input.type === 'checkbox' && Number(input.dataset.mdTableStickyColumn) === col && !input.classList.contains('task-list-item-checkbox') && input.getAttribute('aria-label') === input.title && input.title.startsWith('列 ' + (col + 1))), '列のチェックボックスに番号と日本語の説明を付け、GitLab のタスクのクラスは付けない');
+    if (!record.table.checkVisibility()) {
+      check(!columns.checkVisibility(), '閉じた details の中では列のチェックボックスを隠す');
+      continue;
+    }
+    const elements = elementsOf(record);
+    const previousScroll = record.scroll.scrollLeft;
+    for (const distance of [0, 200]) {
+      record.scroll.scrollLeft = distance;
+      await frame();
+      check(Math.abs(columns.scrollLeft - record.scroll.scrollLeft) <= 1, '列のチェックボックスの横スクロール量を表に合わせる');
+      for (let col = 0; col < record.model.colCount; col++) {
+        const index = record.model.cells.findIndex(cell => cell.col === col && cell.colspan === 1);
+        if (index < 0) continue;
+        const label = inputs[col].closest('label');
+        const rect = label.getBoundingClientRect();
+        const cell = elements[index].getBoundingClientRect();
+        check(Math.abs(rect.left - cell.left) <= 1, '横スクロール ' + distance + 'px で列 ' + (col + 1) + ' のラベルとセルの左端をそろえる');
+        const text = label.querySelector('span');
+        check((getComputedStyle(text).display !== 'none') === (rect.width >= 64), '列の幅が 64px 以上のときだけ折り返すの文字を出す');
+        if (col < (record.layout?.cols || 0)) check(getComputedStyle(label).position === 'sticky', '固定した列のラベルも左へ固定する');
+      }
+    }
+    if (record.scroll.scrollWidth - record.scroll.clientWidth >= 200) check(record.scroll.scrollLeft === 200, '横に広い表では 200px の位置まで動かして列の位置を調べる');
+    record.scroll.scrollLeft = previousScroll;
+  }
+  await frame();
+  const a = state.records.get(window.__workaroundTable || window.__fixtureTables.A);
+  const aInputs = inputsOf(a);
+  check(aInputs[2].title === '列 3（2025 年 / 1 月）を折り返す' && aInputs[2].getAttribute('aria-label') === aInputs[2].title, '複数行の結合した見出しから列の説明を作る');
+  const aElements = elementsOf(a);
+  const col = 2;
+  const cellIndex = a.model.cells.findIndex(cell => cell.col === col && cell.colspan === 1);
+  const cell = aElements[cellIndex];
+  const originalWrap = aInputs[col].checked;
+  if (inputsOf(a)[col].checked) inputsOf(a)[col].click();
+  await frame();
+  check(getComputedStyle(cell).whiteSpace === 'nowrap', '列のチェックを外すとセルを折り返さない');
+  inputsOf(a)[col].click();
+  await frame();
+  check(getComputedStyle(cell).whiteSpace !== 'nowrap' && getComputedStyle(cell).overflowWrap === 'anywhere', '列のチェックを戻すと長い単語も折り返す');
+  const mergedIndex = a.model.cells.findIndex(item => item.colspan > 1);
+  action(a, 'nowrap-all').click();
+  await frame();
+  check(inputsOf(a).every(input => !input.checked) && aElements.every(element => getComputedStyle(element).whiteSpace === 'nowrap'), 'すべて折り返さないで結合セルも含めて nowrap にする');
+  inputsOf(a)[a.model.cells[mergedIndex].col].click();
+  await frame();
+  check(getComputedStyle(aElements[mergedIndex]).whiteSpace !== 'nowrap', '結合セルが覆う列の一つを折り返すと結合セルも折り返す');
+  action(a, 'wrap-all').click();
+  await frame();
+  check(inputsOf(a).every(input => input.checked) && aElements.every(element => getComputedStyle(element).whiteSpace !== 'nowrap'), 'すべて折り返すで列と結合セルを折り返す');
+  if (!originalWrap) inputsOf(a)[col].click();
+  const emptyFirstRow = state.records.get(window.__emptyFirstRowTable);
+  check(emptyFirstRow?.skipped === true && emptyFirstRow.model.overlap === false && emptyFirstRow.model.grid[0][0] === undefined, 'セルが重ならなくても先頭行が空の表は対象から外す');
+  check(!emptyFirstRow?.bar && !emptyFirstRow?.columns && !document.querySelector('#empty-first-row-case [data-md-table-sticky-bar], #empty-first-row-case [data-md-table-sticky-columns]'), '先頭行が空の表には帯も列のチェックボックスも出さない');
+  const noFreeze = state.records.get(window.__noFreezeTable);
+  check(noFreeze.region.rows === 0 && noFreeze.region.cols === 0 && !!noFreeze.bar && inputsOf(noFreeze).length === 1, '固定しない表にも帯と列のチェックボックスを置く');
+  check(['rows-minus', 'rows-plus', 'cols-minus', 'cols-plus', 'auto'].every(name => action(noFreeze, name).getClientRects().length === 0), '固定しない表は固定の操作だけを隠す');
+  check(['scroll-x', 'wrap-all', 'nowrap-all', 'float'].every(name => action(noFreeze, name).getClientRects().length > 0), '固定しない表でも折り返し・横スクロール・全幅の操作を使える');
+  const j = state.records.get(window.__fixtureTables.J);
+  const k = state.records.get(window.__fixtureTables.K);
+  // mimic が見出しの nowrap を落としても、本文のセルから初めの状態を決める。
+  check(inputsOf(k).map(input => input.checked).join(',') === 'false,false,true', '描き直し後も表 K の先頭 2 列はチェックなし、3 列目はチェックありにする');
+  check(Array.from(k.table.tHead.rows).every(row => Array.from(row.cells).slice(0, 2).every(cell => getComputedStyle(cell).whiteSpace === 'nowrap')), '表 K のチェックなしの先頭 2 列は作り直された見出しにも nowrap を当てる');
+  const scrollX = action(j, 'scroll-x');
+  check(scrollX.type === 'checkbox' && !scrollX.checked && !scrollX.classList.contains('task-list-item-checkbox'), '横スクロールはチェックボックスで既定はなしにする');
+  action(j, 'wrap-all').click();
+  // 実装の測定値を使わず、同じ CSS の複製を max-content で測る。
+  const maxWidths = state.write(() => {
+    const holder = document.createElement('div');
+    holder.className = 'md';
+    holder.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden;width:max-content;max-width:none';
+    const clone = j.table.cloneNode(true);
+    clone.setAttribute('data-table-fields', '');
+    for (const [name, value] of Object.entries({ display: 'table', width: 'max-content', 'min-width': '0', 'max-width': 'none', 'table-layout': 'auto' })) clone.style.setProperty(name, value, 'important');
+    for (const cell of clone.querySelectorAll('th,td')) {
+      for (const name of ['width', 'min-width', 'max-width']) cell.style.removeProperty(name);
+      cell.style.setProperty('white-space', 'normal', 'important');
+      cell.style.setProperty('overflow-wrap', 'normal', 'important');
+    }
+    holder.append(clone);
+    document.body.append(holder);
+    try {
+      return Array.from(clone.tBodies[0].rows[0].cells, cell => cell.getBoundingClientRect().width);
+    } finally {
+      holder.remove();
+    }
+  });
+  const md = document.querySelector('.file-content');
+  const mdStyle = md.getAttribute('style');
+  try {
+    md.style.setProperty('width', '360px', 'important');
+    await new Promise(resolve => setTimeout(resolve, 400));
+    await frame();
+    check(j.scroll.scrollWidth <= j.scroll.clientWidth + 1, '横スクロールなしでは長い URL を含む表 J を枠の幅に収める');
+    scrollX.click();
+    await frame();
+    const cap = parseFloat(getComputedStyle(j.table).fontSize) * 12;
+    const widths = Array.from(j.table.tBodies[0].rows[0].cells, cell => cell.getBoundingClientRect().width);
+    check(widths.every((width, index) => width >= Math.min(maxWidths[index], cap) - 1), '横スクロールありでは折り返す各列を最大の内容の幅と 12em の小さい方より狭くしない');
+    check(j.scroll.scrollWidth > j.scroll.clientWidth + 1, '横スクロールありでは狭い枠を超えた表 J を横にスクロールできる');
+    const reference = j.table.tBodies[0].rows[0].cells[4];
+    check(getComputedStyle(reference).overflowWrap === 'anywhere', '横スクロールありでも表 J の長い参照 URL を途中で折り返す');
+    check(widths[4] <= cap + 1, '枠を超えた横スクロールありの表 J でも参照列の幅を 12em + 1px 以下にする');
+    j.scroll.scrollLeft = 200;
+    await frame();
+    check(j.scroll.scrollLeft > 0, '横スクロールありの表 J が実際に横へ動く');
+    const keptScrollLeft = j.scroll.scrollLeft;
+    inputsOf(j)[3].click();
+    await frame();
+    check(j.scroll.scrollLeft === keptScrollLeft, '横スクロールありで列を折り返さなくしても横の位置を保つ');
+    inputsOf(j)[3].click();
+    await frame();
+    check(j.scroll.scrollLeft === keptScrollLeft, '列を折り返すへ戻して最大の内容の幅を測り直しても横の位置を保つ');
+    action(j, 'rows-minus').click();
+    await frame();
+    check(j.scroll.scrollLeft === keptScrollLeft, '横スクロールありで固定する行を変えても横の位置を保つ');
+    action(j, 'auto').click();
+    await frame();
+    check(j.scroll.scrollLeft === keptScrollLeft, '固定の自動へ戻す測り直しでも横の位置を保つ');
+    scrollX.click();
+    await frame();
+    check(j.scroll.scrollWidth <= j.scroll.clientWidth + 1, '横スクロールをなしへ戻すと表 J を再び枠の幅に収める');
+  } finally {
+    if (scrollX.checked) scrollX.click();
+    if (mdStyle === null) md.removeAttribute('style');
+    else md.setAttribute('style', mdStyle);
+  }
+  await new Promise(resolve => setTimeout(resolve, 400));
+  await frame();
+  const columnDisplays = new Map(records.map(record => [columnsOf(record), getComputedStyle(columnsOf(record)).display]));
+  window.dispatchEvent(new Event('beforeprint'));
+  check(Array.from(columnDisplays.keys()).every(columns => getComputedStyle(columns).display === 'none'), '印刷の前はすべての列のチェックボックスを隠す');
+  window.dispatchEvent(new Event('afterprint'));
+  await frame();
+  check(Array.from(columnDisplays).every(([columns, display]) => getComputedStyle(columns).display === display), '印刷の後は列のチェックボックスの表示を戻す');
+  return checks;
+}
+
+async function exerciseFloating() {
+  const checks = [];
+  const check = (pass, message) => checks.push({ pass: !!pass, message });
+  const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const state = window.__mdTableSticky;
+  const a = state.records.get(window.__fixtureTables.A);
+  const d = state.records.get(window.__fixtureTables.D);
+  const barOf = record => record.bar.element;
+  const action = record => barOf(record).querySelector('[data-md-table-sticky-action="float"]');
+  const anchorOf = record => record.wrapper || record.scroll.closest('.gl-table-shadow-overlay') || record.scroll;
+  barOf(a).scrollIntoView({ block: 'start', inline: 'nearest' });
+  await frame();
+  const bar = barOf(a);
+  const columns = bar.nextElementSibling;
+  const anchor = anchorOf(a);
+  const before = { top: bar.getBoundingClientRect().top, height: anchor.getBoundingClientRect().bottom - bar.getBoundingClientRect().top, scrollY: window.scrollY };
+  const open = async record => { action(record).click(); await frame(); };
+  const closed = () => !document.querySelector('[data-md-table-sticky-float]') && !document.querySelector('[data-md-table-sticky-placeholder]');
+  await open(a);
+  const overlay = document.querySelector('[data-md-table-sticky-float]');
+  const panel = overlay.querySelector('[data-md-table-sticky-float-panel]');
+  const placeholder = document.querySelector('[data-md-table-sticky-placeholder]');
+  const tolerance = window.innerWidth - document.documentElement.clientWidth + 1;
+  check(overlay.parentElement === document.body && overlay.getAttribute('role') === 'dialog' && overlay.getAttribute('aria-modal') === 'true' && overlay.getAttribute('aria-label') === '表を全幅で表示', '全幅の背景を body の直下のモーダルとして置く');
+  check(panel.classList.contains('md') && Math.abs(panel.getBoundingClientRect().width - (window.innerWidth - 16)) <= tolerance && panel.contains(a.table), '表をブラウザーの幅から左右 8px ずつ引いた板へ移す');
+  check(panel.children[0] === bar && panel.children[1] === columns && panel.children[2] === anchor, '全幅の板に帯・列のチェックボックス・表の枠の順で移す');
+  check(Math.abs(placeholder.getBoundingClientRect().top - before.top) <= 2 && Math.abs(placeholder.getBoundingClientRect().height - before.height) <= 2, '元の場所に帯から表の下までと同じ位置と高さの代わりの要素を置く');
+  check(window.scrollY === before.scrollY, '全幅で開いてもページの縦スクロール量を変えない');
+  check(action(a).textContent === '閉じる' && action(a).title === '全幅の表示を閉じる（Esc）' && action(a).getAttribute('aria-label') === action(a).title && document.activeElement === action(a), '全幅の閉じるボタンへフォーカスを置く');
+  const floatedInputs = Array.from(columns.querySelectorAll('input[data-md-table-sticky-column]'));
+  const floatedElements = Array.from(a.table.rows).flatMap(row => Array.from(row.cells));
+  const floatedIndex = a.model.cells.findIndex(cell => cell.col === 2 && cell.colspan === 1);
+  const wasChecked = floatedInputs[2].checked;
+  if (wasChecked) floatedInputs[2].click();
+  await frame();
+  check(getComputedStyle(floatedElements[floatedIndex]).whiteSpace === 'nowrap', '全幅の板の中でも列の折り返しを切り替えられる');
+  if (wasChecked) floatedInputs[2].click();
+  const floatedScrollX = bar.querySelector('[data-md-table-sticky-action="scroll-x"]');
+  floatedScrollX.click();
+  await frame();
+  check(floatedScrollX.checked && a.scrollX, '全幅の板の中でも横スクロールを切り替えられる');
+  a.scroll.scrollTop = 200;
+  a.scroll.scrollLeft = 200;
+  await frame();
+  check(Math.abs(columns.scrollLeft - a.scroll.scrollLeft) <= 1, '全幅の板の中でも表と列のチェックボックスを一緒に横へ動かす');
+  const fixedIndex = a.model.cells.findIndex((cell, index) => a.layout.roles[index].top && a.layout.roles[index].left);
+  const fixedCell = floatedElements[fixedIndex];
+  const scrollRect = a.scroll.getBoundingClientRect();
+  check(fixedIndex >= 0 && getComputedStyle(fixedCell).position === 'sticky' && Math.abs(fixedCell.getBoundingClientRect().top - scrollRect.top - a.scroll.clientTop - a.layout.rowOffsets[a.model.cells[fixedIndex].row]) <= 1, '全幅の板の中でも見出しを上へ固定する');
+  floatedScrollX.click();
+  await frame();
+  let escaped = 0;
+  const receiveEscape = event => { if (event.key === 'Escape') escaped++; };
+  document.addEventListener('keydown', receiveEscape);
+  const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+  action(a).dispatchEvent(escape);
+  document.removeEventListener('keydown', receiveEscape);
+  await frame();
+  check(escape.defaultPrevented && escaped === 0 && closed(), 'Esc をほかへ伝えず全幅の背景と代わりの要素を消す');
+  check(document.activeElement === action(a) && bar.nextElementSibling === columns && columns.nextElementSibling === anchor, 'Esc で元の位置へ戻し全幅のボタンへフォーカスを戻す');
+  await open(a);
+  document.querySelector('[data-md-table-sticky-float]').click();
+  await frame();
+  check(closed() && document.activeElement === action(a), '背景のクリックでも元へ戻す');
+  await open(a);
+  action(a).click();
+  await frame();
+  check(closed() && document.activeElement === action(a), '閉じるボタンでも元へ戻す');
+  await open(a);
+  await open(d);
+  check(document.querySelectorAll('[data-md-table-sticky-float]').length === 1 && document.querySelectorAll('[data-md-table-sticky-placeholder]').length === 1 && document.querySelector('[data-md-table-sticky-float-panel]').contains(d.table) && !document.querySelector('[data-md-table-sticky-float-panel]').contains(a.table), '別の表を全幅で開くと前の表を戻し一つだけ表示する');
+  window.dispatchEvent(new Event('beforeprint'));
+  check(closed(), '印刷の前は全幅の表示を閉じる');
+  window.dispatchEvent(new Event('afterprint'));
+  await frame();
+  const j = state.records.get(window.__fixtureTables.J);
+  const jWidthBefore = j.table.getBoundingClientRect().width;
+  check(j.scroll.scrollWidth <= j.scroll.clientWidth + 1, 'その場の表 J は横スクロールなしで元の枠に収まる');
+  await open(j);
+  const jPanel = document.querySelector('[data-md-table-sticky-float-panel]');
+  check(jPanel.contains(j.table) && j.table.getBoundingClientRect().width > jWidthBefore + 1, '長い内容の表 J は全幅のボタンを押す前より広く表示する');
+  check(j.scroll.scrollWidth <= j.scroll.clientWidth + 1 && j.table.getBoundingClientRect().width <= j.scroll.clientWidth + 1, '全幅の表 J も板の中の枠に収めて折り返す');
+  action(j).click();
+  await frame();
+  check(closed(), '表 J の全幅の表示を閉じる');
+  const f = state.records.get(window.__fixtureTables.F);
+  const fWidthBefore = f.table.getBoundingClientRect().width;
+  await open(f);
+  check(Math.abs(f.table.getBoundingClientRect().width - fWidthBefore) <= 1, '小さい表 F は全幅の板の中でも表の幅を 1px 以内に保つ');
+  action(f).click();
+  await frame();
+  check(closed(), '小さい表 F の全幅の表示を閉じる');
+  return checks;
+}
+
+async function checkDisplayControls(cdp) {
+  const present = await cdp.evaluate('!!window.__fixtureTables.J && !!window.__fixtureTables.K');
+  assert.equal(present, true, '表 J・K が sample.gitlab.html に必要。Claude Code が tools/render-gitlab.mjs で API の HTML を再生成してからブラウザー試験を実行する');
+  for (const exercise of [exerciseDisplayControls, exerciseFloating]) {
+    const checks = await cdp.evaluate('(' + exercise.toString() + ')()');
+    for (const result of checks) assert.equal(result.pass, true, result.message);
+  }
+}
+
+async function checkOwnedMutationScope(cdp, bookmarklet) {
+  // 自分の帯・列帯・板の追加と削除から、遅れて表を測り直さないことを確かめる。
+  const result = await cdp.evaluate('(async () => {\n' +
+    'const run = ' + JSON.stringify(bookmarklet) + ';\n' +
+    'const tables = { A: window.__fixtureTables.A, D: window.__fixtureTables.D };\n' +
+    'const counts = { A: 0, D: 0 };\n' +
+    'const original = Element.prototype.getBoundingClientRect;\n' +
+    'const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));\n' +
+    'Element.prototype.getBoundingClientRect = function () { for (const [name, table] of Object.entries(tables)) if (this === table || table.contains(this)) counts[name]++; return original.call(this); };\n' +
+    'const delayed = [];\n' +
+    'const settle = async () => { await frame(); counts.A = counts.D = 0; await new Promise(resolve => setTimeout(resolve, 450)); delayed.push({ ...counts }); };\n' +
+    'try {\n' +
+    '(0, eval)(run); (0, eval)(run); await settle();\n' +
+    'const bar = window.__mdTableSticky.records.get(tables.A).bar.element;\n' +
+    'bar.querySelector(\'[data-md-table-sticky-action="nowrap-all"]\').click(); await settle();\n' +
+    'bar.querySelector(\'[data-md-table-sticky-action="wrap-all"]\').click(); await settle();\n' +
+    'bar.querySelector(\'[data-md-table-sticky-action="float"]\').click(); await settle();\n' +
+    'bar.querySelector(\'[data-md-table-sticky-action="float"]\').click(); await settle();\n' +
+    'return delayed;\n' +
+    '} finally { Element.prototype.getBoundingClientRect = original; }\n' +
+    '})()');
+  assert.deepEqual(result, Array.from({ length: 5 }, () => ({ A: 0, D: 0 })), '帯・列帯・板を作る操作の後に見張りが余分な測り直しを走らせない');
+}
+
+
+async function checkRawNowrap(cdp, directory, version, bookmarklet) {
+  const pageUrl = await createPage(directory, version, false);
+  await cdp.send('Page.navigate', { url: pageUrl });
+  await waitFor(cdp, 'location.href === ' + JSON.stringify(pageUrl) + ' && window.__fixtureReady === true', '描き直す前の確かめ用のページが開かない');
+  assert.equal(await cdp.evaluate('!!window.__fixtureTables.J && !!window.__fixtureTables.K'), true, '表 J・K が sample.gitlab.html に必要。Claude Code が tools/render-gitlab.mjs で API の HTML を再生成してからブラウザー試験を実行する');
+  assert.deepEqual(await cdp.evaluate('window.__kInitialWrap'), [false, false, true], 'API の HTML では表 K の先頭 2 列が見出しも本文も nowrap、3 列目は折り返す');
+  await cdp.evaluate(bookmarklet);
+  await cdp.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  const wrap = await cdp.evaluate('(() => { const bar = window.__mdTableSticky.records.get(window.__fixtureTables.K).bar.element; return Array.from(bar.nextElementSibling.querySelectorAll("input[data-md-table-sticky-column]"), input => input.checked); })()');
+  assert.deepEqual(wrap, [false, false, true], 'GitLab の描き直し前の Markdown の nowrap を初めのチェックに生かす');
+  await cdp.evaluate(bookmarklet);
+  assert.deepEqual(await cdp.evaluate('Array.from(document.querySelectorAll(".md"), md => md.innerHTML)'), await cdp.evaluate('window.__beforeHtml'), 'nowrap の初期値を適用して解除した後も API の HTML に戻す');
+}
+
 function near(actual, expected, message) {
   assert.ok(Math.abs(actual - expected) <= 1, message + ": " + actual + " / " + expected);
 }
@@ -907,6 +1245,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
   const directory = await mkdtemp(path.join(root, ".mts-browser-"));
   let child;
   let cdp;
+  let keepVisible;
   try {
     let launched;
     try {
@@ -923,6 +1262,10 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
       assert.ok(target?.webSocketDebuggerUrl, "CDP のページがある");
       cdp = await CDP.connect(target.webSocketDebuggerUrl);
       await cdp.send("Page.enable");
+      // Windows の環境によっては、headless の Edge が開いてから約 20 秒でページを隠し、requestAnimationFrame が止まる。
+      // 1 秒ごとに前面へ出し、隠れても 2 秒以内に戻す。
+      const page = cdp;
+      keepVisible = setInterval(() => { page.send("Page.bringToFront").catch(() => {}); }, 1000);
     } catch (error) {
       await delay(100);
       const diagnostic = launched.diagnostics();
@@ -937,6 +1280,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
     const bookmarklet = decodeURIComponent(url.slice("javascript:".length));
     for (const version of ["master", "19.5"]) {
       await t.test(version + " の表", async () => {
+        await checkRawNowrap(cdp, directory, version, bookmarklet);
         const pageUrl = await createPage(directory, version);
         await cdp.send("Page.navigate", { url: pageUrl });
         let ready = false;
@@ -962,6 +1306,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         await cdp.evaluate(bookmarklet);
         await cdp.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
         assert.equal(await cdp.evaluate("!!window.__mdTableSticky"), true, "固定が始まる");
+        assert.equal(await cdp.evaluate("Math.abs(window.__fixtureTables.F.getBoundingClientRect().width - window.__smallBefore.width) <= 1"), true, "小さい表 F の幅を押す前と 1px 以内に保つ");
         if (version === "master") await checkNativeBodyHeader(cdp);
         const regions = { A: [version === "master" ? 2 : 1, 1], B: [2, 2], C: [version === "master" ? 2 : 1, 2], D: [1, 1], E: [1, 1] };
         if (version === "19.5") regions["回避形"] = [2, 1];
@@ -1026,6 +1371,8 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         assert.equal(await cdp.evaluate("window.__fixtureTables.G.querySelector('table').outerHTML === window.__nestedBefore"), true, "入れ子の表には手を加えない");
         assert.equal(await cdp.evaluate("window.__fixtureTables.F.textContent === window.__smallBefore.text && window.__fixtureTables.F.rows.length === window.__smallBefore.rows"), true, "小さい表の中身を保つ");
         await checkControls(cdp, version);
+        await checkDisplayControls(cdp);
+        await checkOwnedMutationScope(cdp, bookmarklet);
         assert.equal(await cdp.evaluate("window.__fixtureTables.H.closest('details').open"), false, "details はまだ閉じている");
         await cdp.evaluate("window.__fixtureTables.H.closest('details').open = true");
         let expanded = false;
@@ -1047,7 +1394,10 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
           record.bar.element.querySelector('[data-md-table-sticky-action="rows-minus"]').click();
         })()`);
         assert.equal(await cdp.evaluate("window.__mdTableSticky.records.get(window.__fixtureTables.A).override.rows"), 0, "手動の数を選んだ状態で解除する");
+        await cdp.evaluate('window.__mdTableSticky.records.get(window.__fixtureTables.A).bar.element.querySelector(\'[data-md-table-sticky-action="float"]\').click()');
+        assert.equal(await cdp.evaluate("!!document.querySelector('[data-md-table-sticky-float]')"), true, "全幅の表示を開いたまま解除する");
         await cdp.evaluate(bookmarklet);
+        assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-float], [data-md-table-sticky-placeholder], [data-md-table-sticky-columns]').length"), 0, "解除すると全幅の背景・代わりの要素・列のチェックボックスを消す");
         assert.equal(await cdp.evaluate("typeof window.__mdTableSticky"), "undefined", "固定の状態を消す");
         assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-bar]').length"), 0, "固定を外すと帯も消す");
         const restored = await cdp.evaluate("Array.from(document.querySelectorAll('.md'), md => md.innerHTML)");
@@ -1057,6 +1407,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
       });
     }
   } finally {
+    clearInterval(keepVisible);
     if (cdp) cdp.close();
     await stopBrowser(child);
     await removeTemporary(directory);

@@ -306,3 +306,34 @@
 <tr><th>行 30</th><td>本文の値 310</td><td>値 321 の説明の文</td><td>値 332 の説明の文</td><td>値 343 の説明の文</td><td>値 354 の説明の文</td><td>値 365 の説明の文</td><td>値 376 の説明の文</td><td>値 387 の説明の文</td><td>値 398 の説明の文</td><td>値 409 の説明の文</td></tr>
 </tbody>
 </table>
+
+## J: 折り返しの確かめ
+
+| 番号 | 日付 | 担当 | 内容 | 参照 | 備考 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 2026-10-21 | 東京本社営業部 | 各地の担当者が集めた架空の調査結果を確認し、次回の会議で使う資料へ順番にまとめる。内容の読みやすさと列の折り返しを確かめる。 | https://example.com/very/long/path/for/checking/table/column/wrapping/without/breaks/reference-1?department=sample&month=2026-10 | 備考には架空の確認事項を記し、表示の幅に合わせて折り返す。 |
+| 2 | 2026-10-22 | 大阪支社企画部 | 各地の担当者が集めた架空の調査結果を確認し、次回の会議で使う資料へ順番にまとめる。内容の読みやすさと列の折り返しを確かめる。 | https://example.com/very/long/path/for/checking/table/column/wrapping/without/breaks/reference-2?department=sample&month=2026-10 | 備考には架空の確認事項を記し、表示の幅に合わせて折り返す。 |
+| 3 | 2026-10-23 | 名古屋支店管理部 | 各地の担当者が集めた架空の調査結果を確認し、次回の会議で使う資料へ順番にまとめる。内容の読みやすさと列の折り返しを確かめる。 | https://example.com/very/long/path/for/checking/table/column/wrapping/without/breaks/reference-3?department=sample&month=2026-10 | 備考には架空の確認事項を記し、表示の幅に合わせて折り返す。 |
+| 4 | 2026-10-24 | 福岡支社業務部 | 各地の担当者が集めた架空の調査結果を確認し、次回の会議で使う資料へ順番にまとめる。内容の読みやすさと列の折り返しを確かめる。 | https://example.com/very/long/path/for/checking/table/column/wrapping/without/breaks/reference-4?department=sample&month=2026-10 | 備考には架空の確認事項を記し、表示の幅に合わせて折り返す。 |
+| 5 | 2026-10-25 | 仙台支社営業部 | 各地の担当者が集めた架空の調査結果を確認し、次回の会議で使う資料へ順番にまとめる。内容の読みやすさと列の折り返しを確かめる。 | https://example.com/very/long/path/for/checking/table/column/wrapping/without/breaks/reference-5?department=sample&month=2026-10 | 備考には架空の確認事項を記し、表示の幅に合わせて折り返す。 |
+| 6 | 2026-10-26 | 札幌支店管理部 | 各地の担当者が集めた架空の調査結果を確認し、次回の会議で使う資料へ順番にまとめる。内容の読みやすさと列の折り返しを確かめる。 | https://example.com/very/long/path/for/checking/table/column/wrapping/without/breaks/reference-6?department=sample&month=2026-10 | 備考には架空の確認事項を記し、表示の幅に合わせて折り返す。 |
+| 7 | 2026-10-27 | 広島支社企画部 | 各地の担当者が集めた架空の調査結果を確認し、次回の会議で使う資料へ順番にまとめる。内容の読みやすさと列の折り返しを確かめる。 | https://example.com/very/long/path/for/checking/table/column/wrapping/without/breaks/reference-7?department=sample&month=2026-10 | 備考には架空の確認事項を記し、表示の幅に合わせて折り返す。 |
+| 8 | 2026-10-28 | 横浜支店業務部 | 各地の担当者が集めた架空の調査結果を確認し、次回の会議で使う資料へ順番にまとめる。内容の読みやすさと列の折り返しを確かめる。 | https://example.com/very/long/path/for/checking/table/column/wrapping/without/breaks/reference-8?department=sample&month=2026-10 | 備考には架空の確認事項を記し、表示の幅に合わせて折り返す。 |
+
+## K: Markdown の nowrap
+
+<table>
+<thead>
+<tr><th nowrap>番号</th><th nowrap>日付</th><th nowrap>内容</th></tr>
+</thead>
+<tbody>
+<tr><td nowrap>1</td><td nowrap>2026-10-21</td><td>番号と日付は折り返さず、内容の列には長い日本語の文を入れる。これは列ごとの初めの状態と、切り替えた後の表示を確かめるための架空の記録である。</td></tr>
+<tr><td nowrap>2</td><td nowrap>2026-10-22</td><td>番号と日付は折り返さず、内容の列には長い日本語の文を入れる。これは列ごとの初めの状態と、切り替えた後の表示を確かめるための架空の記録である。</td></tr>
+<tr><td nowrap>3</td><td nowrap>2026-10-23</td><td>番号と日付は折り返さず、内容の列には長い日本語の文を入れる。これは列ごとの初めの状態と、切り替えた後の表示を確かめるための架空の記録である。</td></tr>
+<tr><td nowrap>4</td><td nowrap>2026-10-24</td><td>番号と日付は折り返さず、内容の列には長い日本語の文を入れる。これは列ごとの初めの状態と、切り替えた後の表示を確かめるための架空の記録である。</td></tr>
+<tr><td nowrap>5</td><td nowrap>2026-10-25</td><td>番号と日付は折り返さず、内容の列には長い日本語の文を入れる。これは列ごとの初めの状態と、切り替えた後の表示を確かめるための架空の記録である。</td></tr>
+<tr><td nowrap>6</td><td nowrap>2026-10-26</td><td>番号と日付は折り返さず、内容の列には長い日本語の文を入れる。これは列ごとの初めの状態と、切り替えた後の表示を確かめるための架空の記録である。</td></tr>
+<tr><td nowrap>7</td><td nowrap>2026-10-27</td><td>番号と日付は折り返さず、内容の列には長い日本語の文を入れる。これは列ごとの初めの状態と、切り替えた後の表示を確かめるための架空の記録である。</td></tr>
+<tr><td nowrap>8</td><td nowrap>2026-10-28</td><td>番号と日付は折り返さず、内容の列には長い日本語の文を入れる。これは列ごとの初めの状態と、切り替えた後の表示を確かめるための架空の記録である。</td></tr>
+</tbody>
+</table>

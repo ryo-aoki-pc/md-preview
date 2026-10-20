@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = await readFile(new URL("../src/sticky-table.js", import.meta.url), "utf8");
 const context = { module: { exports: {} } };
 vm.runInNewContext(source, context, { filename: "src/sticky-table.js" });
-const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary } = context.module.exports;
+const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths } = context.module.exports;
 const th = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: true });
 const td = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: false });
 const many = (count, make = td) => Array.from({ length: count }, () => make());
@@ -624,4 +624,153 @@ test("行数を指定する範囲の計算も格子を書き換えない", () =>
   regions[2].roles[0].left = false;
   assert.equal(JSON.stringify(model), before);
   assert.equal(regions[3].roles[0].left, true);
+});
+
+// 列の見出しは固定する範囲を広げる前の見出しだけで決める。
+test("見出しの行数は thead と先頭から続く th の行数の大きい方", () => {
+  const withHead = buildGrid([
+    group("thead", [many(3), many(3)]),
+    group("tbody", [many(3)]),
+  ]);
+  assert.equal(headerRowCount(withHead), 2);
+  const leading = buildGrid([
+    group("thead", [many(3, th)]),
+    group("tbody", [many(3, th), many(3, th), many(3)]),
+  ]);
+  assert.equal(headerRowCount(leading), 3);
+  assert.equal(headerRowCount(buildGrid([])), 0);
+  assert.equal(headerRowCount(buildGrid(body([many(3), many(3)]))), 0);
+});
+
+test("見出しの行数を rowspan に合わせて広げず、空の行で th の連続を止める", () => {
+  const crossing = buildGrid(body([[th(3), th()], [td()], [td()], many(2)]));
+  assert.equal(headerRowCount(crossing), 1);
+  assert.equal(frozenRegion(crossing).rows, 3);
+  const emptyRow = buildGrid(body([[th(2), th(2)], [], many(2, th), many(2)]));
+  assert.equal(headerRowCount(emptyRow), 1);
+  assert.equal(headerRowCount(buildGrid(body([many(2, th), many(2, th)]))), 2);
+});
+
+test("列の名前は colspan を各列へ広げ、rowspan の同じセルは一度だけ使う", () => {
+  const model = buildGrid([
+    group("thead", [[th(2), th(1, 2)], [th(), th()]]),
+    group("tbody", [many(3)]),
+  ]);
+  const texts = [" 地域 ", "2025 年", "1 月", "2 月", "本文の地域", "本文 1", "本文 2"];
+  assert.deepEqual(plain(columnLabels(model, texts)), ["地域", "2025 年 / 1 月", "2025 年 / 2 月"]);
+});
+
+test("列の名前は空白をまとめ、空の見出しや見出しのない列を空文字にする", () => {
+  const model = buildGrid(body([
+    [th(), th(), th()],
+    [th(), th(), th()],
+    many(4),
+  ]));
+  const texts = ["  東京\n 本社\t ", " \n ", "", "営業　 部", "", "\t", "本文", "本文", "本文", "本文"];
+  assert.deepEqual(plain(columnLabels(model, texts)), ["東京 本社 / 営業 部", "", "", ""]);
+  assert.deepEqual(plain(columnLabels(buildGrid(body([many(2)])), ["本文 1", "本文 2"])), ["", ""]);
+  assert.deepEqual(plain(columnLabels(buildGrid([]), [])), []);
+});
+
+test("列の名前はつないだ文字列が 40 文字を超えたときだけ省略する", () => {
+  const model = buildGrid(body([[th(), th()], [th(), th()], many(2)]));
+  const texts = ["あ".repeat(20), "い".repeat(40), "う".repeat(20), ""];
+  assert.deepEqual(plain(columnLabels(model, texts)), [("あ".repeat(20) + " / " + "う".repeat(20)).slice(0, 40) + "…", "い".repeat(40)]);
+});
+
+test("折り返しの初めの状態は本文の単独の列に始まるセルがすべて nowrap のときだけ外す", () => {
+  const model = buildGrid(body([
+    [th(), th(), th(1, 3)],
+    [td(), td(), td(1, 2), td()],
+  ]));
+  assert.deepEqual(plain(initialWrap(model, [true, true, false, true, false, true, true])), [false, true, true, true, false]);
+  assert.deepEqual(plain(initialWrap(model, [false, false, false, false, false, false, false])), [true, true, true, true, true]);
+  assert.deepEqual(plain(initialWrap(buildGrid([]), [])), []);
+});
+
+test("見出しの nowrap が消えても本文の nowrap を初めの状態に使う", () => {
+  const model = buildGrid([
+    group("thead", [many(3, th)]),
+    group("tbody", [many(3), many(3)]),
+  ]);
+  const wrap = initialWrap(model, [false, false, false, true, true, false, true, true, false]);
+  assert.deepEqual(plain(wrap), [false, false, true]);
+  assert.deepEqual(plain(cellWrapModes(model, wrap).slice(0, 3)), ["nowrap", "nowrap", "wrap"]);
+});
+
+test("本文の単独のセルに nowrap でないものがあれば見出しが nowrap でも折り返す", () => {
+  const model = buildGrid([
+    group("thead", [many(2, th)]),
+    group("tbody", [many(2), many(2)]),
+  ]);
+  assert.deepEqual(plain(initialWrap(model, [true, true, true, false, false, true])), [true, true]);
+});
+
+test("本文に単独のセルがない列だけ全行の単独のセルで初めの状態を決める", () => {
+  const model = buildGrid([
+    group("thead", [many(4, th)]),
+    group("tbody", [[td(), td(1, 3)]]),
+  ]);
+  assert.deepEqual(plain(initialWrap(model, [false, true, true, false, true, false])), [false, false, false, true]);
+});
+
+test("見出しだけの表は全行の単独のセルで初めの状態を決める", () => {
+  const model = buildGrid(body([many(2, th), many(2, th)]));
+  assert.equal(headerRowCount(model), 2);
+  assert.deepEqual(plain(initialWrap(model, [true, false, true, true])), [false, true]);
+});
+
+test("本文まで rowspan が続く見出しも本文に始まる単独のセルより優先しない", () => {
+  const model = buildGrid(body([[th(2), th()], [td()], [td(), td()]]));
+  assert.equal(headerRowCount(model), 1);
+  assert.deepEqual(plain(initialWrap(model, [false, false, true, true, true])), [false, false]);
+});
+
+test("thead の後に続く th だけの行も除いて本文の初めの状態を決める", () => {
+  const model = buildGrid([
+    group("thead", [many(2, th)]),
+    group("tbody", [many(2, th), many(2)]),
+  ]);
+  assert.equal(headerRowCount(model), 2);
+  assert.deepEqual(plain(initialWrap(model, [false, false, false, false, true, true])), [false, false]);
+});
+
+test("rowspan の nowrap は覆う行によらず、そのセルが始まる列の状態に使う", () => {
+  const model = buildGrid(body([[th(3), td()], [td()], [td()]]));
+  assert.deepEqual(plain(initialWrap(model, [true, false, false, false])), [false, true]);
+});
+
+test("結合セルは覆うすべての列が折り返さないときだけ nowrap にする", () => {
+  const model = buildGrid(body([[td(1, 2), td()], [td(), td(), td()]]));
+  assert.deepEqual(plain(cellWrapModes(model, [false, false, true])), ["nowrap", "wrap", "nowrap", "nowrap", "wrap"]);
+  assert.deepEqual(plain(cellWrapModes(model, [false, true, false])), ["wrap", "nowrap", "nowrap", "wrap", "nowrap"]);
+  assert.deepEqual(plain(cellWrapModes(model, [true, true, true])), ["wrap", "wrap", "wrap", "wrap", "wrap"]);
+  assert.deepEqual(plain(cellWrapModes(model, [false, false, false])), ["nowrap", "nowrap", "nowrap", "nowrap", "nowrap"]);
+  assert.deepEqual(plain(cellWrapModes(buildGrid([]), [])), []);
+});
+
+test("列の最小の幅は最大の内容の幅と上限の小さい方にする", () => {
+  assert.deepEqual(plain(columnMinWidths([0, 40, 191.5, 192, 380], 192)), [0, 40, 191.5, 192, 192]);
+  assert.deepEqual(plain(columnMinWidths([20, 40], 0)), [0, 0]);
+  assert.deepEqual(plain(columnMinWidths([], 192)), []);
+});
+
+test("見出しと折り返しの計算は入力を書き換えず、新しい配列を返す", () => {
+  const model = buildGrid(body([[th(2), th()], [th()], many(2)]));
+  const texts = ["地域", "日付", "内容", "東京", "10 月"];
+  const nowrapFlags = [true, false, false, true, false];
+  const wrap = [false, true];
+  const widths = [80, 300];
+  const before = JSON.stringify({ model, texts, nowrapFlags, wrap, widths });
+  headerRowCount(model);
+  const labels = columnLabels(model, texts);
+  const initial = initialWrap(model, nowrapFlags);
+  const modes = cellWrapModes(model, wrap);
+  const minimums = columnMinWidths(widths, 192);
+  assert.equal(JSON.stringify({ model, texts, nowrapFlags, wrap, widths }), before);
+  labels[0] = "変更";
+  initial[0] = true;
+  modes[0] = "変更";
+  minimums[0] = 999;
+  assert.equal(JSON.stringify({ model, texts, nowrapFlags, wrap, widths }), before);
 });

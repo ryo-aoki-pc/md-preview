@@ -4,7 +4,7 @@
 
 利用者への回答・質問・報告は、常に日本語で書く（コードのコメントなどの言語は、このファイルのほかの決まりに従う）。
 
-GitLab の Markdown の表で、先頭行・先頭列を固定してスクロールできるようにする `md-table-sticky` のブックマークレット。使い方は [README.md](README.md)、設計は [docs/reference/design.md](docs/reference/design.md)、検証記録は [非公開側の readme.md](https://github.com/ryo-aoki-pc/setup-notes-verification/blob/main/repos/md-table-sticky/docs/verification/readme.md)。
+GitLab の Markdown の表で、先頭行・先頭列を固定してスクロールし、セルの折り返し・横スクロール・全幅の表示を切り替える `md-table-sticky` のブックマークレット。使い方は [README.md](README.md)、設計は [docs/reference/design.md](docs/reference/design.md)、検証記録は [非公開側の readme.md](https://github.com/ryo-aoki-pc/setup-notes-verification/blob/main/repos/md-table-sticky/docs/verification/readme.md)。
 
 ## 導入手順の正本
 

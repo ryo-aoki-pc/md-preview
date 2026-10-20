@@ -59,6 +59,45 @@
     }));
   }
 
+  function headerRowCount(model) {
+    let leading = 0;
+    for (let r = 0; r < model.rowCount; r += 1) {
+      const anchors = model.cells.filter((cell) => cell.row === r);
+      if (!anchors.length || !anchors.every((cell) => cell.header)) break;
+      leading += 1;
+    }
+    const heads = model.groups.filter((group) => group.kind === "thead").reduce((sum, group) => sum + group.rowCount, 0);
+    return Math.max(leading, heads);
+  }
+
+  function columnLabels(model, texts) {
+    const count = headerRowCount(model);
+    return Array.from({ length: model.colCount }, (_, col) => {
+      const labels = model.cells.filter((cell) => cell.row < count && cell.col <= col && col < cell.col + cell.colspan)
+        .map((cell) => String(texts[model.cells.indexOf(cell)] || "").replace(/\s+/g, " ").trim()).filter(Boolean);
+      const text = labels.join(" / ");
+      return Array.from(text).length > 40 ? Array.from(text).slice(0, 40).join("") + "…" : text;
+    });
+  }
+
+  function initialWrap(model, nowrapFlags) {
+    const headers = headerRowCount(model);
+    return Array.from({ length: model.colCount }, (_, col) => {
+      const candidates = model.cells.map((cell, index) => cell.col === col && cell.colspan === 1 ? index : -1).filter((index) => index >= 0);
+      const body = candidates.filter((index) => model.cells[index].row >= headers);
+      const indices = body.length ? body : candidates;
+      return !indices.length || !indices.every((index) => nowrapFlags[index]);
+    });
+  }
+
+  function cellWrapModes(model, wrap) {
+    return model.cells.map((cell) => wrap.slice(cell.col, cell.col + cell.colspan).every((value) => value === false) ? "nowrap" : "wrap");
+  }
+
+  function columnMinWidths(maxWidths, cap) {
+    return maxWidths.map((width) => Math.min(width, cap));
+  }
+
   function frozenRegion(model, selectedRows = null) {
     const { rowCount, colCount, cells, grid } = model;
     if (!rowCount || !colCount || model.overlap) {
@@ -66,14 +105,7 @@
     }
     let rows = selectedRows;
     if (rows === null) {
-      let leading = 0;
-      for (let r = 0; r < rowCount; r += 1) {
-        const anchors = cells.filter((cell) => cell.row === r);
-        if (!anchors.length || !anchors.every((cell) => cell.header)) break;
-        leading += 1;
-      }
-      const headCount = model.groups.filter((group) => group.kind === "thead").reduce((sum, group) => sum + group.rowCount, 0);
-      rows = Math.max(1, leading, headCount);
+      rows = Math.max(1, headerRowCount(model));
       let changed = true;
       while (changed) {
         changed = false;
@@ -197,7 +229,7 @@
   }
 
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary };
+    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths };
   }
   if (typeof document === "undefined") return;
 
@@ -246,7 +278,7 @@
 
   const state = {
     records: new Map(), processed: new WeakSet(), pending: new Set(), dirty: new Set(), active: true,
-    frame: 0, timer: 0, firstMutationAt: null, observer: null, resize: null, notification: null,
+    frame: 0, timer: 0, firstMutationAt: null, observer: null, resize: null, notification: null, floating: null,
   };
   window.__mdTableSticky = state;
 
@@ -396,7 +428,7 @@
   function readBase(record, cell, style) {
     record.base.set(cell, {
       transparent: transparent(style.backgroundColor),
-      nativeTop: style.position === "sticky" && style.top !== "auto", top: style.top,
+      nativeTop: style.position === "sticky" && style.top !== "auto", top: style.top, nowrap: style.whiteSpace === "nowrap",
     });
   }
 
@@ -494,6 +526,14 @@
       if (action === "auto") {
         record.override.rows = null;
         record.override.cols = null;
+      } else if (action === "float") {
+        if (state.floating && state.floating.record === record) closeFloating();
+        else openFloating(record);
+        return;
+      } else if (action === "wrap-all" || action === "nowrap-all") {
+        record.wrap.fill(action === "wrap-all");
+      } else if (action === "scroll-x") {
+        record.scrollX = record.bar.scrollX.checked;
       } else {
         const axis = action.startsWith("rows-") ? "rows" : "cols";
         const current = record.layout ? record.layout[axis] : 0;
@@ -511,7 +551,7 @@
     const element = document.createElement("div");
     element.setAttribute("data-md-table-sticky-bar", "");
     element.setAttribute("role", "group");
-    element.setAttribute("aria-label", "表の固定範囲");
+    element.setAttribute("aria-label", "表の表示設定");
     setStyles(element, {
       display: "flex", "align-items": "center", "flex-wrap": "wrap", gap: "8px",
       width: "fit-content", "max-width": "100%", margin: "4px 0", padding: "2px 6px",
@@ -519,9 +559,13 @@
       color: "var(--gl-text-color-subtle, #626168)", background: "var(--gl-background-color-default, #fff)",
       border: "1px solid var(--gl-border-color-default, #dcdcde)", "border-radius": "4px",
     });
+    const fixed = document.createElement("span");
+    fixed.setAttribute("data-md-table-sticky-fixed", "");
+    setStyles(fixed, { display: "inline-flex", "align-items": "center", gap: "8px" });
     const label = document.createElement("span");
     label.textContent = "固定";
-    element.appendChild(label);
+    fixed.appendChild(label);
+    element.appendChild(fixed);
     const buttons = {};
     const counts = {};
     function button(action, text, description) {
@@ -552,24 +596,49 @@
       count.setAttribute("data-md-table-sticky-count", axis);
       counts[axis] = count;
       group.append(name, button(axis + "-minus", "−", "固定する" + text + "を 1 つ減らす"), count, button(axis + "-plus", "+", "固定する" + text + "を 1 つ増やす"));
-      element.appendChild(group);
+      fixed.appendChild(group);
     }
-    element.appendChild(button("auto", "自動", "固定する行と列を自動に戻す"));
-    return { element, buttons, counts };
+    fixed.appendChild(button("auto", "自動", "固定する行と列を自動に戻す"));
+    const separator = document.createElement("span");
+    separator.textContent = "|";
+    separator.setAttribute("aria-hidden", "true");
+    element.appendChild(separator);
+    const scrollLabel = document.createElement("label");
+    setStyles(scrollLabel, { display: "inline-flex", "align-items": "center", gap: "4px", margin: "0", "font-weight": "normal" });
+    const scrollX = document.createElement("input");
+    scrollX.type = "checkbox";
+    scrollX.setAttribute("data-md-table-sticky-action", "scroll-x");
+    scrollX.setAttribute("aria-label", "表を横スクロールする");
+    scrollX.title = "表を横スクロールする";
+    setStyles(scrollX, { margin: "0" });
+    scrollX.addEventListener("change", () => changeCount(record, "scroll-x"));
+    scrollLabel.append(scrollX, document.createTextNode("横スクロール"));
+    element.append(scrollLabel, button("wrap-all", "すべて折り返す", "すべての列を折り返す"), button("nowrap-all", "すべて折り返さない", "すべての列を折り返さない"), button("float", "全幅で表示", "表を全幅で表示"));
+    return { element, buttons, counts, fixed, separator, scrollX };
   }
 
   function syncBar(record) {
     const rows = record.layout ? record.layout.rows : 0;
     const cols = record.layout ? record.layout.cols : 0;
     const manual = record.override.rows !== null || record.override.cols !== null;
-    if (record.skipped || (!record.region.rows && !record.region.cols)) {
+    if (record.skipped || !record.model.cells.length) {
       removeBar(record);
       return;
     }
     if (!record.bar) record.bar = createBar(record);
     const bar = record.bar;
     const anchor = barAnchor(record);
-    if (bar.element.nextSibling !== anchor) anchor.before(bar.element);
+    const next = record.columns ? record.columns.element : anchor;
+    if (bar.element.nextSibling !== next) next.before(bar.element);
+    const hasFixed = record.region.rows || record.region.cols;
+    bar.fixed.style.setProperty("display", hasFixed ? "inline-flex" : "none", "important");
+    bar.separator.style.setProperty("display", hasFixed ? "inline" : "none", "important");
+    bar.scrollX.checked = record.scrollX;
+    const floating = state.floating && state.floating.record === record;
+    bar.buttons.float.textContent = floating ? "閉じる" : "全幅で表示";
+    const description = floating ? "全幅の表示を閉じる（Esc）" : "表を全幅で表示";
+    bar.buttons.float.setAttribute("aria-label", description);
+    bar.buttons.float.title = description;
     const rowBoundaries = usableRowBoundaries(record.model);
     const colBoundaries = usableColBoundaries(record.model, rows);
     for (const [axis, value, boundaries] of [["rows", rows, rowBoundaries], ["cols", cols, colBoundaries]]) {
@@ -583,6 +652,213 @@
       setStyles(node, { opacity: node.disabled ? "0.45" : "1", cursor: node.disabled ? "default" : "pointer" });
     }
     bar.element.style.setProperty("display", record.printing ? "none" : "flex", "important");
+    bar.element.style.setProperty("align-self", floating ? "flex-start" : "auto", "important");
+  }
+
+  function setScroll(record, scroll) {
+    if (record.scroll === scroll) return false;
+    if (record.scroll) {
+      if (state.resize) state.resize.unobserve(record.scroll);
+      if (record.onScroll) record.scroll.removeEventListener("scroll", record.onScroll);
+    }
+    record.scroll = scroll;
+    record.onScroll = () => {
+      if (record.columns) record.columns.element.scrollLeft = scroll.scrollLeft;
+    };
+    if (scroll) {
+      scroll.addEventListener("scroll", record.onScroll, { passive: true });
+      if (state.resize) state.resize.observe(scroll);
+    }
+    return true;
+  }
+
+  function removeColumns(record) {
+    if (record.columns) record.columns.element.remove();
+    record.columns = null;
+    setScroll(record, null);
+  }
+
+  function syncColumns(record, parts, measurement) {
+    if (!record.columns || record.columns.inputs.length !== parts.model.colCount) {
+      if (record.columns) record.columns.element.remove();
+      const element = document.createElement("div");
+      element.setAttribute("data-md-table-sticky-columns", "");
+      setStyles(element, { overflow: "hidden", "box-sizing": "border-box", "max-width": "100%", "flex-shrink": "0" });
+      const inner = document.createElement("div");
+      setStyles(inner, { display: "flex", "box-sizing": "content-box", position: "relative", "min-height": "24px" });
+      const inputs = [];
+      const labels = [];
+      const texts = [];
+      for (let col = 0; col < parts.model.colCount; col += 1) {
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        const text = document.createElement("span");
+        input.type = "checkbox";
+        input.setAttribute("data-md-table-sticky-column", String(col));
+        setStyles(input, { margin: "0", "flex-shrink": "0" });
+        text.textContent = "折り返す";
+        label.append(input, text);
+        inner.appendChild(label);
+        labels.push(label);
+        inputs.push(input);
+        texts.push(text);
+        input.addEventListener("change", () => {
+          if (!state.active || !record.table.isConnected) return;
+          write(() => {
+            record.wrap[col] = input.checked;
+            refresh(record);
+          });
+        });
+      }
+      element.appendChild(inner);
+      record.columns = { element, inner, inputs, labels, texts };
+    }
+    const columns = record.columns;
+    const anchor = barAnchor(record);
+    if (columns.element.nextSibling !== anchor) anchor.before(columns.element);
+    if (record.bar && record.bar.element.nextSibling !== columns.element) columns.element.before(record.bar.element);
+    const names = columnLabels(parts.model, parts.elements.map((cell) => cell.textContent));
+    columns.inputs.forEach((input, col) => {
+      const name = "列 " + (col + 1) + (names[col] ? "（" + names[col] + "）を折り返す" : " を折り返す");
+      input.checked = record.wrap[col];
+      input.setAttribute("aria-label", name);
+      input.title = name;
+      columns.labels[col].title = name;
+    });
+    const visible = measurement && !record.printing;
+    columns.element.style.setProperty("display", visible ? "block" : "none", "important");
+    columns.element.style.setProperty("align-self", state.floating && state.floating.record === record ? "flex-start" : "auto", "important");
+    if (!visible) return;
+    columns.element.style.setProperty("width", record.scroll.clientWidth + "px", "important");
+    const left = columns.element.getBoundingClientRect().left;
+    const scrollLeft = record.scroll.getBoundingClientRect().left + record.scroll.clientLeft;
+    const padding = measurement.originLeft + record.scroll.scrollLeft - left;
+    const widths = measurement.widths;
+    setStyles(columns.inner, { width: widths.reduce((sum, width) => sum + width, 0) + "px", "padding-left": Math.max(0, padding) + "px" });
+    columns.labels.forEach((label, col) => {
+      const sticky = record.layout && col < record.layout.cols;
+      setStyles(label, {
+        display: "flex", "align-items": "center", gap: "4px", margin: "0", padding: "2px 0",
+        "font-size": "12px", "font-weight": "normal", "line-height": "20px", "box-sizing": "border-box",
+        flex: "0 0 " + widths[col] + "px", overflow: "hidden", position: sticky ? "sticky" : "relative",
+        left: sticky ? scrollLeft - left + measurement.colOffsets[col] + "px" : "auto",
+        "z-index": sticky ? "1" : "0", background: "var(--gl-background-color-default, " + ancestorBackground(record.scroll) + ")",
+      });
+      columns.texts[col].style.setProperty("display", widths[col] >= 64 ? "inline" : "none", "important");
+    });
+    columns.element.scrollLeft = record.scroll.scrollLeft;
+  }
+
+  function openFloating(record) {
+    if (state.floating) closeFloating();
+    const anchor = barAnchor(record);
+    const barRect = record.bar.element.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const placeholder = document.createElement("div");
+    placeholder.setAttribute("data-md-table-sticky-placeholder", "");
+    placeholder.textContent = "この表は全幅で表示している（Esc で戻す）";
+    setStyles(placeholder, {
+      height: Math.max(0, anchorRect.bottom - barRect.top) + "px", "box-sizing": "border-box",
+      margin: window.getComputedStyle(record.bar.element).marginTop + " 0 " + window.getComputedStyle(anchor).marginBottom,
+      display: "flex", "align-items": "center", "justify-content": "center", "font-size": "12px",
+      border: "1px dashed var(--gl-border-color-default, #dcdcde)",
+    });
+    record.bar.element.before(placeholder);
+    const overlay = document.createElement("div");
+    overlay.setAttribute("data-md-table-sticky-float", "");
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "表を全幅で表示");
+    setStyles(overlay, { position: "fixed", inset: "0", "z-index": "2147483646", background: "rgba(0, 0, 0, 0.4)" });
+    const panel = document.createElement("div");
+    panel.className = "md";
+    panel.setAttribute("data-md-table-sticky-float-panel", "");
+    setStyles(panel, {
+      position: "absolute", left: "8px", right: "8px", top: "8px", width: "auto", "max-width": "none", margin: "0", "max-height": "calc(100vh - 16px)",
+      "box-sizing": "border-box", display: "flex", "flex-direction": "column", padding: "8px", overflow: "hidden",
+      background: "var(--gl-background-color-default, " + ancestorBackground(record.scroll) + ")",
+      color: "var(--gl-text-color-default, #333238)", border: "1px solid var(--gl-border-color-default, #dcdcde)",
+      "border-radius": "6px", "box-shadow": "0 8px 32px rgba(0, 0, 0, 0.3)",
+    });
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    panel.appendChild(record.bar.element);
+    if (record.columns) panel.appendChild(record.columns.element);
+    panel.appendChild(anchor);
+    const keydown = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      write(() => closeFloating());
+    };
+    state.floating = { record, placeholder, overlay, panel, keydown };
+    window.addEventListener("keydown", keydown, true);
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) write(() => closeFloating());
+    });
+    refresh(record);
+    record.bar.buttons.float.focus({ preventScroll: true });
+  }
+
+  function closeFloating(restore = true, remeasure = true) {
+    const floating = state.floating;
+    if (!floating) return;
+    const { record, placeholder, overlay, keydown } = floating;
+    state.floating = null;
+    window.removeEventListener("keydown", keydown, true);
+    if (restore && placeholder.isConnected) {
+      const anchor = barAnchor(record);
+      placeholder.before(record.bar.element);
+      if (record.columns) placeholder.before(record.columns.element);
+      placeholder.before(anchor);
+    }
+    placeholder.remove();
+    overlay.remove();
+    if (restore && record.table.isConnected) {
+      if (remeasure) refresh(record);
+      if (record.bar) record.bar.buttons.float.focus({ preventScroll: true });
+    }
+  }
+
+  function measureLayout(parts) {
+    const saved = parts.elements.map((cell) => cell.getAttribute("style"));
+    try {
+      // 固定を外した同じ配置から、行・列とチェックボックスの位置を測る。
+      for (const cell of parts.elements) cell.style.setProperty("position", "static", "important");
+      const rects = parts.elements.map((cell) => cell.getBoundingClientRect());
+      const origin = rects[parts.model.grid[0][0]];
+      const rowOffsets = parts.rows.map((row) => row.getBoundingClientRect().top - origin.top);
+      const colOffsets = Array(parts.model.colCount).fill(null);
+      parts.model.cells.forEach((cell, index) => {
+        if (colOffsets[cell.col] === null) colOffsets[cell.col] = rects[index].left - origin.left;
+      });
+      for (let col = 0; col < colOffsets.length; col += 1) {
+        if (colOffsets[col] !== null) continue;
+        const index = parts.model.cells.findIndex((cell) => cell.col <= col && col < cell.col + cell.colspan);
+        const cell = parts.model.cells[index];
+        colOffsets[col] = rects[index].left - origin.left + rects[index].width * (col - cell.col) / cell.colspan;
+      }
+      const right = parts.elements[0].closest("table").getBoundingClientRect().right - origin.left;
+      const widths = colOffsets.map((left, col) => (col + 1 < colOffsets.length ? colOffsets[col + 1] : right) - left);
+      const paddings = parts.elements.map((cell) => parseFloat(window.getComputedStyle(cell).paddingLeft) || 0);
+      return { rowOffsets, colOffsets, paddings, widths, originLeft: origin.left };
+    } finally {
+      parts.elements.forEach((cell, index) => restoreStyle(cell, saved[index]));
+    }
+  }
+
+  function measureMaxWidths(record, parts) {
+    const position = { left: record.scroll.scrollLeft, top: record.scroll.scrollTop };
+    const elements = Array.from(new Set([record.table, record.scroll, barAnchor(record)]));
+    const saved = elements.map((element) => element.getAttribute("style"));
+    try {
+      for (const element of elements) setStyles(element, { width: "max-content", "max-width": "none" });
+      return measureLayout(parts).widths;
+    } finally {
+      elements.forEach((element, index) => restoreStyle(element, saved[index]));
+      record.scroll.scrollLeft = position.left;
+      record.scroll.scrollTop = position.top;
+    }
   }
 
   function nativeOverride(record, cell, element, rows) {
@@ -591,7 +867,15 @@
     return null;
   }
 
+  function rememberSizes(record) {
+    for (const element of [record.table, record.scroll]) {
+      const rect = element.getBoundingClientRect();
+      record.sizes.set(element, { width: rect.width, height: rect.height });
+    }
+  }
+
   function refresh(record) {
+    record.sizes.clear();
     if (!state.active || !record.table.isConnected) return;
     if (!eligible(record.table)) {
       cleanup(record);
@@ -602,124 +886,83 @@
     const parts = tableParts(record.table);
     record.model = parts.model;
     record.region = frozenRegion(parts.model);
-    record.skipped = parts.model.overlap;
+    record.skipped = parts.model.overlap || (parts.model.cells.length > 0 && parts.model.grid[0][0] === undefined);
     const currentCells = new Set(parts.elements);
     for (const [cell, inner] of record.inners) {
-      if (!currentCells.has(cell) || inner.parentNode !== cell || cell.childNodes.length !== 1 || cell.firstChild !== inner) {
-        unwrapInner(record, cell);
-      }
+      if (!currentCells.has(cell) || inner.parentNode !== cell || cell.childNodes.length !== 1 || cell.firstChild !== inner) unwrapInner(record, cell);
     }
     const currentInners = new Set(record.inners.values());
+    const anchorBefore = barAnchor(record);
     for (const element of record.originals.keys()) {
-      if (element === record.table || element === record.wrapper || currentCells.has(element) || currentInners.has(element)) continue;
+      if (element === record.table || element === record.wrapper || element === record.scroll || element === anchorBefore || currentCells.has(element) || currentInners.has(element)) continue;
       restoreStyle(element, record.originals.get(element));
       record.applied.delete(element);
       record.originals.delete(element);
       record.base.delete(element);
     }
-    if (record.skipped || !parts.model.cells.length || parts.model.grid[0][0] === undefined) {
+    if (record.skipped || !parts.model.cells.length) {
+      if (state.floating && state.floating.record === record) closeFloating(state.floating.placeholder.isConnected, false);
       for (const [cell] of record.inners) unwrapInner(record, cell);
       apply(record, new Map());
+      removeColumns(record);
       unwrapContainer(record);
       record.layout = null;
       removeBar(record);
       return;
     }
-    if (record.override.rows !== null) record.override.rows = lowerBoundary(usableRowBoundaries(parts.model), record.override.rows);
-    let rows = record.override.rows === null ? record.region.rows : record.override.rows;
-    let cols = record.override.cols === null ? frozenRegion(parts.model, rows).cols : record.override.cols;
-    const manual = record.override.rows !== null || record.override.cols !== null;
-    if (!rows && !cols) {
-      for (const [cell] of record.inners) unwrapInner(record, cell);
-      if (manual) {
-        const scroll = scrollContainer(record);
-        if (record.scroll !== scroll) {
-          if (state.resize && record.scroll) state.resize.unobserve(record.scroll);
-          record.scroll = scroll;
-          if (state.resize) state.resize.observe(scroll);
-        }
-      } else {
-        unwrapContainer(record);
-      }
-      for (const cell of parts.elements) remember(record, cell);
-      const parent = record.table.parentElement;
-      if (!sameStructure(record.nativeCache, parts) || record.nativeCache.parent !== parent) {
-        updateBase(record, parts.elements);
-        record.nativeCache = { ...structureOf(parts), parent };
-      }
-      const desired = new Map();
-      if (record.wrapper) {
-        desired.set(record.wrapper, { "max-height": record.printing ? "none" : "70vh", overflow: "auto", width: "fit-content", "max-width": "100%", margin: "16px 0" });
-        desired.set(record.table, { display: "table", margin: "0", overflow: "visible" });
-      }
-      parts.model.cells.forEach((cell, index) => {
-        const element = parts.elements[index];
-        const styles = nativeOverride(record, cell, element, 0);
-        if (styles) desired.set(element, styles);
-      });
-      apply(record, desired);
-      record.layout = manual ? { rows: 0, cols: 0, roles: cellRoles(parts.model, 0, 0), rowOffsets: [], colOffsets: [], fixedHeight: 0, fixedWidth: 0 } : null;
-      syncBar(record);
-      return;
-    }
     const scroll = scrollContainer(record);
-    const scrollChanged = record.scroll !== scroll;
-    if (scrollChanged) {
-      if (state.resize && record.scroll) state.resize.unobserve(record.scroll);
-      record.scroll = scroll;
-      if (state.resize) state.resize.observe(scroll);
-    }
-    const desired = new Map();
-    const tableStyles = record.wrapper ? { display: "table", margin: "0", overflow: "visible" } : {};
-    if (record.wrapper) {
-      desired.set(record.wrapper, { "max-height": record.printing ? "none" : "70vh", overflow: "auto", width: "fit-content", "max-width": "100%", margin: "16px 0" });
-    }
-    if (record.wrapper) desired.set(record.table, tableStyles);
-    for (const [element, styles] of desired) {
-      const retained = JSON.parse(record.applied.get(element) || "{}");
-      applyOne(record, element, { ...retained, ...styles });
-    }
-    const visible = record.table.getBoundingClientRect();
-    if (!visible.width || !visible.height) {
-      if (record.bar) syncBar(record);
-      return;
-    }
+    const scrollChanged = setScroll(record, scroll);
+    const scrollPosition = { left: scroll.scrollLeft, top: scroll.scrollTop };
     const rebuilt = ensureBorders(record, parts);
     if (scrollChanged && !rebuilt) updateBase(record, parts.elements);
-    desired.set(record.table, { ...tableStyles, "border-collapse": "separate", "border-spacing": "0" });
-    applyOne(record, record.table, desired.get(record.table));
-    parts.elements.forEach((element, index) => {
-      const borders = record.borderCache.styles[index];
-      desired.set(element, { ...borders });
-      const previousStyles = JSON.parse(record.applied.get(element) || "{}");
-      applyOne(record, element, { ...previousStyles, ...borders });
-    });
-    const saved = parts.elements.map((cell) => cell.getAttribute("style"));
-    let rowOffsets;
-    let colOffsets;
-    let paddings;
-    try {
-      // 付け直した罫線のまま、固定だけを外して本来の位置を測る。
-      for (const cell of parts.elements) cell.style.setProperty("position", "static", "important");
-      const rects = parts.elements.map((cell) => cell.getBoundingClientRect());
-      const origin = rects[parts.model.grid[0][0]];
-      rowOffsets = parts.rows.map((row) => row.getBoundingClientRect().top - origin.top);
-      colOffsets = Array(parts.model.colCount).fill(null);
-      parts.model.cells.forEach((cell, index) => {
-        if (colOffsets[cell.col] === null) colOffsets[cell.col] = rects[index].left - origin.left;
-      });
-      // 始まるセルが無い列では、その列を覆うセルの幅から補う。
-      for (let c = 0; c < colOffsets.length; c += 1) {
-        if (colOffsets[c] !== null) continue;
-        const index = parts.model.cells.findIndex((cell) => cell.col <= c && c < cell.col + cell.colspan);
-        const cell = parts.model.cells[index];
-        colOffsets[c] = rects[index].left - origin.left + rects[index].width * (c - cell.col) / cell.colspan;
-      }
-      paddings = parts.elements.map((cell) => parseFloat(window.getComputedStyle(cell).paddingLeft) || 0);
-    } finally {
-      parts.elements.forEach((cell, index) => restoreStyle(cell, saved[index]));
+    if (!record.wrap || record.wrap.length !== parts.model.colCount) {
+      record.wrap = initialWrap(parts.model, parts.elements.map((cell) => record.base.get(cell).nowrap));
     }
+    const floating = state.floating && state.floating.record === record;
+    const desired = new Map();
+    const tableStyles = { display: "table", margin: "0", overflow: "visible" };
+    if (record.scrollX) tableStyles["max-width"] = "none";
+    const scrollStyles = { overflow: "auto" };
+    if (record.wrapper) Object.assign(scrollStyles, { width: "fit-content", "max-width": "100%", "max-height": record.printing ? "none" : "70vh", margin: "16px 0" });
+    if (floating) Object.assign(scrollStyles, { "max-height": "none", "min-height": "0", flex: "0 1 auto", "align-self": "flex-start", margin: "0", "overscroll-behavior": "contain" });
+    desired.set(scroll, scrollStyles);
+    const anchor = barAnchor(record);
+    if (anchor !== scroll && floating) {
+      desired.set(anchor, { display: "flex", "flex-direction": "column", "max-height": "none", "min-height": "0", flex: "0 1 auto", "align-self": "flex-start", margin: "0", "overscroll-behavior": "contain", overflow: "hidden" });
+    }
+    desired.set(record.table, { ...tableStyles, "border-collapse": "separate", "border-spacing": "0" });
+    const modes = cellWrapModes(parts.model, record.wrap);
+    const wrapStyles = modes.map((mode) => mode === "nowrap" ? { "white-space": "nowrap" } : { "white-space": "normal", "overflow-wrap": "anywhere" });
+    parts.elements.forEach((element, index) => desired.set(element, { ...record.borderCache.styles[index], ...wrapStyles[index] }));
+    apply(record, desired);
+    if (record.scrollX) {
+      const maxWidths = measureMaxWidths(record, parts);
+      const cap = (parseFloat(window.getComputedStyle(record.table).fontSize) || 16) * 12;
+      const minimums = columnMinWidths(maxWidths, cap);
+      parts.model.cells.forEach((cell, index) => {
+        if (cell.colspan !== 1 || modes[index] !== "wrap") return;
+        const element = parts.elements[index];
+        const computed = window.getComputedStyle(element);
+        const extras = ["padding-left", "padding-right", "border-left-width", "border-right-width"].reduce((sum, name) => sum + (parseFloat(computed.getPropertyValue(name)) || 0), 0);
+        desired.get(element)["min-width"] = Math.max(0, minimums[cell.col] - (computed.boxSizing === "border-box" ? 0 : extras)) + "px";
+      });
+      apply(record, desired);
+    }
+    scroll.scrollLeft = scrollPosition.left;
+    scroll.scrollTop = scrollPosition.top;
+    const visible = record.table.getBoundingClientRect();
+    if (!visible.width || !visible.height) {
+      record.layout = null;
+      syncBar(record);
+      syncColumns(record, parts, null);
+      return;
+    }
+    let measurement = measureLayout(parts);
+    let { rowOffsets, colOffsets, paddings } = measurement;
+    if (record.override.rows !== null) record.override.rows = lowerBoundary(usableRowBoundaries(parts.model), record.override.rows);
+    let rows = record.override.rows === null ? record.region.rows : record.override.rows;
     if (record.override.rows === null && rows && rowOffsets[rows] > scroll.clientHeight / 2) rows = 0;
+    let cols;
     if (record.override.cols === null) {
       cols = frozenRegion(parts.model, rows).cols;
     } else {
@@ -733,16 +976,22 @@
     record.layout = { rows, cols, rowOffsets, colOffsets, roles, fixedHeight, fixedWidth };
     if (!rows && !cols) {
       for (const [cell] of record.inners) unwrapInner(record, cell);
+      desired.set(record.table, tableStyles);
       parts.model.cells.forEach((cell, index) => {
         const element = parts.elements[index];
-        const styles = nativeOverride(record, cell, element, 0);
-        if (styles) desired.set(element, styles);
-        else desired.delete(element);
+        const minimum = desired.get(element)["min-width"];
+        const styles = { ...wrapStyles[index], ...nativeOverride(record, cell, element, 0) };
+        if (minimum) styles["min-width"] = minimum;
+        desired.set(element, styles);
       });
-      if (record.wrapper) desired.set(record.table, tableStyles);
-      else desired.delete(record.table);
       apply(record, desired);
+      scroll.scrollLeft = scrollPosition.left;
+      scroll.scrollTop = scrollPosition.top;
+      measurement = measureLayout(parts);
+      Object.assign(record.layout, { rowOffsets: measurement.rowOffsets, colOffsets: measurement.colOffsets });
       syncBar(record);
+      syncColumns(record, parts, measurement);
+      rememberSizes(record);
       return;
     }
     const background = "var(--gl-background-color-default, " + ancestorBackground(scroll) + ")";
@@ -793,9 +1042,14 @@
     });
     apply(record, desired);
     syncBar(record);
+    syncColumns(record, parts, measurement);
+    rememberSizes(record);
   }
 
   function cleanup(record) {
+    record.sizes.clear();
+    if (state.floating && state.floating.record === record) closeFloating(state.floating.placeholder.isConnected, false);
+    removeColumns(record);
     removeBar(record);
     if (state.resize) {
       state.resize.unobserve(record.table);
@@ -816,6 +1070,12 @@
   function scan() {
     if (!state.active) return;
     write(() => {
+      if (state.floating && !state.floating.placeholder.isConnected) {
+        const record = state.floating.record;
+        cleanup(record);
+        state.records.delete(record.table);
+        state.processed.delete(record.table);
+      }
       window.clearTimeout(state.timer);
       state.timer = 0;
       state.firstMutationAt = null;
@@ -832,8 +1092,8 @@
         if (!eligible(table)) continue;
         if (!state.processed.has(table)) {
           const record = {
-            table, wrapper: null, scroll: null, originals: new Map(), applied: new Map(),
-            inners: new Map(), base: new Map(), borderCache: null, nativeCache: null, override: { rows: null, cols: null }, bar: null, printing: false, skipped: false,
+            table, wrapper: null, scroll: null, sizes: new Map(), originals: new Map(), applied: new Map(),
+            inners: new Map(), base: new Map(), borderCache: null, override: { rows: null, cols: null }, bar: null, columns: null, wrap: null, scrollX: false, onScroll: null, printing: false, skipped: false,
           };
           state.records.set(table, record);
           state.processed.add(table);
@@ -858,13 +1118,10 @@
 
   function printMode(printing) {
     write(() => {
+      if (printing && state.floating) closeFloating(true, false);
       for (const record of state.records.values()) {
         record.printing = printing;
-        if (record.bar) record.bar.element.style.setProperty("display", printing ? "none" : "flex", "important");
-        if (!record.wrapper) continue;
-        const styles = { "max-height": printing ? "none" : "70vh", overflow: "auto", width: "fit-content", "max-width": "100%", margin: "16px 0" };
-        setStyles(record.wrapper, styles);
-        record.applied.set(record.wrapper, JSON.stringify(styles));
+        refresh(record);
       }
     });
   }
@@ -874,9 +1131,21 @@
   state.observer = new MutationObserver(scheduleScan);
   if (typeof ResizeObserver !== "undefined") {
     state.resize = new ResizeObserver((entries) => {
-      const targets = new Set(entries.map((entry) => entry.target));
+      const targets = new Map(entries.map((entry) => [entry.target, entry]));
       for (const record of state.records.values()) {
-        if (targets.has(record.table) || targets.has(record.scroll)) requestRefresh(record);
+        for (const element of [record.table, record.scroll]) {
+          const entry = targets.get(element);
+          if (!entry) continue;
+          const size = record.sizes.get(element);
+          const box = entry.borderBoxSize && entry.borderBoxSize[0];
+          const width = box ? box.inlineSize : entry.contentRect.width;
+          const height = box ? box.blockSize : entry.contentRect.height;
+          const same = size && Math.abs(width - size.width) <= 0.5 && Math.abs(height - size.height) <= 0.5;
+          if (!same) {
+            requestRefresh(record);
+            break;
+          }
+        }
       }
     });
   }
@@ -895,6 +1164,7 @@
       state.notification.element.remove();
     }
     write(() => {
+      if (state.floating) closeFloating(true, false);
       for (const record of state.records.values()) cleanup(record);
     });
     state.records.clear();

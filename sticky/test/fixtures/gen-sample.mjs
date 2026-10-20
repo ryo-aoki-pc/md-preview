@@ -159,4 +159,33 @@ p("</tbody>");
 p("</table>");
 p("");
 
+// J: 幅に収める表示と横スクロールを、長い文と URL で確かめる。
+p("## J: 折り返しの確かめ");
+p("");
+p("| 番号 | 日付 | 担当 | 内容 | 参照 | 備考 |");
+p("| --- | --- | --- | --- | --- | --- |");
+const owners = ["東京本社営業部", "大阪支社企画部", "名古屋支店管理部", "福岡支社業務部", "仙台支社営業部", "札幌支店管理部", "広島支社企画部", "横浜支店業務部"];
+for (let i = 1; i <= 8; i++) {
+  const date = "2026-10-" + String(20 + i);
+  const content = "各地の担当者が集めた架空の調査結果を確認し、次回の会議で使う資料へ順番にまとめる。内容の読みやすさと列の折り返しを確かめる。";
+  const reference = "https://example.com/very/long/path/for/checking/table/column/wrapping/without/breaks/reference-" + i + "?department=sample&month=2026-10";
+  p("| " + [i, date, owners[i - 1], content, reference, "備考には架空の確認事項を記し、表示の幅に合わせて折り返す。"].join(" | ") + " |");
+}
+p("");
+
+// K: nowrap の属性から初めの折り返しの状態を決める。
+p("## K: Markdown の nowrap");
+p("");
+p("<table>");
+p("<thead>");
+p("<tr><th nowrap>番号</th><th nowrap>日付</th><th nowrap>内容</th></tr>");
+p("</thead>");
+p("<tbody>");
+for (let i = 1; i <= 8; i++) {
+  p('<tr><td nowrap>' + i + '</td><td nowrap>2026-10-' + String(20 + i) + '</td><td>番号と日付は折り返さず、内容の列には長い日本語の文を入れる。これは列ごとの初めの状態と、切り替えた後の表示を確かめるための架空の記録である。</td></tr>');
+}
+p("</tbody>");
+p("</table>");
+p("");
+
 writeFileSync(process.argv[2], out.join("\n"), "utf8");
