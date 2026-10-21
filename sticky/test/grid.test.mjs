@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = await readFile(new URL("../src/sticky-table.js", import.meta.url), "utf8");
 const context = { module: { exports: {} } };
 vm.runInNewContext(source, context, { filename: "src/sticky-table.js" });
-const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths } = context.module.exports;
+const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, pickBoundaries, crossCells } = context.module.exports;
 const th = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: true });
 const td = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: false });
 const many = (count, make = td) => Array.from({ length: count }, () => make());
@@ -563,6 +563,65 @@ test("使える境目とその増減の計算は入力を書き換えない", ()
   stepBoundary(boundaries, 2, -1);
   assert.equal(JSON.stringify(model), modelBefore);
   assert.equal(JSON.stringify(boundaries), boundariesBefore);
+});
+
+// 選んだセルの上と左を、結合セルを切らない境目へ戻す。
+test("表 A の本文の rowspan=6 の中では、そのまとまりの上までを固定する", () => {
+  const model = buildGrid(samples.A());
+  const index = model.cells.findIndex((cell) => cell.row === 5 && cell.col === 3);
+  assert.deepEqual(plain(pickBoundaries(model, index)), { rows: 2, cols: 2 });
+  const next = model.cells.findIndex((cell) => cell.row === 8 && cell.col === 7);
+  assert.deepEqual(plain(pickBoundaries(model, next)), { rows: 8, cols: 6 });
+});
+
+test("セルで固定する列は、選んだ行数に含まれる見出しの結合をまたがない", () => {
+  const model = buildGrid(samples.C());
+  for (const [col, expected] of [[3, 2], [6, 5]]) {
+    const index = model.cells.findIndex((cell) => cell.row === 2 && cell.col === col);
+    assert.deepEqual(plain(pickBoundaries(model, index)), { rows: 2, cols: expected });
+  }
+});
+
+test("行 0 と列 0 のセルは、その向きを固定しない", () => {
+  const model = buildGrid(body([many(4, th), many(4), many(4)]));
+  for (const [row, col, expected] of [[0, 0, [0, 0]], [0, 2, [0, 2]], [2, 0, [2, 0]], [2, 3, [2, 3]]]) {
+    const index = model.cells.findIndex((cell) => cell.row === row && cell.col === col);
+    assert.deepEqual(dimensions(pickBoundaries(model, index)), expected);
+  }
+});
+
+// 結合セルの占めるすべての行と列に交わるセルを強調する。
+const crossSample = () => buildGrid(body([
+  [td(2, 2), td(), td()],
+  [td(), td()],
+  [td(), td(), td(1, 2)],
+  many(4),
+]));
+
+test("縦横に結合したセルに載ると、覆う 2 行と 2 列のセルを重複せず返す", () => {
+  assert.deepEqual(plain(crossCells(crossSample(), 0)), [0, 1, 2, 3, 4, 5, 6, 8, 9]);
+});
+
+test("横に結合したセルに載ると、覆うすべての列とその行に交わるセルを返す", () => {
+  assert.deepEqual(plain(crossCells(crossSample(), 7)), [1, 2, 3, 4, 5, 6, 7, 10, 11]);
+});
+
+test("普通のセルの行や列が結合セルの途中に交わる場合も、その結合セルを含める", () => {
+  const model = crossSample();
+  assert.deepEqual(plain(crossCells(model, 3)), [0, 1, 3, 4, 7, 10]);
+  assert.deepEqual(plain(crossCells(model, 6)), [0, 5, 6, 7, 9]);
+  assert.deepEqual(plain(crossCells(model, 10)), [1, 3, 7, 8, 9, 10, 11]);
+});
+
+test("セルの選択と行列の強調の計算は格子を書き換えない", () => {
+  const model = crossSample();
+  const before = JSON.stringify(model);
+  pickBoundaries(model, 6);
+  const cells = crossCells(model, 6);
+  assert.equal(JSON.stringify(model), before);
+  cells.push(99);
+  assert.deepEqual(plain(crossCells(model, 6)), [0, 5, 6, 7, 9]);
+  assert.equal(JSON.stringify(model), before);
 });
 
 // 行数を選び直したときは、その行数で自動の列数を計算し直す。

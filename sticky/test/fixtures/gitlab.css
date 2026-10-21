@@ -28,6 +28,8 @@ body { margin: 24px; background: #fff; color: var(--gl-text-color-default); font
 .md [data-sticky-header] > table:not(.code) > thead > tr:first-child > th,
 .md [data-sticky-header] > table:not(.code) > tbody > tr:first-child > th { position: sticky; top: var(--gl-spacing-scale-0); background-color: var(--gl-background-color-default); z-index: var(--gl-zindex-1); border-top: 0; border-bottom: 0; box-shadow: inset 0 -1px 0 var(--gl-border-color-default); }
 .gl-my-5 { margin: 16px 0; }
+.gl-mt-2 { margin-top: 4px; }
+.gl-justify-center { justify-content: center; }
 .gl-max-h-\[70vh\] { max-height: 70vh; }
 .gl-w-fit { width: fit-content; }
 .gl-max-w-full { max-width: 100%; }
@@ -40,6 +42,7 @@ body { margin: 24px; background: #fff; color: var(--gl-text-color-default); font
 .gl-gap-2 { gap: 4px; }
 .md th button { border: 0; background: transparent; padding: 0; color: inherit; font: inherit; font-weight: bold; text-align: left; cursor: pointer; }
 @media print {
+  .print\:gl-hidden { display: none; }
   .print\:gl-max-h-none { max-height: none; }
   .md [data-sticky-header] > table:not(.code) > thead > tr:first-child > th,
   .md [data-sticky-header] > table:not(.code) > tbody > tr:first-child > th { border-top: 1px solid var(--gl-border-color-default); border-bottom: 1px solid var(--gl-border-color-default); box-shadow: none; }

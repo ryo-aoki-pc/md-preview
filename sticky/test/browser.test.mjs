@@ -194,7 +194,7 @@ async function createPage(directory, version, mimicTables = true) {
       document.body.append(sectionC);
     }
   `;
-  const finish = `
+  const finish = `(async () => {
     const md = document.querySelector(".file-content");
     window.__fixtureTables = Object.fromEntries(Array.from(md.querySelectorAll("table")).filter(table => table.parentElement.closest("table, .md") === md).map((table, index) => [String.fromCharCode(65 + index), table]));
     for (const [name, table] of Object.entries(window.__fixtureTables)) {
@@ -257,12 +257,21 @@ async function createPage(directory, version, mimicTables = true) {
     emptyFirstRowSection.append(emptyFirstRowTable);
     document.body.append(emptyFirstRowSection);
     window.__emptyFirstRowTable = emptyFirstRowTable;
+    // セルで固定がリンクの既定の遷移を止めることを、外部へ移動しないリンクで確かめる。
+    const pickLinkCell = (window.__workaroundTable || window.__fixtureTables.A).rows[4].cells[0];
+    const pickLink = document.createElement("a");
+    pickLink.href = "#md-table-sticky-pick-probe";
+    pickLink.append(...Array.from(pickLinkCell.childNodes));
+    pickLinkCell.append(pickLink);
+    window.__pickLink = pickLink;
+    // mimic の高さのボタンが、標本の幅を変えた後の寸法へ追従してから元の DOM を控える。
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     window.__beforeHtml = Array.from(document.querySelectorAll(".md"), md => md.innerHTML);
     window.__nestedBefore = window.__fixtureTables.G.querySelector("table").outerHTML;
     window.__smallBefore = { text: window.__fixtureTables.F.textContent, rows: window.__fixtureTables.F.rows.length, width: window.__fixtureTables.F.getBoundingClientRect().width };
     window.__detailsBefore = window.__fixtureTables.H.closest("details").getAttribute("open");
     window.__fixtureReady = true;
-  `;
+  })();`;
   const html = "<!doctype html>\n<html lang=\"ja\"><meta charset=\"utf-8\"><title>表の固定の試験</title><style>" + css + "</style><div class=\"file-content js-markup-content md\">" + sample + "</div><script>" + prepare + "</script><script>" + (mimicTables ? mimic : "") + "</script><script>" + finish + "</script></html>\n";
   const filename = path.join(directory, "fixture-" + version + (mimicTables ? "" : "-raw") + ".html");
   await writeFile(filename, html, "utf8");
@@ -724,6 +733,8 @@ async function checkDynamic(cdp, bookmarklet) {
   await waitFor(cdp, "!window.__mdTableSticky.records.has(window.__dynamicTable)", "切り離した表の記録が残る");
   assert.equal(await cdp.evaluate("window.__dynamicBar.isConnected"), false, "切り離した表の帯も消す");
   await cdp.evaluate(bookmarklet);
+  // mimic の高さのボタンは ResizeObserver で付け外しするので、表の寸法が戻って知らせが届くまで待つ。
+  await cdp.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
   assert.deepEqual(
     await cdp.evaluate("Array.from(document.querySelectorAll('.md'), md => md.innerHTML)"),
     await cdp.evaluate("window.__beforeHtml"),
@@ -1189,6 +1200,241 @@ async function checkDisplayControls(cdp) {
   }
 }
 
+
+// 1 回目の追加機能を、固定の計算値と実際の表示の両方で確かめる。
+async function exerciseFirstRoundControls(version) {
+  const checks = [];
+  const check = (pass, message) => checks.push({ pass: !!pass, message });
+  const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const state = window.__mdTableSticky;
+  const action = (record, name) => record.bar.element.querySelector('[data-md-table-sticky-action="' + name + '"]');
+  const elementsOf = record => Array.from(record.table.rows).flatMap(row => Array.from(row.cells));
+  const a = state.records.get(window.__workaroundTable || window.__fixtureTables.A);
+  const records = Array.from(state.records.values()).filter(record => record.bar);
+  for (const record of records) {
+    for (const name of ['fit-height', 'highlight', 'compact']) {
+      const input = action(record, name);
+      check(input?.type === 'checkbox' && !input.checked && input.title === input.getAttribute('aria-label') && !input.classList.contains('task-list-item-checkbox'), '新しいチェックボックスを既定でオフにし日本語の説明を付ける: ' + name);
+    }
+    check(action(record, 'pick')?.getAttribute('aria-pressed') === 'false', 'セルで固定は選ぶ状態でないことを表示する');
+    check(!action(record, 'fit-height').closest('label').checkVisibility(), '全高でない表では枠に収めるを隠す');
+  }
+  if (version === 'master') {
+    const native = state.records.get(window.__fixtureTables.A);
+    const toggle = native.scroll.closest('.gl-table-shadow-overlay').parentElement.querySelector('[data-testid="markdown-table-height-toggle"]');
+    check(!!toggle, '窓の 70% より高い表に GitLab の全高のボタンを置く');
+    toggle.click();
+    await frame();
+    const fit = action(native, 'fit-height');
+    check(native.nativeFull && fit.closest('label').checkVisibility() && !fit.checked, 'GitLab を全高へ変えると枠に収めるを出す');
+    check(native.bar.element.querySelector('[data-md-table-sticky-count="rows"]').textContent.endsWith('（自動・全高）'), '全高で枠に収めていない行の数に全高を添える');
+    check(getComputedStyle(native.scroll).maxHeight === 'none', 'GitLab の全高は高さの上限を外す');
+    fit.click();
+    await frame();
+    check(native.fitHeight && Math.abs(parseFloat(getComputedStyle(native.scroll).maxHeight) - innerHeight * 0.7) <= 1, '枠に収めるでこの表の高さを画面の 70% にする');
+    check(getComputedStyle(window.__fixtureTables.D.parentElement).maxHeight === 'none', '枠に収めるは別の表の全高を変えない');
+    native.scroll.scrollIntoView({ block: 'start', inline: 'nearest' });
+    native.scroll.scrollTop = 200;
+    await frame();
+    const first = elementsOf(native)[0].getBoundingClientRect();
+    const wrap = native.scroll.getBoundingClientRect();
+    check(native.scroll.scrollTop === 200 && Math.abs(first.top - wrap.top - native.scroll.clientTop) <= 1, '枠に収めた全高の表では縦にスクロールしても見出しを止める');
+    fit.click();
+    await frame();
+    check(!native.fitHeight && getComputedStyle(native.scroll).maxHeight === 'none', '枠に収めるを外すと GitLab の全高へ戻す');
+    fit.click();
+    await frame();
+    toggle.click();
+    await frame();
+    check(!native.nativeFull && !native.fitHeight && !fit.checked && !fit.closest('label').checkVisibility(), 'Collapse table で枠に収めるの状態を戻して隠す');
+  } else {
+    check(!!a.wrapper && !action(a, 'fit-height').closest('label').checkVisibility(), '19.5 の自分の包みには枠に収めるを出さない');
+  }
+  action(a, 'auto').click();
+  await frame();
+  const padding = getComputedStyle(a.scroll);
+  check(Math.abs(parseFloat(padding.scrollPaddingTop) - a.layout.fixedHeight) <= 1 && Math.abs(parseFloat(padding.scrollPaddingLeft) - a.layout.fixedWidth) <= 1, '枠の scroll-padding を固定した行の高さと列の幅に合わせる');
+  a.scroll.scrollIntoView({ block: 'start', inline: 'nearest' });
+  a.scroll.scrollLeft = 0;
+  a.scroll.scrollTop = 0;
+  const target = elementsOf(a).find(cell => cell.textContent.trim() === '東の店 3');
+  const range = document.createRange();
+  range.selectNodeContents(target);
+  const bounds = a.scroll.getBoundingClientRect();
+  const top = bounds.top + a.scroll.clientTop;
+  a.scroll.scrollTop += range.getBoundingClientRect().top - top - Math.max(1, a.layout.fixedHeight / 3);
+  await frame();
+  check(range.getBoundingClientRect().top < top + a.layout.fixedHeight - 1, '本文の検索対象を固定した見出しの下に隠してから検索する');
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  const start = range.cloneRange();
+  start.collapse(true);
+  selection.addRange(start);
+  check(window.find(target.textContent.trim(), true, false, false, false, false, false), 'window.find で隠した本文の文字を見つける');
+  await frame();
+  const found = selection.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
+  const afterFind = a.scroll.getBoundingClientRect();
+  check(found && target.contains(selection.anchorNode) && found.top >= afterFind.top + a.scroll.clientTop + a.layout.fixedHeight - 1 && found.bottom <= afterFind.top + a.scroll.clientTop + a.scroll.clientHeight + 1, 'window.find が本文の文字を見出しの下に隠れない位置へ動かす');
+  selection.removeAllRanges();
+  action(a, 'rows-minus').click();
+  action(a, 'cols-minus').click();
+  await frame();
+  check(a.layout.rows === 0 && a.layout.cols === 0 && !a.scroll.style.getPropertyValue('scroll-padding-top') && !a.scroll.style.getPropertyValue('scroll-padding-left'), '行列とも固定しないときは scroll-padding を外す');
+  action(a, 'auto').click();
+  await frame();
+  const elements = elementsOf(a);
+  const original = elements.map(cell => {
+    const style = getComputedStyle(cell);
+    return { padding: style.padding, fontSize: parseFloat(style.fontSize), lineHeight: style.lineHeight };
+  });
+  a.scroll.scrollTop = 150;
+  a.scroll.scrollLeft = 200;
+  await frame();
+  const position = { top: a.scroll.scrollTop, left: a.scroll.scrollLeft };
+  action(a, 'compact').click();
+  await frame();
+  check(a.compact && elements.every((cell, index) => {
+    const style = getComputedStyle(cell);
+    return style.paddingTop === '2px' && style.paddingBottom === '2px' && style.paddingLeft === '6px' && style.paddingRight === '6px' && Math.abs(parseFloat(style.fontSize) - original[index].fontSize * 0.875) <= 0.1 && Math.abs(parseFloat(style.lineHeight) - parseFloat(style.fontSize) * 1.3) <= 0.1;
+  }), '詰めるは全セルの余白・文字の大きさ・行の高さを変える');
+  check(a.scroll.scrollTop === position.top && a.scroll.scrollLeft === position.left, '詰めた寸法を測り直しても縦横のスクロール位置を保つ');
+  const styles = elements.map(cell => cell.getAttribute('style'));
+  elements.forEach(cell => cell.style.setProperty('position', 'static', 'important'));
+  const firstTop = a.table.rows[0].getBoundingClientRect().top;
+  const rowOffsets = Array.from(a.table.rows, row => row.getBoundingClientRect().top - firstTop);
+  elements.forEach((cell, index) => {
+    if (styles[index] === null) cell.removeAttribute('style');
+    else cell.setAttribute('style', styles[index]);
+  });
+  check(a.model.cells.some((cell, index) => cell.row > 0 && a.layout.roles[index].top) && a.model.cells.every((cell, index) => !a.layout.roles[index].top || Math.abs(parseFloat(elements[index].style.top) - rowOffsets[cell.row]) <= 1), '固定した 2 行目以降の top は詰めた後の行の上端に合わせる');
+  action(a, 'compact').click();
+  await frame();
+  check(elements.every((cell, index) => {
+    const style = getComputedStyle(cell);
+    return style.padding === original[index].padding && Math.abs(parseFloat(style.fontSize) - original[index].fontSize) <= 0.1 && style.lineHeight === original[index].lineHeight;
+  }), '詰めるを外すと余白と文字を元へ戻す');
+  action(a, 'pick').click();
+  await frame();
+  check(a.picking && state.picking === a && action(a, 'pick').getAttribute('aria-pressed') === 'true' && getComputedStyle(a.table).cursor === 'crosshair', 'セルで固定で選ぶ状態と十字のカーソルを出す');
+  action(a, 'pick').click();
+  await frame();
+  check(!state.picking && !a.picking && action(a, 'pick').getAttribute('aria-pressed') === 'false', 'セルで固定をもう一度押すと選ぶのをやめる');
+  action(a, 'pick').click();
+  const other = state.records.get(window.__fixtureTables.D);
+  action(other, 'pick').click();
+  await frame();
+  check(!a.picking && other.picking && state.picking === other, '別の表を選ぶと前の表の選ぶ状態をやめる');
+  const outside = new MouseEvent('click', { bubbles: true, cancelable: true });
+  document.body.dispatchEvent(outside);
+  await frame();
+  check(!state.picking && !outside.defaultPrevented, '表の外のクリックを止めずに選ぶ状態だけをやめる');
+  action(a, 'float').click();
+  await frame();
+  action(a, 'pick').click();
+  const firstEscape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+  window.dispatchEvent(firstEscape);
+  await frame();
+  check(firstEscape.defaultPrevented && !state.picking && !!document.querySelector('[data-md-table-sticky-float]'), '全幅の中の Esc 1 回目ではセルを選ぶ状態だけをやめる');
+  const secondEscape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+  window.dispatchEvent(secondEscape);
+  await frame();
+  check(secondEscape.defaultPrevented && !document.querySelector('[data-md-table-sticky-float]'), '全幅の中の Esc 2 回目で全幅の表示を閉じる');
+  return checks;
+}
+
+async function prepareFirstRoundPointer(kind) {
+  const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const state = window.__mdTableSticky;
+  const a = state.records.get(window.__workaroundTable || window.__fixtureTables.A);
+  const record = kind === 'sort' ? state.records.get(window.__fixtureTables.D) : a;
+  const elements = Array.from(record.table.rows).flatMap(row => Array.from(row.cells));
+  const action = name => record.bar.element.querySelector('[data-md-table-sticky-action="' + name + '"]');
+  let index;
+  let target;
+  if (kind === 'link') {
+    target = window.__pickLink;
+    index = elements.indexOf(target.closest('td, th'));
+  } else if (kind === 'sort') {
+    target = record.table.querySelector('thead th button');
+    index = elements.indexOf(target.closest('th'));
+  } else {
+    index = record.model.cells.findIndex(cell => kind === 'merged' ? cell.row === 2 && cell.col === 0 && cell.rowspan > 1 : cell.row === 4 && cell.col === 3);
+    target = elements[index];
+  }
+  if (kind === 'pick' || kind === 'link' || kind === 'sort') action('pick').click();
+  else if (!action('highlight').checked) action('highlight').click();
+  record.scroll.scrollTop = 0;
+  record.scroll.scrollLeft = 0;
+  target.scrollIntoView({ block: 'center', inline: 'center' });
+  record.scroll.scrollIntoView({ block: 'start', inline: 'nearest' });
+  await frame();
+  const cell = target.closest('td, th');
+  const rect = target.getBoundingClientRect();
+  const wrap = record.scroll.getBoundingClientRect();
+  const left = Math.max(rect.left, wrap.left + record.scroll.clientLeft, 0);
+  const right = Math.min(rect.right, wrap.right, innerWidth);
+  const top = Math.max(rect.top, wrap.top + record.scroll.clientTop, 0);
+  const bottom = Math.min(rect.bottom, wrap.bottom, innerHeight);
+  const x = (left + right) / 2;
+  const y = (top + bottom) / 2;
+  const hit = document.elementFromPoint(x, y);
+  window.__firstRoundPointer = { record, index, backgrounds: elements.map(element => getComputedStyle(element).backgroundColor), rows: Array.from(record.table.tBodies[0].rows, row => row.textContent), sort: record.table.querySelector('thead th')?.getAttribute('aria-sort'), hash: location.hash };
+  return { x, y, hit: right > left && bottom > top && (hit === target || target.contains(hit) || (kind !== 'link' && kind !== 'sort' && cell.contains(hit))), pressed: action('pick').getAttribute('aria-pressed') };
+}
+
+function inspectFirstRoundPointer(kind) {
+  const { record, index, backgrounds, rows, sort, hash } = window.__firstRoundPointer;
+  const elements = Array.from(record.table.rows).flatMap(row => Array.from(row.cells));
+  if (kind === 'pick' || kind === 'link' || kind === 'sort') {
+    return { rows: record.layout.rows, cols: record.layout.cols, manualRows: record.override.rows, manualCols: record.override.cols, picking: !!record.picking, pressed: record.bar.element.querySelector('[data-md-table-sticky-action="pick"]').getAttribute('aria-pressed'), hashUnchanged: location.hash === hash, sortUnchanged: record.table.querySelector('thead th')?.getAttribute('aria-sort') === sort && Array.from(record.table.tBodies[0].rows, row => row.textContent).every((text, i) => text === rows[i]) };
+  }
+  const hovered = record.model.cells[index];
+  const expected = record.model.cells.map((cell, i) => ({ cell, i })).filter(({ cell }) => cell.row < hovered.row + hovered.rowspan && hovered.row < cell.row + cell.rowspan || cell.col < hovered.col + hovered.colspan && hovered.col < cell.col + cell.colspan).map(({ i }) => i);
+  const actual = elements.flatMap((element, i) => getComputedStyle(element).backgroundImage.includes('linear-gradient') ? [i] : []);
+  return { expected, actual, self: getComputedStyle(elements[index]).backgroundImage, backgroundUnchanged: elements.every((element, i) => getComputedStyle(element).backgroundColor === backgrounds[i]) };
+}
+
+async function checkFirstRoundControls(cdp, version) {
+  const checks = await cdp.evaluate('(' + exerciseFirstRoundControls.toString() + ')(' + JSON.stringify(version) + ')');
+  for (const result of checks) assert.equal(result.pass, true, result.message);
+  const frame = () => cdp.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  const point = async kind => {
+    const position = await cdp.evaluate('(' + prepareFirstRoundPointer.toString() + ')(' + JSON.stringify(kind) + ')');
+    assert.equal(position.hit, true, 'CDP で押すセルまたは載せるセルを画面内へ出す: ' + kind);
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: position.x, y: position.y });
+    if (['pick', 'link', 'sort'].includes(kind)) {
+      assert.equal(position.pressed, 'true', 'CDP のクリックの前にセルを選ぶ状態にする');
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: position.x, y: position.y, button: 'left', clickCount: 1 });
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: position.x, y: position.y, button: 'left', clickCount: 1 });
+    }
+    await frame();
+    return cdp.evaluate('(' + inspectFirstRoundPointer.toString() + ')(' + JSON.stringify(kind) + ')');
+  };
+  for (const kind of ['pick', 'link', ...(version === 'master' ? ['sort'] : [])]) {
+    const result = await point(kind);
+    if (kind === 'pick') assert.deepEqual([result.rows, result.cols, result.manualRows, result.manualCols], [2, 2, 2, 2], '本文の rowspan の中のセルを選ぶと行 2・列 2 の使える境目へ丸める');
+    assert.equal(result.picking, false, 'セルを選ぶと選ぶ状態をやめる: ' + kind);
+    assert.equal(result.pressed, 'false', 'セルを選んだ後はボタンの押下状態を戻す');
+    if (kind === 'link') assert.equal(result.hashUnchanged, true, 'リンクを選んでも既定の遷移を行わない');
+    if (kind === 'sort') assert.equal(result.sortUnchanged, true, '並べ替えのボタンを選んでも行の順と aria-sort を変えない');
+  }
+  await cdp.evaluate('(() => { for (const record of window.__mdTableSticky.records.values()) record.bar?.element.querySelector(\'[data-md-table-sticky-action="auto"]\').click(); })()');
+  await frame();
+  for (const kind of ['merged', 'normal']) {
+    const result = await point(kind);
+    assert.deepEqual(result.actual, result.expected, '載ったセルの覆う行または列と交わるセルだけを強調する: ' + kind);
+    assert.ok(result.self.includes('linear-gradient'), '載ったセル自身も強調する');
+    assert.equal(result.backgroundUnchanged, true, '強調しても固定セルの不透明な background-color を変えない');
+  }
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 });
+  await frame();
+  assert.equal(await cdp.evaluate('Array.from(window.__firstRoundPointer.record.table.querySelectorAll("td, th")).every(cell => !cell.style.backgroundImage)'), true, '表の外へマウスを出すと強調を消す');
+  await point('normal');
+  await cdp.evaluate('window.__firstRoundPointer.record.bar.element.querySelector(\'[data-md-table-sticky-action="highlight"]\').click()');
+  await frame();
+  assert.equal(await cdp.evaluate('Array.from(window.__firstRoundPointer.record.table.querySelectorAll("td, th")).every(cell => !cell.style.backgroundImage)'), true, '強調のチェックを外すとすべての強調を消す');
+}
+
 async function checkOwnedMutationScope(cdp, bookmarklet) {
   // 自分の帯・列帯・板の追加と削除から、遅れて表を測り直さないことを確かめる。
   const result = await cdp.evaluate('(async () => {\n' +
@@ -1262,6 +1508,8 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
       assert.ok(target?.webSocketDebuggerUrl, "CDP のページがある");
       cdp = await CDP.connect(target.webSocketDebuggerUrl);
       await cdp.send("Page.enable");
+      // headless の Edge は、起動から十数秒後に窓の中の高さを 30px ほど縮めることがある。表の高さ（70vh）と GitLab の全高のボタンを揃えるため、表示の大きさを固定する。
+      await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1248, height: 804, deviceScaleFactor: 1, mobile: false });
       // Windows の環境によっては、headless の Edge が開いてから約 20 秒でページを隠し、requestAnimationFrame が止まる。
       // 1 秒ごとに前面へ出し、隠れても 2 秒以内に戻す。
       const page = cdp;
@@ -1373,6 +1621,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         await checkControls(cdp, version);
         await checkDisplayControls(cdp);
         await checkOwnedMutationScope(cdp, bookmarklet);
+        await checkFirstRoundControls(cdp, version);
         assert.equal(await cdp.evaluate("window.__fixtureTables.H.closest('details').open"), false, "details はまだ閉じている");
         await cdp.evaluate("window.__fixtureTables.H.closest('details').open = true");
         let expanded = false;
@@ -1396,13 +1645,18 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         assert.equal(await cdp.evaluate("window.__mdTableSticky.records.get(window.__fixtureTables.A).override.rows"), 0, "手動の数を選んだ状態で解除する");
         await cdp.evaluate('window.__mdTableSticky.records.get(window.__fixtureTables.A).bar.element.querySelector(\'[data-md-table-sticky-action="float"]\').click()');
         assert.equal(await cdp.evaluate("!!document.querySelector('[data-md-table-sticky-float]')"), true, "全幅の表示を開いたまま解除する");
+        await cdp.evaluate('(() => { const record = window.__mdTableSticky.records.get(window.__fixtureTables.A); for (const name of ["highlight", "compact", "pick"]) record.bar.element.querySelector(\'[data-md-table-sticky-action="\' + name + \'"]\').click(); window.__cleanupPickCell = record.table.rows[2].cells[1]; })()');
+        assert.equal(await cdp.evaluate('!!window.__mdTableSticky.picking'), true, 'セルを選ぶ状態のまま解除する');
         await cdp.evaluate(bookmarklet);
         assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-float], [data-md-table-sticky-placeholder], [data-md-table-sticky-columns]').length"), 0, "解除すると全幅の背景・代わりの要素・列のチェックボックスを消す");
         assert.equal(await cdp.evaluate("typeof window.__mdTableSticky"), "undefined", "固定の状態を消す");
         assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-bar]').length"), 0, "固定を外すと帯も消す");
+        // mimic の高さのボタンは ResizeObserver で付け外しするので、表の寸法が戻って知らせが届くまで待つ。
+        await cdp.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
         const restored = await cdp.evaluate("Array.from(document.querySelectorAll('.md'), md => md.innerHTML)");
         const before = await cdp.evaluate("window.__beforeHtml");
         assert.deepEqual(restored, before, "もう一度押すと Markdown の DOM を元へ戻す");
+        assert.equal(await cdp.evaluate('(() => { let received = false; const cell = window.__cleanupPickCell; cell.addEventListener("click", event => { received = !event.defaultPrevented; event.preventDefault(); }, { once: true }); cell.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); return received; })()'), true, '選ぶ状態で解除しても、その後のセルのクリックを止めない');
         await checkDynamic(cdp, bookmarklet);
       });
     }

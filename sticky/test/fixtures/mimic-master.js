@@ -2,6 +2,57 @@
   "use strict";
   // GitLab master の資料にある描き直しを、Vue を使わずに再現する。
   // 元のセルを移し、行と表の包みは新しく作る。
+  const renderedTables = new Set();
+  const tableRecords = new WeakMap();
+  let isExpanded = false;
+  let nextTableId = 0;
+  // Vue の :class と同じく、全高でないときだけ高さの上限の class を先頭に置く。
+  const scrollClasses = () => (isExpanded ? "" : "gl-max-h-[70vh] ") + "gl-w-fit gl-max-w-full gl-overflow-x-auto gl-overflow-y-auto print:gl-max-h-none";
+  function updateHeightToggle(record) {
+    const clipped = record.table.offsetHeight > window.innerHeight * 0.7;
+    if (clipped === Boolean(record.toggle)) return;
+    if (!clipped) {
+      record.toggle.remove();
+      record.toggle = null;
+      record.button = null;
+      return;
+    }
+    const toggle = document.createElement("div");
+    toggle.className = "gl-mt-2 gl-flex gl-justify-center print:gl-hidden";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute("data-testid", "markdown-table-height-toggle");
+    button.setAttribute("aria-controls", record.scroll.id);
+    button.setAttribute("aria-expanded", String(isExpanded));
+    button.textContent = isExpanded ? "Collapse table" : "Show full table";
+    button.addEventListener("click", () => {
+      window.dispatchEvent(new CustomEvent("gl-markdown-table-expanded", { detail: { isExpanded: !isExpanded } }));
+    });
+    toggle.append(button);
+    record.outer.append(toggle);
+    record.toggle = toggle;
+    record.button = button;
+  }
+  window.addEventListener("gl-markdown-table-expanded", (event) => {
+    isExpanded = event.detail.isExpanded;
+    for (const scroll of document.querySelectorAll("[data-sticky-header]")) {
+      scroll.className = scrollClasses();
+    }
+    for (const record of renderedTables) {
+      if (!record.button) continue;
+      record.button.textContent = isExpanded ? "Collapse table" : "Show full table";
+      record.button.setAttribute("aria-expanded", String(isExpanded));
+    }
+  });
+  const heightObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const record = tableRecords.get(entry.target);
+      if (record) updateHeightToggle(record);
+    }
+  });
+  window.addEventListener("resize", () => {
+    for (const record of renderedTables) updateHeightToggle(record);
+  });
   const allHeader = (row) => row.cells.length > 0 && Array.from(row.cells).every((cell) => cell.tagName === "TH");
   const hasSpan = (row) => Array.from(row.cells).some((cell) => cell.rowSpan !== 1 || cell.colSpan !== 1);
   function rowsInto(section, rows) {
@@ -71,16 +122,25 @@
     }
     if (feet.length) rowsInto(next.createTFoot(), feet);
     const outer = document.createElement("div");
-    outer.className = "gl-table-shadow-overlay gl-my-5";
-    outer.setAttribute("data-testid", "table-shadow-overlay");
-    if (table.hasAttribute("dir")) outer.setAttribute("dir", table.getAttribute("dir"));
+    outer.className = "gl-my-5 gl-w-fit gl-max-w-full";
+    const overlay = document.createElement("div");
+    overlay.className = "gl-table-shadow-overlay";
+    overlay.setAttribute("data-testid", "table-shadow-overlay");
+    if (table.hasAttribute("dir")) overlay.setAttribute("dir", table.getAttribute("dir"));
     const scroll = document.createElement("div");
-    scroll.className = "gl-max-h-[70vh] gl-w-fit gl-max-w-full gl-overflow-x-auto gl-overflow-y-auto print:gl-max-h-none";
+    scroll.className = scrollClasses();
+    scroll.id = "fixture-markdown-table-" + (++nextTableId) + "-scroll";
     scroll.setAttribute("data-sticky-header", "");
     scroll.setAttribute("data-print-scale-container", "");
-    outer.append(scroll);
+    outer.append(overlay);
+    overlay.append(scroll);
     scroll.append(next);
     table.replaceWith(outer);
+    const record = { outer, scroll, table: next, toggle: null, button: null };
+    renderedTables.add(record);
+    tableRecords.set(next, record);
+    updateHeightToggle(record);
+    heightObserver.observe(next);
   }
   window.mimicMarkdownTables = function () {
     Array.from(document.querySelectorAll(".md table:not(.code)")).forEach(render);

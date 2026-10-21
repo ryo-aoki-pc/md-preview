@@ -228,8 +228,28 @@
     return 0;
   }
 
+  function pickBoundaries(model, cellIndex) {
+    const cell = model.cells[cellIndex];
+    if (!cell) return { rows: 0, cols: 0 };
+    const rows = lowerBoundary(usableRowBoundaries(model), cell.row);
+    const cols = lowerBoundary(usableColBoundaries(model, rows), cell.col);
+    return { rows, cols };
+  }
+
+  function crossCells(model, cellIndex) {
+    const selected = model.cells[cellIndex];
+    if (!selected) return [];
+    const indices = [];
+    model.cells.forEach((cell, index) => {
+      const row = cell.row < selected.row + selected.rowspan && selected.row < cell.row + cell.rowspan;
+      const col = cell.col < selected.col + selected.colspan && selected.col < cell.col + cell.colspan;
+      if (row || col) indices.push(index);
+    });
+    return indices;
+  }
+
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths };
+    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, pickBoundaries, crossCells, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths };
   }
   if (typeof document === "undefined") return;
 
@@ -278,7 +298,7 @@
 
   const state = {
     records: new Map(), processed: new WeakSet(), pending: new Set(), dirty: new Set(), active: true,
-    frame: 0, timer: 0, firstMutationAt: null, observer: null, resize: null, notification: null, floating: null,
+    frame: 0, timer: 0, firstMutationAt: null, observer: null, resize: null, notification: null, floating: null, picking: null, pickHandlers: null,
   };
   window.__mdTableSticky = state;
 
@@ -486,6 +506,32 @@
     }
   }
 
+  function updateNativeFull(record, floating) {
+    const scroll = record.scroll;
+    if (scroll === record.wrapper || !scroll.hasAttribute("data-sticky-header")) {
+      record.nativeFull = false;
+    } else if (!floating && !record.printing) {
+      remember(record, scroll);
+      const saved = scroll.getAttribute("style");
+      try {
+        restoreStyle(scroll, record.originals.get(scroll));
+        record.nativeFull = window.getComputedStyle(scroll).maxHeight === "none";
+      } finally {
+        restoreStyle(scroll, saved);
+      }
+    }
+    // 全幅の表示と印刷の間は、元の枠で測れるまで選択を保つ。
+    if (!record.nativeFull) record.fitHeight = false;
+  }
+
+  // 検索やフォーカスで移った先が固定した部分の下に隠れないようにする。枠のほかの style は当て直さない。
+  function setScrollPadding(scroll, top, left) {
+    for (const [name, value] of [["scroll-padding-top", top], ["scroll-padding-left", left]]) {
+      if (value === null) scroll.style.removeProperty(name);
+      else scroll.style.setProperty(name, value + "px", "important");
+    }
+  }
+
   function applyOne(record, element, styles) {
     const signature = JSON.stringify(styles);
     if (record.applied.get(element) === signature) return;
@@ -520,6 +566,110 @@
     return record.table;
   }
 
+  function stopPicking(record, remeasure = true) {
+    if (state.picking !== record) return;
+    if (state.pickHandlers) {
+      window.removeEventListener("click", state.pickHandlers.onClick, true);
+      window.removeEventListener("keydown", state.pickHandlers.onKeydown, true);
+    }
+    state.pickHandlers = null;
+    state.picking = null;
+    record.picking = false;
+    if (remeasure && state.active && record.table.isConnected) refresh(record);
+  }
+
+  function startPicking(record) {
+    if (state.picking) stopPicking(state.picking);
+    record.picking = true;
+    state.picking = record;
+    const onClick = (event) => {
+      const target = event.target;
+      if (record.bar && record.bar.buttons.pick.contains(target)) return;
+      const cell = target && target.closest ? target.closest("td, th") : null;
+      if (cell && cell.closest("table") === record.table) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        write(() => {
+          const parts = tableParts(record.table);
+          const boundary = pickBoundaries(parts.model, parts.elements.indexOf(cell));
+          record.override.rows = boundary.rows;
+          record.override.cols = boundary.cols;
+          stopPicking(record, false);
+          refresh(record);
+        });
+      } else {
+        write(() => stopPicking(record));
+      }
+    };
+    const onKeydown = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      write(() => stopPicking(record));
+    };
+    state.pickHandlers = { onClick, onKeydown };
+    window.addEventListener("click", onClick, true);
+    window.addEventListener("keydown", onKeydown, true);
+  }
+
+  function highlightImage(selected) {
+    const color = selected ? "rgba(31, 117, 254, 0.22)" : "rgba(31, 117, 254, 0.10)";
+    return "linear-gradient(" + color + ", " + color + ")";
+  }
+
+  function addHighlights(record, desired) {
+    if (!record.hover) return;
+    for (const index of crossCells(record.model, record.hover.index)) {
+      const styles = desired.get(record.elements[index]);
+      if (styles) styles["background-image"] = highlightImage(index === record.hover.index);
+    }
+  }
+
+  function updateHover(record, index) {
+    const hover = record.hover;
+    if (!hover || hover.index === index) return;
+    const previous = crossCells(record.model, hover.index);
+    const next = new Set(crossCells(record.model, index));
+    hover.index = index;
+    for (const changed of new Set([...previous, ...next])) {
+      const element = record.elements[changed];
+      const styles = record.desired && record.desired.get(element);
+      if (!styles) continue;
+      const image = next.has(changed) ? highlightImage(changed === index) : null;
+      if ((styles["background-image"] || null) === image) continue;
+      if (image) styles["background-image"] = image;
+      else delete styles["background-image"];
+      applyOne(record, element, styles);
+    }
+  }
+
+  function stopHover(record, reapply = true) {
+    if (!record.hover) return;
+    record.table.removeEventListener("pointerover", record.hover.onOver);
+    record.table.removeEventListener("pointerleave", record.hover.onLeave);
+    if (reapply) updateHover(record, -1);
+    record.hover = null;
+  }
+
+  function syncHover(record) {
+    if (!record.highlight) {
+      stopHover(record, false);
+      return;
+    }
+    if (record.hover) return;
+    const onOver = (event) => {
+      const cell = event.target && event.target.closest ? event.target.closest("td, th") : null;
+      if (!cell || cell.closest("table") !== record.table) return;
+      const index = record.elements.indexOf(cell);
+      if (record.hover.index !== index) write(() => updateHover(record, index));
+    };
+    const onLeave = () => write(() => updateHover(record, -1));
+    record.hover = { index: -1, onOver, onLeave };
+    record.table.addEventListener("pointerover", onOver);
+    record.table.addEventListener("pointerleave", onLeave);
+  }
+
   function changeCount(record, action) {
     if (!state.active || !record.table.isConnected) return;
     write(() => {
@@ -534,6 +684,15 @@
         record.wrap.fill(action === "wrap-all");
       } else if (action === "scroll-x") {
         record.scrollX = record.bar.scrollX.checked;
+      } else if (action === "fit-height") {
+        record.fitHeight = record.bar.fitHeight.checked;
+      } else if (action === "pick") {
+        if (record.picking) stopPicking(record, false);
+        else startPicking(record);
+      } else if (action === "highlight") {
+        record.highlight = record.bar.highlight.checked;
+      } else if (action === "compact") {
+        record.compact = record.bar.compact.checked;
       } else {
         const axis = action.startsWith("rows-") ? "rows" : "cols";
         const current = record.layout ? record.layout[axis] : 0;
@@ -599,22 +758,31 @@
       fixed.appendChild(group);
     }
     fixed.appendChild(button("auto", "自動", "固定する行と列を自動に戻す"));
+    fixed.appendChild(button("pick", "セルで固定", "セルを選び、その上の行と左の列を固定する（Esc でやめる）"));
     const separator = document.createElement("span");
     separator.textContent = "|";
     separator.setAttribute("aria-hidden", "true");
     element.appendChild(separator);
-    const scrollLabel = document.createElement("label");
-    setStyles(scrollLabel, { display: "inline-flex", "align-items": "center", gap: "4px", margin: "0", "font-weight": "normal" });
-    const scrollX = document.createElement("input");
-    scrollX.type = "checkbox";
-    scrollX.setAttribute("data-md-table-sticky-action", "scroll-x");
-    scrollX.setAttribute("aria-label", "表を横スクロールする");
-    scrollX.title = "表を横スクロールする";
-    setStyles(scrollX, { margin: "0" });
-    scrollX.addEventListener("change", () => changeCount(record, "scroll-x"));
-    scrollLabel.append(scrollX, document.createTextNode("横スクロール"));
-    element.append(scrollLabel, button("wrap-all", "すべて折り返す", "すべての列を折り返す"), button("nowrap-all", "すべて折り返さない", "すべての列を折り返さない"), button("float", "全幅で表示", "表を全幅で表示"));
-    return { element, buttons, counts, fixed, separator, scrollX };
+    function checkbox(action, text, description) {
+      const label = document.createElement("label");
+      setStyles(label, { display: "inline-flex", "align-items": "center", gap: "4px", margin: "0", "font-weight": "normal" });
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.setAttribute("data-md-table-sticky-action", action);
+      input.setAttribute("aria-label", description);
+      input.title = description;
+      setStyles(input, { margin: "0" });
+      input.addEventListener("change", () => changeCount(record, action));
+      label.append(input, document.createTextNode(text));
+      element.appendChild(label);
+      return { input, label };
+    }
+    const scrollX = checkbox("scroll-x", "横スクロール", "表を横スクロールする").input;
+    const fitHeight = checkbox("fit-height", "枠に収める", "この表だけ枠の高さを画面の 70% に収めて行を固定する（GitLab の Show full table の設定は変えない）");
+    const highlight = checkbox("highlight", "強調", "マウスを載せたセルの行と列を色付けする").input;
+    const compact = checkbox("compact", "詰める", "セルの余白と文字を小さくして詰めて表示する").input;
+    element.append(button("wrap-all", "すべて折り返す", "すべての列を折り返す"), button("nowrap-all", "すべて折り返さない", "すべての列を折り返さない"), button("float", "全幅で表示", "表を全幅で表示"));
+    return { element, buttons, counts, fixed, separator, scrollX, fitHeight: fitHeight.input, fitHeightLabel: fitHeight.label, highlight, compact };
   }
 
   function syncBar(record) {
@@ -634,6 +802,11 @@
     bar.fixed.style.setProperty("display", hasFixed ? "inline-flex" : "none", "important");
     bar.separator.style.setProperty("display", hasFixed ? "inline" : "none", "important");
     bar.scrollX.checked = record.scrollX;
+    bar.fitHeight.checked = record.fitHeight;
+    bar.fitHeightLabel.style.setProperty("display", record.nativeFull ? "inline-flex" : "none", "important");
+    bar.highlight.checked = record.highlight;
+    bar.compact.checked = record.compact;
+    bar.buttons.pick.setAttribute("aria-pressed", record.picking ? "true" : "false");
     const floating = state.floating && state.floating.record === record;
     bar.buttons.float.textContent = floating ? "閉じる" : "全幅で表示";
     const description = floating ? "全幅の表示を閉じる（Esc）" : "表を全幅で表示";
@@ -642,7 +815,9 @@
     const rowBoundaries = usableRowBoundaries(record.model);
     const colBoundaries = usableColBoundaries(record.model, rows);
     for (const [axis, value, boundaries] of [["rows", rows, rowBoundaries], ["cols", cols, colBoundaries]]) {
-      const text = String(value) + (record.override[axis] === null ? "（自動）" : "");
+      const full = axis === "rows" && record.nativeFull && !record.fitHeight;
+      const suffix = record.override[axis] === null ? (full ? "（自動・全高）" : "（自動）") : (full ? "（全高）" : "");
+      const text = String(value) + suffix;
       if (bar.counts[axis].textContent !== text) bar.counts[axis].textContent = text;
       bar.buttons[axis + "-minus"].disabled = stepBoundary(boundaries, value, -1) === null;
       bar.buttons[axis + "-plus"].disabled = stepBoundary(boundaries, value, 1) === null;
@@ -786,7 +961,7 @@
     if (record.columns) panel.appendChild(record.columns.element);
     panel.appendChild(anchor);
     const keydown = (event) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || state.picking) return;
       event.preventDefault();
       event.stopPropagation();
       write(() => closeFloating());
@@ -884,7 +1059,10 @@
       return;
     }
     const parts = tableParts(record.table);
+    const hovered = record.hover && record.elements ? record.elements[record.hover.index] : null;
     record.model = parts.model;
+    record.elements = parts.elements;
+    if (record.hover) record.hover.index = hovered ? parts.elements.indexOf(hovered) : -1;
     record.region = frozenRegion(parts.model);
     record.skipped = parts.model.overlap || (parts.model.cells.length > 0 && parts.model.grid[0][0] === undefined);
     const currentCells = new Set(parts.elements);
@@ -901,6 +1079,9 @@
       record.base.delete(element);
     }
     if (record.skipped || !parts.model.cells.length) {
+      stopPicking(record, false);
+      stopHover(record, false);
+      record.desired = new Map();
       if (state.floating && state.floating.record === record) closeFloating(state.floating.placeholder.isConnected, false);
       for (const [cell] of record.inners) unwrapInner(record, cell);
       apply(record, new Map());
@@ -919,10 +1100,14 @@
       record.wrap = initialWrap(parts.model, parts.elements.map((cell) => record.base.get(cell).nowrap));
     }
     const floating = state.floating && state.floating.record === record;
+    updateNativeFull(record, floating);
+    syncHover(record);
     const desired = new Map();
     const tableStyles = { display: "table", margin: "0", overflow: "visible" };
+    if (record.picking) tableStyles.cursor = "crosshair";
     if (record.scrollX) tableStyles["max-width"] = "none";
     const scrollStyles = { overflow: "auto" };
+    if (record.nativeFull && record.fitHeight && !record.printing && !floating) scrollStyles["max-height"] = "70vh";
     if (record.wrapper) Object.assign(scrollStyles, { width: "fit-content", "max-width": "100%", "max-height": record.printing ? "none" : "70vh", margin: "16px 0" });
     if (floating) Object.assign(scrollStyles, { "max-height": "none", "min-height": "0", flex: "0 1 auto", "align-self": "flex-start", margin: "0", "overscroll-behavior": "contain" });
     desired.set(scroll, scrollStyles);
@@ -933,8 +1118,11 @@
     desired.set(record.table, { ...tableStyles, "border-collapse": "separate", "border-spacing": "0" });
     const modes = cellWrapModes(parts.model, record.wrap);
     const wrapStyles = modes.map((mode) => mode === "nowrap" ? { "white-space": "nowrap" } : { "white-space": "normal", "overflow-wrap": "anywhere" });
-    parts.elements.forEach((element, index) => desired.set(element, { ...record.borderCache.styles[index], ...wrapStyles[index] }));
+    const compactStyles = record.compact ? { padding: "2px 6px", "line-height": "1.3", "font-size": "0.875em" } : {};
+    parts.elements.forEach((element, index) => desired.set(element, { ...record.borderCache.styles[index], ...wrapStyles[index], ...compactStyles }));
+    addHighlights(record, desired);
     apply(record, desired);
+    record.desired = desired;
     if (record.scrollX) {
       const maxWidths = measureMaxWidths(record, parts);
       const cap = (parseFloat(window.getComputedStyle(record.table).fontSize) || 16) * 12;
@@ -980,11 +1168,14 @@
       parts.model.cells.forEach((cell, index) => {
         const element = parts.elements[index];
         const minimum = desired.get(element)["min-width"];
-        const styles = { ...wrapStyles[index], ...nativeOverride(record, cell, element, 0) };
+        const styles = { ...wrapStyles[index], ...compactStyles, ...nativeOverride(record, cell, element, 0) };
         if (minimum) styles["min-width"] = minimum;
         desired.set(element, styles);
       });
+      addHighlights(record, desired);
       apply(record, desired);
+      record.desired = desired;
+      setScrollPadding(scroll, null, null);
       scroll.scrollLeft = scrollPosition.left;
       scroll.scrollTop = scrollPosition.top;
       measurement = measureLayout(parts);
@@ -1041,6 +1232,10 @@
       }
     });
     apply(record, desired);
+    record.desired = desired;
+    setScrollPadding(scroll, rows ? fixedHeight : null, cols ? fixedWidth : null);
+    scroll.scrollLeft = scrollPosition.left;
+    scroll.scrollTop = scrollPosition.top;
     syncBar(record);
     syncColumns(record, parts, measurement);
     rememberSizes(record);
@@ -1048,6 +1243,9 @@
 
   function cleanup(record) {
     record.sizes.clear();
+    stopPicking(record, false);
+    stopHover(record, false);
+    record.desired = null;
     if (state.floating && state.floating.record === record) closeFloating(state.floating.placeholder.isConnected, false);
     removeColumns(record);
     removeBar(record);
@@ -1094,6 +1292,7 @@
           const record = {
             table, wrapper: null, scroll: null, sizes: new Map(), originals: new Map(), applied: new Map(),
             inners: new Map(), base: new Map(), borderCache: null, override: { rows: null, cols: null }, bar: null, columns: null, wrap: null, scrollX: false, onScroll: null, printing: false, skipped: false,
+            nativeFull: false, fitHeight: false, picking: false, highlight: false, compact: false, hover: null, elements: [], desired: null,
           };
           state.records.set(table, record);
           state.processed.add(table);
@@ -1127,6 +1326,9 @@
   }
   const beforePrint = () => printMode(true);
   const afterPrint = () => printMode(false);
+  const tableExpanded = () => {
+    for (const record of state.records.values()) requestRefresh(record);
+  };
 
   state.observer = new MutationObserver(scheduleScan);
   if (typeof ResizeObserver !== "undefined") {
@@ -1159,11 +1361,13 @@
     window.cancelAnimationFrame(state.frame);
     window.removeEventListener("beforeprint", beforePrint);
     window.removeEventListener("afterprint", afterPrint);
+    window.removeEventListener("gl-markdown-table-expanded", tableExpanded);
     if (state.notification) {
       window.clearTimeout(state.notification.timer);
       state.notification.element.remove();
     }
     write(() => {
+      if (state.picking) stopPicking(state.picking, false);
       if (state.floating) closeFloating(true, false);
       for (const record of state.records.values()) cleanup(record);
     });
@@ -1173,6 +1377,7 @@
   };
   window.addEventListener("beforeprint", beforePrint);
   window.addEventListener("afterprint", afterPrint);
+  window.addEventListener("gl-markdown-table-expanded", tableExpanded);
   scan();
   const skipped = Array.from(state.records.values()).filter((record) => record.skipped).length;
   const count = state.records.size - skipped;
