@@ -248,8 +248,96 @@
     return indices;
   }
 
+  function normalizeSearch(value) {
+    return String(value == null ? "" : value).normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
+  }
+
+  function searchMatches(texts, query) {
+    const needle = normalizeSearch(query);
+    if (!needle) return [];
+    return texts.map((text, index) => normalizeSearch(text).includes(needle) ? index : -1).filter((index) => index >= 0);
+  }
+
+  function filterRows(model, matched, keepRows) {
+    const protectedRows = Array.from({ length: model.rowCount }, (_, row) => row < keepRows);
+    const kinds = Array(model.rowCount).fill("tbody");
+    for (const group of model.groups) {
+      for (let row = group.start; row < group.start + group.rowCount; row += 1) {
+        kinds[row] = group.kind;
+        if (group.kind === "thead" || group.kind === "tfoot") protectedRows[row] = true;
+      }
+    }
+    const matchedRows = new Set(matched.filter((index) => model.cells[index]).map((index) => model.cells[index].row));
+    const anchors = Array.from({ length: model.rowCount }, () => []);
+    const ends = Array.from({ length: model.rowCount }, (_, row) => row + 1);
+    for (const cell of model.cells) {
+      anchors[cell.row].push(cell);
+      ends[cell.row] = Math.max(ends[cell.row], cell.row + cell.rowspan);
+    }
+    const visible = Array(model.rowCount).fill(false);
+    for (let start = 0; start < model.rowCount;) {
+      let end = ends[start];
+      for (let row = start; row < end; row += 1) end = Math.max(end, ends[row]);
+      let keep = false;
+      for (let row = start; row < end; row += 1) {
+        if (protectedRows[row] || matchedRows.has(row)) keep = true;
+      }
+      for (let row = start; row < end; row += 1) visible[row] = keep;
+      start = end;
+    }
+    let following = false;
+    for (let row = model.rowCount - 1; row >= 0; row -= 1) {
+      if (kinds[row] === "thead" || kinds[row] === "tfoot") continue;
+      const cells = anchors[row];
+      const divider = cells.length === 1 && cells[0].col === 0 && cells[0].colspan === model.colCount && cells[0].rowspan === 1;
+      if (divider) {
+        visible[row] = protectedRows[row] || matchedRows.has(row) || following;
+        following = false;
+      } else if (visible[row]) {
+        following = true;
+      }
+    }
+    return visible.map((keep, row) => keep ? -1 : row).filter((row) => row >= 0);
+  }
+
+  function tableMatrix(model, texts, hiddenRows) {
+    const hidden = new Set(hiddenRows);
+    const rows = [];
+    for (let row = 0; row < model.rowCount; row += 1) {
+      if (!hidden.has(row)) rows.push(row);
+    }
+    const positions = new Map(rows.map((row, index) => [row, index]));
+    const grid = rows.map(() => Array(model.colCount).fill(""));
+    const cells = [];
+    model.cells.forEach((cell, index) => {
+      if (hidden.has(cell.row)) return;
+      const row = positions.get(cell.row);
+      const text = String(texts[index] == null ? "" : texts[index]);
+      cells.push({ row, col: cell.col, rowspan: cell.rowspan, colspan: cell.colspan, header: cell.header, text });
+      grid[row][cell.col] = text;
+    });
+    return { rowCount: rows.length, colCount: model.colCount, cells, grid };
+  }
+
+  function toTsv(matrix) {
+    const quote = (text) => /[\t\r\n"]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+    return matrix.grid.map((row) => row.map(quote).join("\t")).join("\r\n") + (matrix.grid.length ? "\r\n" : "");
+  }
+
+  function toHtml(matrix) {
+    const escape = (text) => text.replace(/[&<>"]/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[value]).replace(/\r\n?|\n/g, "<br>");
+    const rows = Array.from({ length: matrix.rowCount }, () => []);
+    for (const cell of matrix.cells) {
+      const tag = cell.header ? "th" : "td";
+      const rowspan = cell.rowspan > 1 ? ' rowspan="' + cell.rowspan + '"' : "";
+      const colspan = cell.colspan > 1 ? ' colspan="' + cell.colspan + '"' : "";
+      rows[cell.row].push("<" + tag + rowspan + colspan + ">" + escape(cell.text) + "</" + tag + ">");
+    }
+    return "<table>" + rows.map((row) => "<tr>" + row.join("") + "</tr>").join("") + "</table>";
+  }
+
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, pickBoundaries, crossCells, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths };
+    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, pickBoundaries, crossCells, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, searchMatches, filterRows, tableMatrix, toTsv, toHtml };
   }
   if (typeof document === "undefined") return;
 
@@ -613,17 +701,212 @@
     window.addEventListener("keydown", onKeydown, true);
   }
 
+  function removeSearch(record) {
+    window.clearTimeout(record.searchTimer);
+    record.searchTimer = 0;
+    const searchUi = record.searchUi;
+    if (!searchUi) return;
+    for (const [element, type, handler] of searchUi.handlers) element.removeEventListener(type, handler);
+    searchUi.element.remove();
+    record.searchUi = null;
+  }
+
+  function closeSearch(record) {
+    record.search = { open: false, query: "", index: 0, filter: false, composing: false };
+    removeSearch(record);
+    refresh(record);
+    if (record.bar) record.bar.buttons.search.focus({ preventScroll: true });
+  }
+
+  function updateSearchQuery(record) {
+    window.clearTimeout(record.searchTimer);
+    record.searchTimer = 0;
+    if (!record.searchUi || record.search.composing) return;
+    const query = record.searchUi.input.value;
+    if (record.search.query !== query) {
+      record.search.query = query;
+      record.search.index = 0;
+    }
+  }
+
+  function scheduleSearch(record) {
+    window.clearTimeout(record.searchTimer);
+    record.searchTimer = window.setTimeout(() => {
+      record.searchTimer = 0;
+      if (!state.active || !record.table.isConnected || !record.searchUi || record.search.composing) return;
+      updateSearchQuery(record);
+      record.search.index = 0;
+      write(() => refresh(record));
+    }, 150);
+  }
+
+  function moveSearch(record, direction) {
+    if (!state.active || !record.table.isConnected || record.search.composing) return;
+    updateSearchQuery(record);
+    write(() => {
+      const parts = tableParts(record.table);
+      const matched = searchMatches(parts.elements.map((cell) => cell.textContent), record.search.query);
+      const index = record.search.index < matched.length ? record.search.index : 0;
+      record.search.index = matched.length ? (index + direction + matched.length) % matched.length : 0;
+      refresh(record);
+      const current = record.matches[record.search.index];
+      const cell = record.elements[current];
+      if (!cell || !record.layout || !record.scroll) return;
+      const role = record.layout.roles[current];
+      const target = role.top || role.left ? record.scroll : cell;
+      target.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+  }
+
+  function createSearch(record) {
+    const element = document.createElement("div");
+    element.setAttribute("data-md-table-sticky-search", "");
+    element.setAttribute("role", "group");
+    element.setAttribute("aria-label", "表の中を検索");
+    setStyles(element, {
+      display: "flex", "align-items": "center", "flex-wrap": "wrap", gap: "8px", "flex-shrink": "0",
+      width: "fit-content", "max-width": "100%", margin: "4px 0", padding: "2px 6px",
+      "box-sizing": "border-box", "font-size": "12px", "line-height": "1.5", "font-family": "inherit",
+      color: "var(--gl-text-color-subtle, #626168)", background: "var(--gl-background-color-default, #fff)",
+      border: "1px solid var(--gl-border-color-default, #dcdcde)", "border-radius": "4px",
+    });
+    const handlers = [];
+    function listen(node, type, handler) {
+      node.addEventListener(type, handler);
+      handlers.push([node, type, handler]);
+    }
+    const input = document.createElement("input");
+    input.type = "search";
+    input.setAttribute("data-md-table-sticky-search-input", "");
+    input.setAttribute("aria-label", "表の中を検索");
+    input.placeholder = "表の中を検索";
+    input.value = record.search.query;
+    setStyles(input, {
+      "font-size": "12px", "font-family": "inherit", "line-height": "1.5", "max-width": "100%", "min-width": "0",
+      color: "var(--gl-text-color-default, #333238)", background: "var(--gl-background-color-default, #fff)",
+      border: "1px solid var(--gl-border-color-default, #dcdcde)", "border-radius": "3px", padding: "0 5px", margin: "0",
+    });
+    listen(input, "input", (event) => {
+      if (event.isComposing || record.search.composing) {
+        window.clearTimeout(record.searchTimer);
+        record.searchTimer = 0;
+        return;
+      }
+      scheduleSearch(record);
+    });
+    listen(input, "compositionstart", () => {
+      record.search.composing = true;
+      window.clearTimeout(record.searchTimer);
+      record.searchTimer = 0;
+    });
+    listen(input, "compositionend", () => {
+      record.search.composing = false;
+      scheduleSearch(record);
+    });
+    function button(action, text, description, handler) {
+      const node = document.createElement("button");
+      node.type = "button";
+      node.textContent = text;
+      node.setAttribute("data-md-table-sticky-action", action);
+      node.setAttribute("aria-label", description);
+      node.title = description;
+      setStyles(node, {
+        "font-size": "12px", "font-family": "inherit", "line-height": "1.5", padding: "0 5px",
+        "min-width": "22px", "min-height": "22px", margin: "0", "border-radius": "3px",
+        border: "1px solid var(--gl-border-color-default, #dcdcde)",
+        color: "var(--gl-text-color-default, #333238)", background: "var(--gl-background-color-default, #fff)",
+      });
+      listen(node, "click", handler);
+      return node;
+    }
+    const previous = button("search-prev", "前", "前の一致へ移る（Shift+Enter）", () => moveSearch(record, -1));
+    const next = button("search-next", "次", "次の一致へ移る（Enter）", () => moveSearch(record, 1));
+    const count = document.createElement("span");
+    count.setAttribute("data-md-table-sticky-search-count", "");
+    count.setAttribute("aria-live", "polite");
+    const label = document.createElement("label");
+    setStyles(label, { display: "inline-flex", "align-items": "center", gap: "4px", margin: "0", "font-weight": "normal" });
+    const filter = document.createElement("input");
+    filter.type = "checkbox";
+    filter.setAttribute("data-md-table-sticky-action", "search-filter");
+    filter.setAttribute("aria-label", "一致するセルのある行だけを表示する");
+    filter.title = "一致するセルのある行だけを表示する";
+    setStyles(filter, { margin: "0" });
+    listen(filter, "change", () => {
+      updateSearchQuery(record);
+      record.search.filter = filter.checked;
+      write(() => refresh(record));
+    });
+    label.append(filter, document.createTextNode("一致する行だけ"));
+    const close = button("search-close", "閉じる", "検索を閉じる（Esc）", () => write(() => closeSearch(record)));
+    element.append(input, previous, next, count, label, close);
+    listen(element, "keydown", (event) => {
+      if (event.key === "Escape" && !state.picking) {
+        event.preventDefault();
+        event.stopPropagation();
+        write(() => closeSearch(record));
+      } else if (event.key === "Enter" && event.target === input && !event.isComposing && event.keyCode !== 229 && !record.search.composing) {
+        event.preventDefault();
+        event.stopPropagation();
+        moveSearch(record, event.shiftKey ? -1 : 1);
+      }
+    });
+    return { element, input, count, filter, handlers };
+  }
+
+  function syncSearch(record) {
+    if (!record.search.open) {
+      removeSearch(record);
+      return;
+    }
+    if (!record.searchUi) record.searchUi = createSearch(record);
+    const { element, count, filter } = record.searchUi;
+    const total = record.matches.length;
+    const text = !normalizeSearch(record.search.query) ? "" : total ? (record.search.index + 1) + " / " + total + " 件" : "0 件";
+    if (count.textContent !== text) count.textContent = text;
+    filter.checked = record.search.filter;
+    element.style.setProperty("display", record.printing ? "none" : "flex", "important");
+    element.style.setProperty("align-self", state.floating && state.floating.record === record ? "flex-start" : "auto", "important");
+  }
+
+  function syncControlOrder(record) {
+    let next = barAnchor(record);
+    const elements = [record.bar && record.bar.element, record.searchUi && record.searchUi.element, record.columns && record.columns.element].filter(Boolean);
+    for (let index = elements.length - 1; index >= 0; index -= 1) {
+      const element = elements[index];
+      if (element.nextSibling !== next) next.before(element);
+      next = element;
+    }
+  }
+
   function highlightImage(selected) {
     const color = selected ? "rgba(31, 117, 254, 0.22)" : "rgba(31, 117, 254, 0.10)";
     return "linear-gradient(" + color + ", " + color + ")";
   }
 
-  function addHighlights(record, desired) {
-    if (!record.hover) return;
-    for (const index of crossCells(record.model, record.hover.index)) {
-      const styles = desired.get(record.elements[index]);
-      if (styles) styles["background-image"] = highlightImage(index === record.hover.index);
+  function highlightStyles(record, index, crossed, matched) {
+    const images = [];
+    const styles = {};
+    if (matched.has(index)) {
+      const color = "rgba(255, 196, 0, 0.35)";
+      images.push("linear-gradient(" + color + ", " + color + ")");
+      if (record.matches[record.search.index] === index) {
+        styles.outline = "2px solid rgba(255, 140, 0, 0.9)";
+        styles["outline-offset"] = "-2px";
+      }
     }
+    if (crossed.has(index)) images.push(highlightImage(index === record.hover.index));
+    if (images.length) styles["background-image"] = images.join(", ");
+    return styles;
+  }
+
+  function addHighlights(record, desired) {
+    const crossed = new Set(record.hover ? crossCells(record.model, record.hover.index) : []);
+    const matched = new Set(record.matches);
+    record.elements.forEach((element, index) => {
+      const styles = desired.get(element);
+      if (styles) Object.assign(styles, highlightStyles(record, index, crossed, matched));
+    });
   }
 
   function updateHover(record, index) {
@@ -632,14 +915,15 @@
     const previous = crossCells(record.model, hover.index);
     const next = new Set(crossCells(record.model, index));
     hover.index = index;
+    const matched = new Set(record.matches);
     for (const changed of new Set([...previous, ...next])) {
       const element = record.elements[changed];
       const styles = record.desired && record.desired.get(element);
       if (!styles) continue;
-      const image = next.has(changed) ? highlightImage(changed === index) : null;
-      if ((styles["background-image"] || null) === image) continue;
-      if (image) styles["background-image"] = image;
-      else delete styles["background-image"];
+      delete styles["background-image"];
+      delete styles.outline;
+      delete styles["outline-offset"];
+      Object.assign(styles, highlightStyles(record, changed, next, matched));
       applyOne(record, element, styles);
     }
   }
@@ -670,6 +954,101 @@
     record.table.addEventListener("pointerleave", onLeave);
   }
 
+  function copyText(cell) {
+    let text = "";
+    function boundary() {
+      if (text && !/\n[^\S\n]*$/.test(text)) text += "\n";
+    }
+    function visit(node) {
+      if (node.nodeType === 3) {
+        text += node.nodeValue;
+        return;
+      }
+      if (node.nodeType !== 1 || node.tagName.toLowerCase() === "svg" || node.getAttribute("aria-hidden") === "true") return;
+      if (node.tagName === "BR") {
+        text += "\n";
+        return;
+      }
+      const block = /^(P|DIV|LI)$/.test(node.tagName);
+      if (block) boundary();
+      for (const child of node.childNodes) visit(child);
+      if (block) boundary();
+    }
+    for (const child of cell.childNodes) visit(child);
+    const lines = text.replace(/\r\n?/g, "\n").split("\n").map((line) => line.replace(/[^\S\n]+/g, " ").trim());
+    while (lines.length && !lines[0]) lines.shift();
+    while (lines.length && !lines[lines.length - 1]) lines.pop();
+    return lines.join("\n");
+  }
+
+  function copyFallback(text) {
+    const focused = document.activeElement;
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("aria-label", "表を写すための一時の欄");
+    setStyles(textarea, { position: "fixed", left: "0", top: "0", opacity: "0", "pointer-events": "none" });
+    try {
+      return write(() => {
+        document.body.appendChild(textarea);
+        textarea.focus({ preventScroll: true });
+        textarea.select();
+        return document.execCommand("copy");
+      });
+    } finally {
+      write(() => textarea.remove());
+      if (focused && focused.isConnected && focused.focus) focused.focus({ preventScroll: true });
+    }
+  }
+
+  async function copyTable(record) {
+    const parts = tableParts(record.table);
+    const hidden = parts.rows.map((row, index) => window.getComputedStyle(row).display === "none" ? index : -1).filter((row) => row >= 0);
+    const matrix = tableMatrix(parts.model, parts.elements.map(copyText), hidden);
+    const tsv = toTsv(matrix);
+    let copied = false;
+    let html = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
+        await navigator.clipboard.write([new ClipboardItem({
+          "text/html": new Blob([toHtml(matrix)], { type: "text/html" }),
+          "text/plain": new Blob([tsv], { type: "text/plain" }),
+        })]);
+        copied = true;
+        html = true;
+      }
+    } catch (error) {
+      // HTML を写せないときは文字だけで試す。
+    }
+    if (!state.active || state.records.get(record.table) !== record || !record.table.isConnected) return;
+    if (!copied) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(tsv);
+          copied = true;
+        }
+      } catch (error) {
+        // 文字だけでも写せないときは一時の欄で試す。
+      }
+    }
+    if (!state.active || state.records.get(record.table) !== record || !record.table.isConnected) return;
+    if (!copied) {
+      try {
+        copied = copyFallback(tsv);
+      } catch (error) {
+        // どの手段でも写せなかったことを知らせる。
+      }
+    }
+    const size = "（" + matrix.rowCount + " 行 × " + matrix.colCount + " 列）";
+    const message = copied ? (html ? "表を写した" : "表を文字だけ写した") + size : "表を写せなかった";
+    write(() => {
+      if (state.notification) {
+        window.clearTimeout(state.notification.timer);
+        state.notification.element.remove();
+      }
+      state.notification = notice(message);
+    });
+  }
+
   function changeCount(record, action) {
     if (!state.active || !record.table.isConnected) return;
     write(() => {
@@ -679,6 +1058,17 @@
       } else if (action === "float") {
         if (state.floating && state.floating.record === record) closeFloating();
         else openFloating(record);
+        return;
+      } else if (action === "search") {
+        if (record.search.open) closeSearch(record);
+        else {
+          record.search.open = true;
+          refresh(record);
+          if (record.searchUi) record.searchUi.input.focus({ preventScroll: true });
+        }
+        return;
+      } else if (action === "copy") {
+        copyTable(record);
         return;
       } else if (action === "wrap-all" || action === "nowrap-all") {
         record.wrap.fill(action === "wrap-all");
@@ -781,7 +1171,7 @@
     const fitHeight = checkbox("fit-height", "枠に収める", "この表だけ枠の高さを画面の 70% に収めて行を固定する（GitLab の Show full table の設定は変えない）");
     const highlight = checkbox("highlight", "強調", "マウスを載せたセルの行と列を色付けする").input;
     const compact = checkbox("compact", "詰める", "セルの余白と文字を小さくして詰めて表示する").input;
-    element.append(button("wrap-all", "すべて折り返す", "すべての列を折り返す"), button("nowrap-all", "すべて折り返さない", "すべての列を折り返さない"), button("float", "全幅で表示", "表を全幅で表示"));
+    element.append(button("wrap-all", "すべて折り返す", "すべての列を折り返す"), button("nowrap-all", "すべて折り返さない", "すべての列を折り返さない"), button("search", "検索", "表の中を検索する"), button("copy", "写す", "表を Excel に貼れる形でクリップボードへ写す（見えている行だけ）"), button("float", "全幅で表示", "表を全幅で表示"));
     return { element, buttons, counts, fixed, separator, scrollX, fitHeight: fitHeight.input, fitHeightLabel: fitHeight.label, highlight, compact };
   }
 
@@ -795,9 +1185,8 @@
     }
     if (!record.bar) record.bar = createBar(record);
     const bar = record.bar;
-    const anchor = barAnchor(record);
-    const next = record.columns ? record.columns.element : anchor;
-    if (bar.element.nextSibling !== next) next.before(bar.element);
+    syncSearch(record);
+    syncControlOrder(record);
     const hasFixed = record.region.rows || record.region.cols;
     bar.fixed.style.setProperty("display", hasFixed ? "inline-flex" : "none", "important");
     bar.separator.style.setProperty("display", hasFixed ? "inline" : "none", "important");
@@ -807,6 +1196,7 @@
     bar.highlight.checked = record.highlight;
     bar.compact.checked = record.compact;
     bar.buttons.pick.setAttribute("aria-pressed", record.picking ? "true" : "false");
+    bar.buttons.search.setAttribute("aria-pressed", record.search.open ? "true" : "false");
     const floating = state.floating && state.floating.record === record;
     bar.buttons.float.textContent = floating ? "閉じる" : "全幅で表示";
     const description = floating ? "全幅の表示を閉じる（Esc）" : "表を全幅で表示";
@@ -889,9 +1279,7 @@
       record.columns = { element, inner, inputs, labels, texts };
     }
     const columns = record.columns;
-    const anchor = barAnchor(record);
-    if (columns.element.nextSibling !== anchor) anchor.before(columns.element);
-    if (record.bar && record.bar.element.nextSibling !== columns.element) columns.element.before(record.bar.element);
+    syncControlOrder(record);
     const names = columnLabels(parts.model, parts.elements.map((cell) => cell.textContent));
     columns.inputs.forEach((input, col) => {
       const name = "列 " + (col + 1) + (names[col] ? "（" + names[col] + "）を折り返す" : " を折り返す");
@@ -958,10 +1346,12 @@
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
     panel.appendChild(record.bar.element);
+    if (record.searchUi) panel.appendChild(record.searchUi.element);
     if (record.columns) panel.appendChild(record.columns.element);
     panel.appendChild(anchor);
     const keydown = (event) => {
       if (event.key !== "Escape" || state.picking) return;
+      if (record.searchUi && record.searchUi.element.contains(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
       write(() => closeFloating());
@@ -984,6 +1374,7 @@
     if (restore && placeholder.isConnected) {
       const anchor = barAnchor(record);
       placeholder.before(record.bar.element);
+      if (record.searchUi) placeholder.before(record.searchUi.element);
       if (record.columns) placeholder.before(record.columns.element);
       placeholder.before(anchor);
     }
@@ -1001,22 +1392,36 @@
       // 固定を外した同じ配置から、行・列とチェックボックスの位置を測る。
       for (const cell of parts.elements) cell.style.setProperty("position", "static", "important");
       const rects = parts.elements.map((cell) => cell.getBoundingClientRect());
-      const origin = rects[parts.model.grid[0][0]];
-      const rowOffsets = parts.rows.map((row) => row.getBoundingClientRect().top - origin.top);
+      const tableRect = parts.elements[0].closest("table").getBoundingClientRect();
+      const shown = rects.map((rect) => rect.width > 0 && rect.height > 0);
+      const first = rects.findIndex((rect, index) => shown[index]);
+      const origin = first >= 0 ? rects[first] : tableRect;
+      const rowRects = parts.rows.map((row) => row.getBoundingClientRect());
+      const rowOffsets = rowRects.map((rect) => rect.top - origin.top);
+      const rowEnds = rowRects.map((rect) => rect.bottom - origin.top);
       const colOffsets = Array(parts.model.colCount).fill(null);
       parts.model.cells.forEach((cell, index) => {
-        if (colOffsets[cell.col] === null) colOffsets[cell.col] = rects[index].left - origin.left;
+        if (shown[index] && colOffsets[cell.col] === null) colOffsets[cell.col] = rects[index].left - origin.left;
       });
+      const right = tableRect.right - origin.left;
       for (let col = 0; col < colOffsets.length; col += 1) {
         if (colOffsets[col] !== null) continue;
-        const index = parts.model.cells.findIndex((cell) => cell.col <= col && col < cell.col + cell.colspan);
-        const cell = parts.model.cells[index];
-        colOffsets[col] = rects[index].left - origin.left + rects[index].width * (col - cell.col) / cell.colspan;
+        const index = parts.model.cells.findIndex((cell, cellIndex) => shown[cellIndex] && cell.col <= col && col < cell.col + cell.colspan);
+        if (index >= 0) {
+          const cell = parts.model.cells[index];
+          colOffsets[col] = rects[index].left - origin.left + rects[index].width * (col - cell.col) / cell.colspan;
+        } else {
+          // 表示中のセルがない列だけ、前後の境目から補間する。
+          let next = col + 1;
+          while (next < colOffsets.length && colOffsets[next] === null) next += 1;
+          const left = col > 0 ? colOffsets[col - 1] : 0;
+          const end = next < colOffsets.length ? colOffsets[next] : right;
+          colOffsets[col] = left + (end - left) / (next - col + 1);
+        }
       }
-      const right = parts.elements[0].closest("table").getBoundingClientRect().right - origin.left;
       const widths = colOffsets.map((left, col) => (col + 1 < colOffsets.length ? colOffsets[col + 1] : right) - left);
       const paddings = parts.elements.map((cell) => parseFloat(window.getComputedStyle(cell).paddingLeft) || 0);
-      return { rowOffsets, colOffsets, paddings, widths, originLeft: origin.left };
+      return { rowOffsets, rowEnds, colOffsets, paddings, widths, originLeft: origin.left };
     } finally {
       parts.elements.forEach((cell, index) => restoreStyle(cell, saved[index]));
     }
@@ -1064,15 +1469,21 @@
     record.elements = parts.elements;
     if (record.hover) record.hover.index = hovered ? parts.elements.indexOf(hovered) : -1;
     record.region = frozenRegion(parts.model);
+    if (record.override.rows !== null) record.override.rows = lowerBoundary(usableRowBoundaries(parts.model), record.override.rows);
+    record.matches = record.search.open ? searchMatches(parts.elements.map((cell) => cell.textContent), record.search.query) : [];
+    if (record.search.index >= record.matches.length) record.search.index = 0;
+    const keepRows = Math.max(headerRowCount(parts.model), record.override.rows === null ? record.region.rows : record.override.rows);
+    record.hiddenRows = record.search.open && record.search.filter && normalizeSearch(record.search.query) ? filterRows(parts.model, record.matches, keepRows) : [];
     record.skipped = parts.model.overlap || (parts.model.cells.length > 0 && parts.model.grid[0][0] === undefined);
     const currentCells = new Set(parts.elements);
+    const currentRows = new Set(parts.rows);
     for (const [cell, inner] of record.inners) {
       if (!currentCells.has(cell) || inner.parentNode !== cell || cell.childNodes.length !== 1 || cell.firstChild !== inner) unwrapInner(record, cell);
     }
     const currentInners = new Set(record.inners.values());
     const anchorBefore = barAnchor(record);
     for (const element of record.originals.keys()) {
-      if (element === record.table || element === record.wrapper || element === record.scroll || element === anchorBefore || currentCells.has(element) || currentInners.has(element)) continue;
+      if (element === record.table || element === record.wrapper || element === record.scroll || element === anchorBefore || currentCells.has(element) || currentRows.has(element) || currentInners.has(element)) continue;
       restoreStyle(element, record.originals.get(element));
       record.applied.delete(element);
       record.originals.delete(element);
@@ -1088,6 +1499,7 @@
       removeColumns(record);
       unwrapContainer(record);
       record.layout = null;
+      removeSearch(record);
       removeBar(record);
       return;
     }
@@ -1116,6 +1528,7 @@
       desired.set(anchor, { display: "flex", "flex-direction": "column", "max-height": "none", "min-height": "0", flex: "0 1 auto", "align-self": "flex-start", margin: "0", "overscroll-behavior": "contain", overflow: "hidden" });
     }
     desired.set(record.table, { ...tableStyles, "border-collapse": "separate", "border-spacing": "0" });
+    for (const row of record.hiddenRows) desired.set(parts.rows[row], { display: "none" });
     const modes = cellWrapModes(parts.model, record.wrap);
     const wrapStyles = modes.map((mode) => mode === "nowrap" ? { "white-space": "nowrap" } : { "white-space": "normal", "overflow-wrap": "anywhere" });
     const compactStyles = record.compact ? { padding: "2px 6px", "line-height": "1.3", "font-size": "0.875em" } : {};
@@ -1147,9 +1560,8 @@
     }
     let measurement = measureLayout(parts);
     let { rowOffsets, colOffsets, paddings } = measurement;
-    if (record.override.rows !== null) record.override.rows = lowerBoundary(usableRowBoundaries(parts.model), record.override.rows);
     let rows = record.override.rows === null ? record.region.rows : record.override.rows;
-    if (record.override.rows === null && rows && rowOffsets[rows] > scroll.clientHeight / 2) rows = 0;
+    if (record.override.rows === null && rows && measurement.rowEnds[rows - 1] > scroll.clientHeight / 2) rows = 0;
     let cols;
     if (record.override.cols === null) {
       cols = frozenRegion(parts.model, rows).cols;
@@ -1159,7 +1571,7 @@
     }
     if (record.override.cols === null && cols && colOffsets[cols] > scroll.clientWidth / 2) cols = 0;
     const roles = cellRoles(parts.model, rows, cols);
-    const fixedHeight = rows ? rowOffsets[rows] : 0;
+    const fixedHeight = rows ? measurement.rowEnds[rows - 1] : 0;
     const fixedWidth = cols ? colOffsets[cols] : 0;
     record.layout = { rows, cols, rowOffsets, colOffsets, roles, fixedHeight, fixedWidth };
     if (!rows && !cols) {
@@ -1248,6 +1660,7 @@
     record.desired = null;
     if (state.floating && state.floating.record === record) closeFloating(state.floating.placeholder.isConnected, false);
     removeColumns(record);
+    removeSearch(record);
     removeBar(record);
     if (state.resize) {
       state.resize.unobserve(record.table);
@@ -1293,6 +1706,7 @@
             table, wrapper: null, scroll: null, sizes: new Map(), originals: new Map(), applied: new Map(),
             inners: new Map(), base: new Map(), borderCache: null, override: { rows: null, cols: null }, bar: null, columns: null, wrap: null, scrollX: false, onScroll: null, printing: false, skipped: false,
             nativeFull: false, fitHeight: false, picking: false, highlight: false, compact: false, hover: null, elements: [], desired: null,
+            search: { open: false, query: "", index: 0, filter: false, composing: false }, searchUi: null, searchTimer: 0, matches: [], hiddenRows: [],
           };
           state.records.set(table, record);
           state.processed.add(table);

@@ -440,10 +440,22 @@ async function checkStickyDetails(headerName) {
   return result;
 }
 
-async function checkMutationScope(cdp) {
-  // 寸法を読む回数を一時的に数え、表の外の更新で測り直していないことを確かめる。
+// headless の Edge は、開いて約 20 秒後などにページを一時に隠し、その間のタイマーを遅らせる。
+// 時間を測る確かめは、測る間に隠れなかった回の結果を使い、隠れたらやり直す（隠れる間は数秒続くことがある）。
+async function whileVisible(cdp, run) {
+  let result;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await waitFor(cdp, 'document.visibilityState === "visible"', "ページが表示に戻らない");
+    await cdp.evaluate('(() => { window.__hiddenDuring = false; if (!window.__visibilityWatch) { window.__visibilityWatch = true; document.addEventListener("visibilitychange", () => { if (document.visibilityState !== "visible") window.__hiddenDuring = true; }); } })()');
+    result = await run();
+    if (!(await cdp.evaluate("window.__hiddenDuring"))) return result;
+  }
+  return result;
+}
+
+async function checkMutationScope(cdp) {  // 寸法を読む回数を一時的に数え、表の外の更新で測り直していないことを確かめる。
   await delay(400);
-  const result = await cdp.evaluate(`(async () => {
+  const result = await whileVisible(cdp, () => cdp.evaluate(`(async () => {
     const tables = { A: window.__fixtureTables.A, D: window.__fixtureTables.D };
     const counts = { A: 0, D: 0 };
     const original = Element.prototype.getBoundingClientRect;
@@ -474,7 +486,7 @@ async function checkMutationScope(cdp) {
       Element.prototype.getBoundingClientRect = original;
       outside.remove();
     }
-  })()`);
+  })()`));
   assert.deepEqual(result.unrelated, { A: 0, D: 0 }, "表の外の更新では表を測り直さない");
   assert.equal(result.related.A, 0, "変化の無い表は測り直さない");
   assert.ok(result.related.D > 0, "中身が変わった表だけを測り直す");
@@ -574,7 +586,7 @@ async function waitFor(cdp, expression, message) {
 }
 
 async function checkContinuousMutations(cdp) {
-  const result = await cdp.evaluate(`(async () => {
+  const result = await whileVisible(cdp, () => cdp.evaluate(`(async () => {
     const outside = document.createElement("div");
     outside.hidden = true;
     const table = document.createElement("table");
@@ -616,7 +628,7 @@ async function checkContinuousMutations(cdp) {
       if (wrapper?.hasAttribute("data-md-table-sticky-wrap")) wrapper.remove();
       outside.remove();
     }
-  })()`);
+  })()`));
   assert.equal(result.fixed, true, "表の外が 100 ms ごとに変わり続けても新しい表を 1.5 秒以内に固定する");
   assert.ok(result.elapsed < 1500, "新しい表を固定するまでの待ちを制限する");
   assert.ok(result.updates >= 3, "固定を確かめるまで表の外の更新を続ける");
@@ -1435,9 +1447,341 @@ async function checkFirstRoundControls(cdp, version) {
   assert.equal(await cdp.evaluate('Array.from(window.__firstRoundPointer.record.table.querySelectorAll("td, th")).every(cell => !cell.style.backgroundImage)'), true, '強調のチェックを外すとすべての強調を消す');
 }
 
+
+// 2 回目の検索・絞り込み・写すを、実際の入力とクリップボードの読み戻しで確かめる。
+function prepareSearchCase(version) {
+  const state = window.__mdTableSticky;
+  const table = version === '19.5' ? window.__workaroundTable : window.__fixtureTables.A;
+  const record = state.records.get(table);
+  const bar = record.bar.element;
+  const action = name => bar.querySelector('[data-md-table-sticky-action="' + name + '"]');
+  action('auto').click();
+  if (!action('scroll-x').checked) action('scroll-x').click();
+  const actions = Array.from(bar.querySelectorAll('[data-md-table-sticky-action]'), element => element.dataset.mdTableStickyAction);
+  action('search').click();
+  const search = bar.nextElementSibling;
+  const input = search.querySelector('[data-md-table-sticky-search-input]');
+  const anchor = record.wrapper || record.scroll.closest('.gl-table-shadow-overlay') || record.scroll;
+  window.__searchCase = { record, bar, search, input, anchor };
+  return {
+    order: actions.indexOf('nowrap-all') < actions.indexOf('search') && actions.indexOf('search') < actions.indexOf('copy') && actions.indexOf('copy') < actions.indexOf('float'),
+    pressed: action('search').getAttribute('aria-pressed'),
+    searchLabel: action('search').getAttribute('aria-label'),
+    copyLabel: action('copy').getAttribute('aria-label'),
+    line: search.hasAttribute('data-md-table-sticky-search') && search.nextElementSibling === record.columns.element && record.columns.element.nextElementSibling === anchor && search.parentElement === anchor.parentElement && !anchor.contains(search),
+    focused: document.activeElement === input,
+    input: input.type === 'search' && input.getAttribute('aria-label') === '表の中を検索' && input.placeholder === '表の中を検索',
+    count: search.querySelector('[data-md-table-sticky-search-count]').textContent,
+    live: search.querySelector('[data-md-table-sticky-search-count]').getAttribute('aria-live'),
+    labels: [['search-prev', '前の一致へ移る（Shift+Enter）'], ['search-next', '次の一致へ移る（Enter）'], ['search-filter', '一致するセルのある行だけを表示する'], ['search-close', '検索を閉じる（Esc）']].every(([name, label]) => {
+      const element = search.querySelector('[data-md-table-sticky-action="' + name + '"]');
+      return element && element.title === label && element.getAttribute('aria-label') === label && !element.classList.contains('task-list-item-checkbox');
+    }),
+  };
+}
+
+function inspectSearchCase() {
+  const { record, bar } = window.__searchCase;
+  const search = bar.nextElementSibling;
+  const input = search.querySelector('[data-md-table-sticky-search-input]');
+  const elements = Array.from(record.table.rows).flatMap(row => Array.from(row.cells));
+  const normalize = text => text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+  const query = normalize(input.value);
+  const matched = elements.flatMap((element, index) => query && normalize(element.textContent).includes(query) ? [index] : []);
+  const yellow = elements.flatMap((element, index) => /255,\s*196,\s*0/.test(getComputedStyle(element).backgroundImage) ? [index] : []);
+  const current = elements.flatMap((element, index) => getComputedStyle(element).outlineStyle === 'solid' && /255,\s*140,\s*0/.test(getComputedStyle(element).outlineColor) ? [index] : []);
+  const cell = elements[current[0]];
+  const rect = cell?.getBoundingClientRect();
+  const wrap = record.scroll.getBoundingClientRect();
+  const style = getComputedStyle(record.scroll);
+  const role = record.layout.roles[current[0]];
+  return {
+    count: search.querySelector('[data-md-table-sticky-search-count]').textContent,
+    matched, yellow, current,
+    visible: !!rect && (role?.top || rect.top >= wrap.top + record.scroll.clientTop + parseFloat(style.scrollPaddingTop || 0) - 1) && (role?.left || rect.left >= wrap.left + record.scroll.clientLeft + parseFloat(style.scrollPaddingLeft || 0) - 1) && rect.top < wrap.top + record.scroll.clientHeight && rect.left < wrap.left + record.scroll.clientWidth,
+    visibleRows: Array.from(record.table.rows).flatMap((row, index) => getComputedStyle(row).display === 'none' ? [] : [index]),
+    filter: search.querySelector('[data-md-table-sticky-action="search-filter"]').checked,
+    background: cell ? getComputedStyle(cell).backgroundImage : '',
+  };
+}
+
+function copyExpectation() {
+  const { record } = window.__searchCase;
+  const rows = Array.from(record.table.rows).filter(row => getComputedStyle(row).display !== 'none');
+  const grid = Array.from({ length: rows.length }, () => []);
+  const cells = [];
+  let cols = 0;
+  rows.forEach((row, r) => {
+    let col = 0;
+    for (const cell of row.cells) {
+      while (grid[r][col] !== undefined) col++;
+      const text = cell.textContent.replace(/\s+/g, ' ').trim();
+      const rowspan = cell.rowSpan || rows.length - r;
+      cells.push({ row: r, col, rowspan, colspan: cell.colSpan, header: cell.tagName === 'TH', text });
+      for (let rr = r; rr < r + rowspan; rr++) {
+        for (let cc = col; cc < col + cell.colSpan; cc++) grid[rr][cc] = rr === r && cc === col ? text : '';
+      }
+      col += cell.colSpan;
+      cols = Math.max(cols, col);
+    }
+  });
+  const quote = text => /[\t\r\n"]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  return { rows: rows.length, cols, cells, tsv: grid.map(row => Array.from({ length: cols }, (_, col) => quote(row[col] || '')).join('\t')).join('\r\n') + '\r\n' };
+}
+
+
+// 実際のクリップボードを使えない環境でも、文字の取り出しと代替の順番を確かめる。
+async function exerciseCopyFallbacks() {
+  const checks = [];
+  const check = (pass, message) => checks.push({ pass: !!pass, message });
+  const state = window.__mdTableSticky;
+  const record = state.records.get(window.__fixtureTables.F);
+  const table = record.table;
+  const cell = table.rows[table.rows.length - 1].cells[1];
+  const savedNodes = Array.from(cell.childNodes);
+  const saved = [
+    [navigator, 'clipboard', Object.getOwnPropertyDescriptor(navigator, 'clipboard')],
+    [window, 'ClipboardItem', Object.getOwnPropertyDescriptor(window, 'ClipboardItem')],
+    [document, 'execCommand', Object.getOwnPropertyDescriptor(document, 'execCommand')],
+  ];
+  const define = (owner, name, value) => Object.defineProperty(owner, name, { configurable: true, writable: true, value });
+  const inputCount = document.querySelectorAll('textarea[aria-label="表を写すための一時の欄"]').length;
+  try {
+    try {
+      define(navigator, 'clipboard', {});
+      define(window, 'ClipboardItem', class { constructor(data) { this.data = data; } });
+      define(document, 'execCommand', () => false);
+    } catch (error) {
+      return { unsupported: 'コピーの API を試験用に差し替えられない: ' + error.message, checks };
+    }
+    cell.innerHTML = '\n<p>  先頭   の文<br> 次  の行 </p><div>まとまり</div><ul><li> 項目  1 </li><li>項目 2<svg><text>除く svg</text></svg><span aria-hidden="true">除く aria</span></li></ul>\n';
+    const richText = '先頭 の文\n次 の行\nまとまり\n項目 1\n項目 2';
+    const quote = text => /[\t\r\n"]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+    const expected = Array.from(table.rows, row => Array.from(row.cells, item => quote(item === cell ? richText : item.textContent.replace(/\s+/g, ' ').trim())).join('\t')).join('\r\n') + '\r\n';
+    const size = '（' + table.rows.length + ' 行 × 2 列）';
+    const textareaValue = expected.replace(/\r\n/g, '\n');
+    const run = async (clipboard, command) => {
+      define(navigator, 'clipboard', clipboard);
+      define(document, 'execCommand', command);
+      const before = state.notification;
+      record.bar.element.querySelector('[data-md-table-sticky-action="copy"]').click();
+      for (let attempt = 0; attempt < 50 && state.notification === before; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      return state.notification?.element.textContent;
+    };
+    const primary = {};
+    const richNotice = await run({ write: async items => {
+      for (const [type, blob] of Object.entries(items[0].data)) primary[type] = await blob.text();
+    } }, () => { throw new Error('HTML を写せたら代替へ進めない'); });
+    check(primary['text/plain'] === expected, 'br・p・div・li の境目を改行にし、各行の空白と前後の空行を整えて TSV にする');
+    const htmlCell = new DOMParser().parseFromString(primary['text/html'] || '', 'text/html').querySelector('table')?.rows[table.rows.length - 1]?.cells[1];
+    check(htmlCell?.innerHTML === '先頭 の文<br>次 の行<br>まとまり<br>項目 1<br>項目 2', 'HTML に改行を br で残し、svg と aria-hidden の子の文字を写さない');
+    check(richNotice === '表を写した' + size, 'HTML と文字を写せたときは通常の知らせを出す');
+    const calls = [];
+    let written = '';
+    const plainNotice = await run({
+      write: async () => { calls.push('write'); throw new Error('試験用の HTML の失敗'); },
+      writeText: async text => { calls.push('writeText'); written = text; },
+    }, () => { calls.push('execCommand'); return true; });
+    check(calls.join(',') === 'write,writeText' && written === expected, 'HTML の書き込みが失敗したら同じ TSV を writeText で写す');
+    check(plainNotice === '表を文字だけ写した' + size, 'writeText で写せたときは文字だけの知らせを出す');
+    let temporary = null;
+    let temporaryValid = false;
+    calls.length = 0;
+    const fallbackNotice = await run({
+      write: async () => { calls.push('write'); throw new Error('試験用の HTML の失敗'); },
+      writeText: async () => { calls.push('writeText'); throw new Error('試験用の文字の失敗'); },
+    }, command => {
+      calls.push(command);
+      temporary = document.activeElement;
+      temporaryValid = temporary?.tagName === 'TEXTAREA' && temporary.parentElement === document.body && !temporary.closest('.md') && temporary.value === textareaValue && temporary.selectionStart === 0 && temporary.selectionEnd === textareaValue.length;
+      return true;
+    });
+    check(calls.join(',') === 'write,writeText,copy' && temporaryValid, '両方の API が失敗したら body 直下の一時の欄で TSV 全体を選んで copy する');
+    check(!temporary?.isConnected && document.querySelectorAll('textarea[aria-label="表を写すための一時の欄"]').length === inputCount, '代替で写した後は一時の欄を残さない');
+    check(fallbackNotice === '表を文字だけ写した' + size, '一時の欄で写せたときも文字だけの知らせを出す');
+    const failedNotice = await run({}, () => false);
+    check(failedNotice === '表を写せなかった', '両方の API がなく代替の copy も失敗したら失敗を知らせる');
+    check(document.querySelectorAll('textarea[aria-label="表を写すための一時の欄"]').length === inputCount, '失敗した後も一時の欄を残さない');
+    return { checks };
+  } finally {
+    cell.replaceChildren(...savedNodes);
+    for (const [owner, name, descriptor] of saved) {
+      if (descriptor) Object.defineProperty(owner, name, descriptor);
+      else delete owner[name];
+    }
+  }
+}
+
+async function checkSearchControls(cdp, t, version) {
+  const frame = () => cdp.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  const inspect = () => cdp.evaluate('(' + inspectSearchCase.toString() + ')()');
+  const type = async query => {
+    await cdp.evaluate('(() => { const input = window.__searchCase.bar.nextElementSibling.querySelector("[data-md-table-sticky-search-input]"); input.focus(); input.select(); })()');
+    await cdp.send('Input.insertText', { text: query });
+    await delay(220);
+    await frame();
+  };
+  const key = async (name, shift = false) => {
+    const keyCode = name === 'Enter' ? 13 : 27;
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: name, code: name, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode, modifiers: shift ? 8 : 0 });
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: name, code: name, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode, modifiers: shift ? 8 : 0 });
+    await frame();
+  };
+  const setup = await cdp.evaluate('(' + prepareSearchCase.toString() + ')(' + JSON.stringify(version) + ')');
+  assert.equal(setup.order, true, '帯に折り返さない・検索・写す・全幅の順で並べる');
+  assert.equal(setup.pressed, 'true', '検索を開くと aria-pressed を true にする');
+  assert.equal(setup.searchLabel, '表の中を検索する');
+  assert.equal(setup.copyLabel, '表を Excel に貼れる形でクリップボードへ写す（見えている行だけ）');
+  assert.equal(setup.line && setup.focused && setup.input && setup.labels, true, '検索行を帯と列帯の間の Vue の包みの外へ置き、日本語の説明と欄のフォーカスを付ける');
+  assert.equal(setup.count, '');
+  assert.equal(setup.live, 'polite');
+  // 見出しの「店舗」は含めず、本文の 30 店だけに一致させる。
+  await type('の店');
+  let result = await inspect();
+  assert.equal(result.matched.length, 30, '標本の 30 店のセルが検索に一致する');
+  assert.equal(result.count, '1 / 30 件', '150 ms を過ぎると最初の一致と総数を表示する');
+  assert.deepEqual(result.yellow, result.matched, '一致したセルだけに黄色を重ねる');
+  assert.deepEqual(result.current, [result.matched[0]], '今の一致だけに輪郭を付ける');
+  await key('Enter', true);
+  result = await inspect();
+  assert.equal(result.count, '30 / 30 件', '最初の一致の Shift+Enter で最後へ回る');
+  assert.deepEqual(result.current, [result.matched.at(-1)]);
+  assert.equal(result.visible, true, '最後の本文の一致へ移しても固定した見出しと列の下に隠さない');
+  await key('Enter');
+  assert.equal((await inspect()).count, '1 / 30 件', '最後の一致の Enter で最初へ回る');
+  await key('Enter');
+  assert.equal((await inspect()).count, '2 / 30 件', 'Enter で次の一致へ移る');
+  await cdp.evaluate('(() => { const input = window.__searchCase.input; input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true })); input.value = "一致しない文字列"; input.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true })); })()');
+  await delay(220);
+  assert.equal((await inspect()).count, '2 / 30 件', 'IME の変換中は入力の一致を取り直さない');
+  await key('Enter');
+  assert.equal((await inspect()).count, '2 / 30 件', '変換中の Enter で一致を進めない');
+  await cdp.evaluate('window.__searchCase.input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }))');
+  await delay(220);
+  result = await inspect();
+  assert.equal(result.count, '0 件', '変換が終わると文字を取り直す');
+  assert.deepEqual(result.yellow, []);
+  await type('地域');
+  const stationary = await cdp.evaluate('(() => { const scroll = window.__searchCase.record.scroll; scroll.scrollTop = 150; scroll.scrollLeft = 200; return [scroll.scrollTop, scroll.scrollLeft]; })()');
+  await key('Enter');
+  assert.deepEqual(await cdp.evaluate('[window.__searchCase.record.scroll.scrollTop, window.__searchCase.record.scroll.scrollLeft]'), stationary, '固定した一致へ移るときは枠の中をスクロールしない');
+  await type('西の店 2');
+  await cdp.evaluate('window.__searchCase.bar.nextElementSibling.querySelector(\'[data-md-table-sticky-action="search-filter"]\').click()');
+  await frame();
+  result = await inspect();
+  assert.deepEqual(result.visibleRows, [0, 1, 8, 9, 10, 11, 12, 13], '店の 2 行目だけが一致しても地域の rowspan=6 の全行と見出しだけを残す');
+  const secondHeader = await cdp.evaluate('(() => { const { record } = window.__searchCase; const rows = record.table.rows; return { top: parseFloat(rows[1].cells[0].style.top), height: rows[0].getBoundingClientRect().height }; })()');
+  near(secondHeader.top, secondHeader.height, '絞り込んだ後も 2 行目の見出しを 1 行目の高さの下へ固定する');
+  await cdp.evaluate('(() => { const { record, bar } = window.__searchCase; const highlight = bar.querySelector(\'[data-md-table-sticky-action="highlight"]\'); if (!highlight.checked) highlight.click(); const cell = Array.from(record.table.rows).flatMap(row => Array.from(row.cells)).find(cell => cell.textContent.trim() === "西の店 2"); cell.scrollIntoView({ block: "nearest", inline: "nearest" }); record.scroll.scrollIntoView({ block: "start", inline: "nearest" }); window.__searchHoverCell = cell; })()');
+  await frame();
+  const point = await cdp.evaluate('(() => { const rect = window.__searchHoverCell.getBoundingClientRect(); return { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 }; })()');
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+  await frame();
+  assert.equal(await cdp.evaluate('(getComputedStyle(window.__searchHoverCell).backgroundImage.match(/linear-gradient/g) || []).length'), 2, '一致したセルに載ると検索と行・列の強調を 2 枚重ねる');
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 });
+  await frame();
+  result = await inspect();
+  assert.deepEqual(result.yellow, result.matched, 'マウスを外しても検索の黄色を残す');
+  await t.test(version + ' のクリップボード', async clip => {
+    try {
+      await cdp.send('Browser.grantPermissions', { permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] });
+      const available = await cdp.evaluate('!!(navigator.clipboard?.read && navigator.clipboard?.write && window.ClipboardItem)');
+      if (!available) {
+        clip.skip('headless のクリップボードで HTML の書き込みまたは読み戻しの API が使えない');
+        return;
+      }
+    } catch (error) {
+      clip.skip('headless のクリップボードの権限を与えられない: ' + error.message);
+      return;
+    }
+    const expected = await cdp.evaluate('(' + copyExpectation.toString() + ')()');
+    const position = await cdp.evaluate('(() => { const button = window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="copy"]\'); button.scrollIntoView({ block: "center", inline: "nearest" }); const rect = button.getBoundingClientRect(); return { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 }; })()');
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...position, button: 'left', clickCount: 1 });
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...position, button: 'left', clickCount: 1 });
+    await delay(100);
+    let copied;
+    try {
+      copied = await cdp.evaluate('(async () => { const result = {}; for (const item of await navigator.clipboard.read()) for (const type of item.types) result[type] = await (await item.getType(type)).text(); return result; })()');
+    } catch (error) {
+      clip.skip('headless のクリップボードを読み戻せない: ' + error.message);
+      return;
+    }
+    assert.equal(copied['text/plain'], expected.tsv, '見えている行の TSV は結合セルの左上だけに値を持ち、今の DOM の順で写す');
+    assert.ok(copied['text/html'], 'HTML も同時に写す');
+    const html = await cdp.evaluate('(' + ((text) => {
+      const table = new DOMParser().parseFromString(text, 'text/html').querySelector('table');
+      return { rows: table?.rows.length, cells: table ? Array.from(table.rows).flatMap(row => Array.from(row.cells, cell => ({ text: cell.textContent, rowspan: cell.rowSpan, colspan: cell.colSpan, header: cell.tagName === 'TH' }))) : [] };
+    }).toString() + ')(' + JSON.stringify(copied['text/html']) + ')');
+    assert.equal(html.rows, expected.rows, 'HTML は見出しと見えている 6 行だけを持つ');
+    assert.deepEqual(html.cells, expected.cells.map(({ text, rowspan, colspan, header }) => ({ text, rowspan, colspan, header })), 'HTML は見えている行の結合と th・td を残す');
+    assert.equal(await cdp.evaluate('Array.from(document.querySelectorAll("body > [role=status]")).at(-1)?.textContent'), '表を写した（' + expected.rows + ' 行 × ' + expected.cols + ' 列）', 'HTML と TSV を写した行数・列数を知らせる');
+    await cdp.evaluate('(() => { const table = window.__fixtureTables.D; const rows = Array.from(table.tBodies[0].rows); window.__copySortCase = { table, rows, arias: Array.from(table.tHead.rows[0].cells, cell => cell.getAttribute("aria-sort")) }; const button = table.querySelector("thead th button"); button.click(); if (table.tBodies[0].rows[0] !== rows.at(-1)) button.click(); })()');
+    try {
+      await waitFor(cdp, 'window.__copySortCase.table.tBodies[0].rows[0] === window.__copySortCase.rows.at(-1)', '写す前に並べ替えのボタンで本文を降順へ変える');
+      await delay(220);
+      await frame();
+      const sortedExpected = await cdp.evaluate('(() => { const { table, rows } = window.__copySortCase; const text = cell => cell.textContent.replace(/\\s+/g, " ").trim(); return { firstColumn: [text(table.rows[0].cells[0]), ...rows.slice().reverse().map(row => text(row.cells[0]))], tsv: Array.from(table.rows, row => Array.from(row.cells, text).join("\\t")).join("\\r\\n") + "\\r\\n" }; })()');
+      const sortedPosition = await cdp.evaluate('(() => { const record = window.__mdTableSticky.records.get(window.__copySortCase.table); const button = record.bar.element.querySelector(\'[data-md-table-sticky-action="copy"]\'); button.scrollIntoView({ block: "center", inline: "nearest" }); const rect = button.getBoundingClientRect(); return { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 }; })()');
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...sortedPosition, button: 'left', clickCount: 1 });
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...sortedPosition, button: 'left', clickCount: 1 });
+      await delay(100);
+      let sortedCopied;
+      try {
+        sortedCopied = await cdp.evaluate('(async () => { const result = {}; for (const item of await navigator.clipboard.read()) for (const type of item.types) result[type] = await (await item.getType(type)).text(); return result; })()');
+      } catch (error) {
+        clip.skip('headless の並べ替え後のクリップボードを読み戻せない: ' + error.message);
+        return;
+      }
+      assert.equal(sortedCopied['text/plain'], sortedExpected.tsv, '並べ替えのボタンで変えた現在の DOM の順で TSV を写す');
+      const firstColumn = await cdp.evaluate('(' + (text => {
+        const table = new DOMParser().parseFromString(text, 'text/html').querySelector('table');
+        return table ? Array.from(table.rows, row => row.cells[0].textContent) : [];
+      }).toString() + ')(' + JSON.stringify(sortedCopied['text/html'] || '') + ')');
+      assert.deepEqual(firstColumn, sortedExpected.firstColumn, 'HTML の本文も並べ替える前の逆順になり、見出しは先頭へ残る');
+    } finally {
+      await cdp.evaluate('(() => { const { table, rows, arias } = window.__copySortCase; table.tBodies[0].append(...rows); Array.from(table.tHead.rows[0].cells).forEach((cell, index) => { if (arias[index] === null) cell.removeAttribute("aria-sort"); else cell.setAttribute("aria-sort", arias[index]); }); })()');
+      await frame();
+    }
+
+  });
+  await t.test(version + ' の文字の取り出しと代替コピー', async fallback => {
+    const result = await cdp.evaluate('(' + exerciseCopyFallbacks.toString() + ')()');
+    if (result.unsupported) {
+      fallback.skip(result.unsupported);
+      return;
+    }
+    for (const check of result.checks) assert.equal(check.pass, true, check.message);
+  });
+  await cdp.evaluate('window.__searchCase.bar.nextElementSibling.querySelector(\'[data-md-table-sticky-action="search-filter"]\').click()');
+  await frame();
+  assert.equal((await inspect()).visibleRows.length, 32, '絞り込みを外すとすべての行を戻す');
+  await cdp.evaluate('window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="float"]\').click()');
+  await frame();
+  assert.equal(await cdp.evaluate('(() => { const { bar, anchor, record } = window.__searchCase; const search = bar.nextElementSibling; const panel = document.querySelector("[data-md-table-sticky-float-panel]"); return panel.children[0] === bar && panel.children[1] === search && search.hasAttribute("data-md-table-sticky-search") && panel.children[2] === record.columns.element && panel.children[3] === anchor; })()'), true, '全幅の板へ検索行も帯・検索・列帯・枠の順で移す');
+  await cdp.evaluate('window.__searchCase.bar.nextElementSibling.querySelector("[data-md-table-sticky-search-input]").focus()');
+  await key('Escape');
+  assert.equal(await cdp.evaluate('!!document.querySelector("[data-md-table-sticky-float]") && window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="search"]\').getAttribute("aria-pressed") === "false"'), true, '検索欄の Esc 1 回目は検索だけを閉じる');
+  await key('Escape');
+  assert.equal(await cdp.evaluate('(() => { const { bar, anchor, record } = window.__searchCase; return !document.querySelector("[data-md-table-sticky-float]") && bar.nextElementSibling === record.columns.element && record.columns.element.nextElementSibling === anchor; })()'), true, 'Esc 2 回目で全幅を閉じて元の並びへ戻す');
+  await cdp.evaluate('window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="search"]\').click()');
+  assert.equal(await cdp.evaluate('(() => { const { bar } = window.__searchCase; const search = bar.nextElementSibling; return search.querySelector("input[type=search]").value === "" && search.querySelector("[data-md-table-sticky-search-count]").textContent === "" && !search.querySelector(\'[data-md-table-sticky-action="search-filter"]\').checked; })()'), true, '検索を閉じると欄・件数・絞り込みを空へ戻す');
+  await cdp.evaluate('window.dispatchEvent(new Event("beforeprint"))');
+  assert.equal(await cdp.evaluate('window.__searchCase.bar.nextElementSibling.getClientRects().length === 0'), true, '印刷の前は検索行を隠す');
+  await cdp.evaluate('window.dispatchEvent(new Event("afterprint"))');
+  await frame();
+  assert.equal(await cdp.evaluate('window.__searchCase.bar.nextElementSibling.hasAttribute("data-md-table-sticky-search") && window.__searchCase.bar.nextElementSibling.getClientRects().length > 0'), true, '印刷の後に検索行を戻す');
+  await cdp.evaluate('window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="search"]\').click()');
+  assert.equal(await cdp.evaluate('window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="search"]\').getAttribute("aria-pressed") === "false" && window.__searchCase.bar.nextElementSibling === window.__searchCase.record.columns.element'), true, '検索ボタンをもう一度押しても検索を閉じる');
+  await cdp.evaluate('window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="search"]\').click()');
+  await cdp.evaluate('window.__searchCase.bar.nextElementSibling.querySelector(\'[data-md-table-sticky-action="search-close"]\').click()');
+  assert.equal(await cdp.evaluate('document.activeElement === window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="search"]\')'), true, '閉じるボタンで検索を閉じると帯の検索へフォーカスを戻す');
+}
+
 async function checkOwnedMutationScope(cdp, bookmarklet) {
   // 自分の帯・列帯・板の追加と削除から、遅れて表を測り直さないことを確かめる。
-  const result = await cdp.evaluate('(async () => {\n' +
+  const result = await whileVisible(cdp, () => cdp.evaluate('(async () => {\n' +
     'const run = ' + JSON.stringify(bookmarklet) + ';\n' +
     'const tables = { A: window.__fixtureTables.A, D: window.__fixtureTables.D };\n' +
     'const counts = { A: 0, D: 0 };\n' +
@@ -1455,7 +1799,7 @@ async function checkOwnedMutationScope(cdp, bookmarklet) {
     'bar.querySelector(\'[data-md-table-sticky-action="float"]\').click(); await settle();\n' +
     'return delayed;\n' +
     '} finally { Element.prototype.getBoundingClientRect = original; }\n' +
-    '})()');
+    '})()'));
   assert.deepEqual(result, Array.from({ length: 5 }, () => ({ A: 0, D: 0 })), '帯・列帯・板を作る操作の後に見張りが余分な測り直しを走らせない');
 }
 
@@ -1527,7 +1871,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
     assert.ok(url.startsWith("javascript:"));
     const bookmarklet = decodeURIComponent(url.slice("javascript:".length));
     for (const version of ["master", "19.5"]) {
-      await t.test(version + " の表", async () => {
+      await t.test(version + " の表", async (versionTest) => {
         await checkRawNowrap(cdp, directory, version, bookmarklet);
         const pageUrl = await createPage(directory, version);
         await cdp.send("Page.navigate", { url: pageUrl });
@@ -1622,6 +1966,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         await checkDisplayControls(cdp);
         await checkOwnedMutationScope(cdp, bookmarklet);
         await checkFirstRoundControls(cdp, version);
+        await checkSearchControls(cdp, versionTest, version);
         assert.equal(await cdp.evaluate("window.__fixtureTables.H.closest('details').open"), false, "details はまだ閉じている");
         await cdp.evaluate("window.__fixtureTables.H.closest('details').open = true");
         let expanded = false;
@@ -1647,8 +1992,15 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         assert.equal(await cdp.evaluate("!!document.querySelector('[data-md-table-sticky-float]')"), true, "全幅の表示を開いたまま解除する");
         await cdp.evaluate('(() => { const record = window.__mdTableSticky.records.get(window.__fixtureTables.A); for (const name of ["highlight", "compact", "pick"]) record.bar.element.querySelector(\'[data-md-table-sticky-action="\' + name + \'"]\').click(); window.__cleanupPickCell = record.table.rows[2].cells[1]; })()');
         assert.equal(await cdp.evaluate('!!window.__mdTableSticky.picking'), true, 'セルを選ぶ状態のまま解除する');
+        await cdp.evaluate('(() => { const record = window.__mdTableSticky.records.get(window.__fixtureTables.A); record.bar.element.querySelector(\'[data-md-table-sticky-action="search"]\').click(); const input = record.bar.element.nextElementSibling.querySelector("[data-md-table-sticky-search-input]"); window.__cleanupSearch = { record, input }; input.focus(); })()');
+        await cdp.send('Input.insertText', { text: '西の店 2' });
+        await delay(220);
+        await cdp.evaluate('window.__cleanupSearch.record.bar.element.nextElementSibling.querySelector(\'[data-md-table-sticky-action="search-filter"]\').click()');
+        await cdp.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+        assert.equal(await cdp.evaluate('Array.from(window.__cleanupSearch.record.table.rows).some(row => getComputedStyle(row).display === "none")'), true, '検索行を開き、絞り込んだまま解除する');
+        await cdp.evaluate('(() => { const input = window.__cleanupSearch.input; input.value = "解除前の入力"; input.dispatchEvent(new InputEvent("input", { bubbles: true })); })()');
         await cdp.evaluate(bookmarklet);
-        assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-float], [data-md-table-sticky-placeholder], [data-md-table-sticky-columns]').length"), 0, "解除すると全幅の背景・代わりの要素・列のチェックボックスを消す");
+        assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-float], [data-md-table-sticky-placeholder], [data-md-table-sticky-columns], [data-md-table-sticky-search]').length"), 0, "解除すると全幅の背景・代わりの要素・列帯・検索行を消す");
         assert.equal(await cdp.evaluate("typeof window.__mdTableSticky"), "undefined", "固定の状態を消す");
         assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-bar]').length"), 0, "固定を外すと帯も消す");
         // mimic の高さのボタンは ResizeObserver で付け外しするので、表の寸法が戻って知らせが届くまで待つ。
@@ -1656,6 +2008,11 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         const restored = await cdp.evaluate("Array.from(document.querySelectorAll('.md'), md => md.innerHTML)");
         const before = await cdp.evaluate("window.__beforeHtml");
         assert.deepEqual(restored, before, "もう一度押すと Markdown の DOM を元へ戻す");
+        await cdp.evaluate('(() => { const { record, input } = window.__cleanupSearch; window.__cleanupSearch.after = JSON.stringify(record.search); input.value = "解除後の入力"; input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true })); input.dispatchEvent(new InputEvent("input", { bubbles: true })); input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })); input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); })()');
+        await delay(220);
+        await cdp.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+        assert.equal(await cdp.evaluate('JSON.stringify(window.__cleanupSearch.record.search) === window.__cleanupSearch.after'), true, '解除した検索欄に入力・変換・Enter を送っても受け手が残っていない');
+        assert.deepEqual(await cdp.evaluate("Array.from(document.querySelectorAll('.md'), md => md.innerHTML)"), before, '解除前の入力タイマーの期限が過ぎても元の DOM を保つ');
         assert.equal(await cdp.evaluate('(() => { let received = false; const cell = window.__cleanupPickCell; cell.addEventListener("click", event => { received = !event.defaultPrevented; event.preventDefault(); }, { once: true }); cell.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); return received; })()'), true, '選ぶ状態で解除しても、その後のセルのクリックを止めない');
         await checkDynamic(cdp, bookmarklet);
       });

@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = await readFile(new URL("../src/sticky-table.js", import.meta.url), "utf8");
 const context = { module: { exports: {} } };
 vm.runInNewContext(source, context, { filename: "src/sticky-table.js" });
-const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, pickBoundaries, crossCells } = context.module.exports;
+const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, pickBoundaries, crossCells, searchMatches, filterRows, tableMatrix, toTsv, toHtml } = context.module.exports;
 const th = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: true });
 const td = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: false });
 const many = (count, make = td) => Array.from({ length: count }, () => make());
@@ -832,4 +832,136 @@ test("見出しと折り返しの計算は入力を書き換えず、新しい�
   modes[0] = "変更";
   minimums[0] = 999;
   assert.equal(JSON.stringify({ model, texts, nowrapFlags, wrap, widths }), before);
+});
+
+// 検索は表示の文字を正規化し、結合セルもセルごとに一度だけ数える。
+test("表内検索は全角・半角、大文字・小文字、連続する空白を同じ形で比べる", () => {
+  const texts = [" ＡＢＣ\t  東\n の店 ", "abc 東 の店", "別の店", "前abc 東 の店後"];
+  assert.deepEqual(plain(searchMatches(texts, "　AbC  東\tの店　")), [0, 1, 3]);
+  for (const query of ["", " \t\n　"]) assert.deepEqual(plain(searchMatches(texts, query)), []);
+  assert.deepEqual(plain(searchMatches(texts, "見つからない")), []);
+});
+
+test("結合セルの検索も行・列のセルの順で返す", () => {
+  const model = buildGrid(body([[th(2, 2), td()], [td()], many(3)]));
+  const texts = ["結合した対象", "対象 1", "対象 2", "本文", "対象 3", "本文"];
+  const matches = plain(searchMatches(texts, "対象"));
+  assert.deepEqual(matches, [0, 1, 2, 4]);
+  assert.equal(model.cells[matches[0]].rowspan, 2);
+  assert.equal(model.cells[matches[0]].colspan, 2);
+});
+
+test("表 A の 6 行のまとまりは 2 行目だけの一致でも全体を残す", () => {
+  const model = buildGrid(samples.A());
+  const matched = [model.cells.findIndex(cell => cell.row === 9 && cell.col === 1)];
+  assert.deepEqual(plain(filterRows(model, matched, 2)), [
+    ...Array.from({ length: 6 }, (_, i) => i + 2),
+    ...Array.from({ length: 18 }, (_, i) => i + 14),
+  ]);
+});
+
+test("rowspan のつながりを推移的にたどり、まとまりの途中の一致を残す", () => {
+  const model = buildGrid(body([
+    many(3, th),
+    [td(2), td(), td()],
+    [td(2), td()],
+    [td(), td()],
+    many(3),
+  ]));
+  const matched = [model.cells.findIndex(cell => cell.row === 3 && cell.col === 2)];
+  assert.deepEqual(plain(filterRows(model, matched, 1)), [4]);
+});
+
+test("本文の区切りは後ろに残るまとまりがあるときだけ残す", () => {
+  const model = buildGrid(body([
+    many(3, th),
+    [td(1, 3)],
+    many(3),
+    [td(1, 3)],
+    [td(2), td(), td()],
+    [td(), td()],
+    [td(1, 3)],
+    many(3),
+  ]));
+  const inSecondPart = model.cells.findIndex(cell => cell.row === 5 && cell.col === 1);
+  assert.deepEqual(plain(filterRows(model, [inSecondPart], 1)), [1, 2, 6, 7]);
+  const divider = model.cells.findIndex(cell => cell.row === 1);
+  assert.deepEqual(plain(filterRows(model, [divider], 1)), [2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(plain(filterRows(model, [], 1)), [1, 2, 3, 4, 5, 6, 7]);
+});
+
+test("thead・tfoot と keepRows の先頭の行は一致が 0 件でも残す", () => {
+  const model = buildGrid([
+    group("thead", [many(3, th), many(3, th)]),
+    group("tbody", [many(3), many(3), many(3)]),
+    group("tfoot", [many(3)]),
+  ]);
+  assert.deepEqual(plain(filterRows(model, [], 3)), [3, 4]);
+  assert.deepEqual(plain(filterRows(model, [], 0)), [2, 3, 4]);
+  assert.deepEqual(plain(filterRows(buildGrid(samples.A()), [], 2)), Array.from({ length: 30 }, (_, i) => i + 2));
+});
+
+test("必ず残す行に rowspan のまとまりがかかる場合は結合を分けずに残す", () => {
+  const model = buildGrid(body([many(2, th), [td(2), td()], [td()], many(2)]));
+  assert.deepEqual(plain(filterRows(model, [], 2)), [3]);
+});
+
+test("写す格子は隠した行を除き、結合セルの左上だけに文字を入れる", () => {
+  const model = buildGrid(body([[th(2), th(1, 2)], [th(), th()], many(3), many(3)]));
+  const texts = ["地域", "月", "1 月", "2 月", "隠す 1", "隠す 2", "隠す 3", "東", "100", "200"];
+  const matrix = tableMatrix(model, texts, [2]);
+  assert.deepEqual(plain(matrix), {
+    rowCount: 3, colCount: 3,
+    cells: [
+      { row: 0, col: 0, rowspan: 2, colspan: 1, header: true, text: "地域" },
+      { row: 0, col: 1, rowspan: 1, colspan: 2, header: true, text: "月" },
+      { row: 1, col: 1, rowspan: 1, colspan: 1, header: true, text: "1 月" },
+      { row: 1, col: 2, rowspan: 1, colspan: 1, header: true, text: "2 月" },
+      { row: 2, col: 0, rowspan: 1, colspan: 1, header: false, text: "東" },
+      { row: 2, col: 1, rowspan: 1, colspan: 1, header: false, text: "100" },
+      { row: 2, col: 2, rowspan: 1, colspan: 1, header: false, text: "200" },
+    ],
+    grid: [["地域", "月", ""], ["", "1 月", "2 月"], ["東", "100", "200"]],
+  });
+});
+
+test("写す格子は隠した rowspan のまとまりを除き、後の行を今の順で詰める", () => {
+  const model = buildGrid(body([many(2, th), [td(2), td()], [td()], [td(2), td()], [td()]]));
+  const matrix = tableMatrix(model, ["見出し 1", "見出し 2", "消す地域", "消す値 1", "消す値 2", "残る地域", "先", "後"], [1, 2]);
+  assert.deepEqual(plain(matrix.grid), [["見出し 1", "見出し 2"], ["残る地域", "先"], ["", "後"]]);
+  assert.deepEqual(plain(matrix.cells.find(cell => cell.text === "残る地域")), { row: 1, col: 0, rowspan: 2, colspan: 1, header: false, text: "残る地域" });
+  assert.deepEqual(plain(tableMatrix(buildGrid([]), [], [])), { rowCount: 0, colCount: 0, cells: [], grid: [] });
+});
+
+test("TSV はタブ・改行・引用符を含む値だけを囲み、末尾にも CRLF を付ける", () => {
+  const matrix = { grid: [["普通", "タブ\tあり", "改行\nあり", '引用"符', ""], ["空白 あり", "\r\n", "&<>", "終わり", ""]] };
+  assert.equal(toTsv(matrix), '普通\t"タブ\tあり"\t"改行\nあり"\t"引用""符"\t\r\n空白 あり\t"\r\n"\t&<>\t終わり\t\r\n');
+  assert.equal(toTsv({ grid: [] }), "");
+});
+
+test("HTML は th・td と結合を残し、文字を逃がして改行を br にする", () => {
+  const model = buildGrid(body([[th(2), th(1, 2)], [td(), td()]]));
+  const matrix = tableMatrix(model, ['&<>"', "月\n次", "1", "2"], []);
+  assert.equal(toHtml(matrix), '<table><tr><th rowspan="2">&amp;&lt;&gt;&quot;</th><th colspan="2">月<br>次</th></tr><tr><td>1</td><td>2</td></tr></table>');
+  assert.equal(toHtml(tableMatrix(buildGrid([]), [], [])), "<table></table>");
+});
+
+test("検索・絞り込み・写すの計算は入力を書き換えず、返した値も入力と共有しない", () => {
+  const model = buildGrid(body([[th(2), th()], [td()], many(2)]));
+  const texts = ["地域", "値", "対象", "東", "100"];
+  const matched = [2];
+  const hiddenRows = [2];
+  const before = JSON.stringify({ model, texts, matched, hiddenRows });
+  const matches = searchMatches(texts, "対象");
+  const hidden = filterRows(model, matched, 1);
+  const matrix = tableMatrix(model, texts, hiddenRows);
+  const matrixBefore = JSON.stringify(matrix);
+  toTsv(matrix);
+  toHtml(matrix);
+  assert.equal(JSON.stringify(matrix), matrixBefore);
+  matches.push(99);
+  hidden.push(99);
+  matrix.cells[0].text = "変更";
+  matrix.grid[0][0] = "変更";
+  assert.equal(JSON.stringify({ model, texts, matched, hiddenRows }), before);
 });
