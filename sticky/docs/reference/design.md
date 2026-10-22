@@ -48,13 +48,13 @@ C は `max(1, H)` から始める。固定する行に、C の境目を `colspan
 
 各セルは、全体が R より前なら `top`、全体が C より前なら `left` を持つ。両方を持つものは角になる。`col < C < col + colspan` のセルは `cross` になる。固定する行のセルは `top` と `cross` を両方持つこともある。
 
-## 表のそばの帯と手動の範囲
+## 表のそばのツールバーと手動の範囲
 
-対象の表のそばには、`div[data-md-table-sticky-bar]` を 1 つ出す。帯、検索の行、列のチェックボックスはスクロールの範囲の外へ置く。GitLab の部品なら `div.gl-table-shadow-overlay` の前に、無ければ `[data-sticky-header]` の前に置く。自分で包んだ表なら、その包みの前に置く。並びは帯、開いている検索の行、列のチェックボックス、表の枠とし、GitLab の Vue の包みの中へ帯、検索の行、チェックボックスを入れない。表を縦横へスクロールしても帯は流れない。マウスを載せていないときも見せる。
+対象の表のそばには、`div[data-md-table-sticky-bar]` を 1 つ出す。ツールバー、検索の行、列のチェックボックスはスクロールの範囲の外へ置く。GitLab の部品なら `div.gl-table-shadow-overlay` の前に、無ければ `[data-sticky-header]` の前に置く。自分で包んだ表なら、その包みの前に置く。並びはツールバー、開いている検索の行、列のチェックボックス、表の枠とし、GitLab の Vue の包みの中へツールバー、検索の行、チェックボックスを入れない。表を縦横へスクロールしてもツールバーは流れない。マウスを載せていないときも見せる。
 
-帯には「固定」、行と列それぞれの「−」「+」と実際に当てている数、「自動」「セルで固定」、区切り、「横スクロール」「枠に収める」「強調」「詰める」のチェックボックス、「すべて折り返す」「すべて折り返さない」「検索」「写す」「全幅で表示」のボタンを並べる。「枠に収める」は GitLab の全高のときだけ出す。自動の向きは数の後ろに「（自動）」を付ける。全高で枠に収めていないときの行だけ、自動なら「（自動・全高）」、手動なら「（全高）」を付ける。
+ツールバーには「固定」、行と列それぞれの「−」「+」と実際に当てている数、「自動」「セルを選んで固定」、区切り、「横スクロール」「高さを制限」「行と列を強調」「コンパクト」のチェックボックス、「すべて折り返す」「すべて折り返さない」「検索」「コピー」「全幅で表示」のボタンを並べる。「高さを制限」は GitLab の全体表示のときだけ出す。自動の向きは数の後ろに「（自動）」を付ける。全体表示で高さを制限していないときの行だけ、自動なら「（自動・全体表示中）」、手動なら「（全体表示中）」を付ける。
 
-操作は `data-md-table-sticky-action` で区別する。「横スクロール」は `scroll-x`、「枠に収める」は `fit-height`、「セルで固定」は `pick`、「強調」は `highlight`、「詰める」は `compact`、一括の折り返しと検索、写す、全幅の表示は `wrap-all`・`nowrap-all`・`search`・`copy`・`float` にする。チェックボックスは `label` の中に `input[type=checkbox]` と文字を置き、`aria-label`・`title` と `setStyles` で今の横スクロールと同じ作りにする。新しいチェックはすべて既定でオフにし、値は表の記録だけに持つ。保存しない。`changeCount(record, action)` から `write()` の中でその表を `refresh()` する。ボタンは `button[type=button]` にし、`aria-label` と `title` で何を変えるかを示す。進めない方向と、自動に戻す必要のないときの「自動」は `disabled` にする。全幅の表示中は「全幅で表示」を「閉じる」に替え、`aria-label` と `title` を「全幅の表示を閉じる（Esc）」にする。小さな文字と少ない上下の余白にし、色は GitLab の CSS 変数と代わりの値を使う。帯にも CSSOM の `setProperty` と `important` で当てる。
+操作は `data-md-table-sticky-action` で区別する。「横スクロール」は `scroll-x`、「高さを制限」は `fit-height`、「セルを選んで固定」は `pick`、「行と列を強調」は `highlight`、「コンパクト」は `compact`、一括の折り返し、検索、コピー、全幅表示は `wrap-all`・`nowrap-all`・`search`・`copy`・`float` にする。チェックボックスは `label` の中に `input[type=checkbox]` と文字を置き、`aria-label`・`title` と `setStyles` で今の横スクロールと同じ作りにする。新しいチェックはすべて既定でオフにし、値は表の記録だけに持つ。保存しない。`changeCount(record, action)` から `write()` の中でその表を `refresh()` する。ボタンは `button[type=button]` にし、`aria-label` と `title` で何を変えるかを示す。進めない方向と、自動に戻す必要のないときの「自動」は `disabled` にする。全幅表示中は「全幅で表示」を「閉じる」に替え、`aria-label` と `title` を「全幅表示を閉じる（Esc）」にする。小さな文字と少ない上下の余白にし、色は GitLab の CSS 変数と代わりの値を使う。ツールバーにも CSSOM の `setProperty` と `important` で当てる。
 
 表の記録に `override = { rows: null, cols: null }` を持つ。`null` の向きは、従来の自動の決め方を使う。数が入った向きは、その数を使い、半分の上限では外さない。自動の向きだけ、上限を適用する。「自動」を押すと両方を `null` に戻す。選んだ数はメモリー内だけに置き、`localStorage` などの GitLab の保存領域には書かない。ページの再読み込みや、解除してからの再実行では自動から始める。
 
@@ -62,23 +62,23 @@ C は `max(1, H)` から始める。固定する行に、C の境目を `colspan
 
 「+」は今の実際の数より大きい最も近い境目へ進める。「−」は小さい最も近い境目へ戻す。全行・全列になる境目へは進めず、0 では戻せない。表 A の行は、本文の `rowspan=6` も守り、2 の次は 8、2 から減らすと 0 になる。実際に固定する行数を決めてから、手で選んでいた列の境目を確かめる。行を変えて、その境目が使えなくなったときは、選んでいた数以下で最も近い使える境目へ列を戻す。操作のたびにその表だけをすぐ測り直す。行とセルの組が変わらなければ、罫線の記録は使い回す。
 
-帯は、記録のある対象のすべての表に出す。セルが重なる表、セルの無い表、先頭行にセルの無い表には、帯と列のチェックボックスを出さない。表の形だけで R・C がともに 0 になる表では、「固定」のラベル、行と列の操作、「自動」「セルで固定」を隠し、折り返し・横スクロール・枠に収める・強調・詰める・検索・写す・全幅の表示の操作を残す。半分の上限で実際の行・列がともに 0 になっても固定の操作は残し、「0（自動）」を表示する。「+」から手動の数を選べるようにする。実際の行・列がともに 0 になったときは、固定と罫線の付け直しを戻す。折り返しの値、帯、列のチェックボックス、スクロールの包みは残し、列の位置も測る。GitLab 自身の先頭行の固定と、本文の `th` の固定を外す扱いは、行・列とも固定しないときと同じにする。
+ツールバーは、記録のある対象のすべての表に出す。セルが重なる表、セルの無い表、先頭行にセルの無い表には、ツールバーと列のチェックボックスを出さない。表の形だけで R・C がともに 0 になる表では、「固定」のラベル、行と列の操作、「自動」「セルを選んで固定」を隠し、折り返し・横スクロール・高さを制限・行と列を強調・コンパクト・検索・コピー・全幅表示の操作を残す。半分の上限で実際の行・列がともに 0 になっても固定の操作は残し、「0（自動）」を表示する。「+」から手動の数を選べるようにする。実際の行・列がともに 0 になったときは、固定と罫線の付け直しを戻す。折り返しの値、ツールバー、列のチェックボックス、スクロールの包みは残し、列の位置も測る。GitLab 自身の先頭行の固定と、本文の `th` の固定を外す扱いは、行・列とも固定しないときと同じにする。
 
-帯の追加・削除は `write()` の中で行い、自分の `MutationObserver` に拾わせない。解除したとき、表が切り離されたとき、固定の対象から外れたときに帯を消す。GitLab の包みへ置き換わったときは、帯もその包みの前へ移す。印刷前は `display: none` にし、印刷後は戻す。
+ツールバーの追加・削除は `write()` の中で行い、自分の `MutationObserver` に拾わせない。解除したとき、表が切り離されたとき、固定の対象から外れたときにツールバーを消す。GitLab の包みへ置き換わったときは、ツールバーもその包みの前へ移す。印刷前は `display: none` にし、印刷後は戻す。
 
-## セルで固定
+## セルを選んで固定
 
-「セルで固定」は、Excel の「ウィンドウ枠の固定」と同じく、選んだセルより上の行と左の列を固定する。ボタンの `aria-label` と `title` は「セルを選び、その上の行と左の列を固定する（Esc でやめる）」にする。選ぶ状態は `record.picking` に持ち、ボタンの `aria-pressed` を `"true"` または `"false"` にする。選ぶ間は、表の `desired` に `cursor: crosshair` を足す。
+「セルを選んで固定」は、Excel の「ウィンドウ枠の固定」と同じく、選んだセルより上の行と左の列を固定する。ボタンの `aria-label` と `title` は「クリックしたセルより上の行と左の列を固定する（Esc で取り消し）」にする。選ぶ状態は `record.picking` に持ち、ボタンの `aria-pressed` を `"true"` または `"false"` にする。選ぶ間は、表の `desired` に `cursor: crosshair` を足す。
 
 一度に選べる表は 1 つにし、`state.picking` に持つ。別の表で選び始めると前の表をやめる。同じボタンの押し直し、Esc、表のセル以外の押下でもやめる。選ぶ間だけ、`window` に capture の `click` と `keydown` の受け手を付ける。受け手は `state.pickHandlers` などに持ち、選ぶのをやめたとき、`cleanup`、`state.stop` で外す。
 
-押した対象から `closest("td, th")` を求め、そのセルの `closest("table")` が選んでいる表と同じときだけ、セルを選ぶ。`preventDefault()`・`stopPropagation()`・`stopImmediatePropagation()` を呼び、リンク、GitLab の並べ替え、説明の編集へ流さない。帯の「セルで固定」の押下は止めず、ボタンの受け手で選ぶのをやめる。それ以外の押下も止めない。Esc では `preventDefault()`・`stopPropagation()` を呼び、選ぶ状態だけをやめる。
+押した対象から `closest("td, th")` を求め、そのセルの `closest("table")` が選んでいる表と同じときだけ、セルを選ぶ。`preventDefault()`・`stopPropagation()`・`stopImmediatePropagation()` を呼び、リンク、GitLab の並べ替え、説明の編集へ流さない。ツールバーの「セルを選んで固定」の押下は止めず、ボタンの受け手で選ぶのをやめる。それ以外の押下も止めない。Esc では `preventDefault()`・`stopPropagation()` を呼び、選ぶ状態だけをやめる。
 
 境目は DOM に触れない `pickBoundaries(model, cellIndex)` で求める。行は `lowerBoundary(usableRowBoundaries(model), cell.row)`、列はその行を使う `lowerBoundary(usableColBoundaries(model, 行), cell.col)` にする。全行・全列になる境目は選ばない。結果を `record.override.rows`・`record.override.cols` に入れ、表を測り直してから選ぶ状態をやめる。以後は手動の数と同じ扱いにし、結合による丸めは行うが半分の上限は当てない。
 
 ## 列のチェックボックス
 
-`div[data-md-table-sticky-columns]` を帯と検索の行の後ろ、表の枠のすぐ前に置く。中身は `display: flex` の 1 行とし、列ごとに `label` と `input[type=checkbox][data-md-table-sticky-column]` を置く。チェックありは折り返す、チェックなしは折り返さない。列の幅が 64px 以上なら入力の後ろに「折り返す」を出し、狭ければ入力だけにする。
+`div[data-md-table-sticky-columns]` をツールバーと検索の行の後ろ、表の枠のすぐ前に置く。中身は `display: flex` の 1 行とし、列ごとに `label` と `input[type=checkbox][data-md-table-sticky-column]` を置く。チェックありは折り返す、チェックなしは折り返さない。列の幅が 64px 以上なら入力の後ろに「折り返す」を出し、狭ければ入力だけにする。
 
 列の名前は、`thead` の行数と、先頭から `th` だけで始まる行数の大きい方を見出しの行数として求める。固定のための結合による拡張は行わない。各列を覆う見出しの文字を上から「 / 」でつなぎ、空白をまとめ、40 文字を超えたら切って「…」を付ける。`aria-label` と `title` は「列 3（2025 年 / 1 月）を折り返す」の形にし、名前が無ければ「列 3 を折り返す」にする。
 
@@ -88,7 +88,7 @@ C は `max(1, H)` から始める。固定する行に、C の境目を `colspan
 
 初めの状態は、この道具の style を外した状態の計算値から決める。`headerRowCount` で求めた見出しの行数以降に始まる、その列の `colspan` が 1 のセルを優先する。それらが 1 つ以上あり、すべて `white-space: nowrap` ならチェックなし、それ以外はチェックありにする。見出しより後に該当するセルが無い列だけ、すべての行からその列で始まる `colspan` が 1 のセルを集め、同じように決める。該当するセルが 1 つも無ければチェックありにする。GitLab が見出しを描き直すときに `nowrap` を落としても、本文の計算値から初めの状態を決められるようにする。列数が変わったら決め直す。操作で選んだ値は保存領域へ書かず、表の記録だけに持つ。
 
-作業項目の説明では Vue が説明の根で `change` を受けるが、`task-list-item-checkbox` のクラスを持つ入力だけを説明の編集として扱う。この道具の列、帯、検索の行の入力には、そのクラスを付けない。
+作業項目の説明では Vue が説明の根で `change` を受けるが、`task-list-item-checkbox` のクラスを持つ入力だけを説明の編集として扱う。この道具の列、ツールバー、検索の行の入力には、そのクラスを付けない。
 
 ## セルの折り返しと横スクロール
 
@@ -103,16 +103,16 @@ C は `max(1, H)` から始める。固定する行に、C の境目を `colspan
 1. スクロールの範囲を決める。
 2. `ensureBorders`・`updateBase` で罫線と元の状態を読み、元の `white-space` も記録する。
 3. 列ごとの初めの折り返しを決める。
-4. 絞り込む行を決め、行の非表示、折り返し、詰めた表示、固定に使う罫線を当てる。
+4. 絞り込む行を決め、行の非表示、折り返し、コンパクト表示、固定に使う罫線を当てる。
 5. 横スクロール「あり」なら最大の内容の幅を測り、`min-width` を当てる。
 6. 行と列の位置を測り、固定を当てる。
 7. 列のチェックボックスの位置と幅を合わせる。
 
-折り返しと詰めた表示によって行の高さと列の位置が変わるため、固定の位置より先に当てる。固定しない表でも、共通の測る処理を使って列のチェックボックスをそろえる。列・一括の折り返しと横スクロールを変える操作も `write()` の中でその表だけをすぐ `refresh()` する。
+折り返しとコンパクト表示によって行の高さと列の位置が変わるため、固定の位置より先に当てる。固定しない表でも、共通の測る処理を使って列のチェックボックスをそろえる。列・一括の折り返しと横スクロールを変える操作も `write()` の中でその表だけをすぐ `refresh()` する。
 
 ## 行・列の強調
 
-「強調」の `aria-label` と `title` は「マウスを載せたセルの行と列を色付けする」にする。オンの表だけ `pointerover` と `pointerleave` を受け、`record.hover = { index, onOver, onLeave }` に記録する。対象のセルは `closest("td, th")` で求め、`closest("table")` が自分の表と同じものだけ使う。セルの番号が変わったときだけ更新し、表から出たら消す。オフ、`cleanup`、`state.stop` で受け手を外す。セルを選ぶ状態の間も強調してよい。
+「行と列を強調」の `aria-label` と `title` は「マウスを合わせたセルの行と列に色を付ける」にする。オンの表だけ `pointerover` と `pointerleave` を受け、`record.hover = { index, onOver, onLeave }` に記録する。対象のセルは `closest("td, th")` で求め、`closest("table")` が自分の表と同じものだけ使う。セルの番号が変わったときだけ更新し、表から出たら消す。オフ、`cleanup`、`state.stop` で受け手を外す。セルを選ぶ状態の間も強調してよい。
 
 強調するセルは、DOM に触れない `crossCells(model, cellIndex)` で求める。載ったセルの行の範囲 `[row, row + rowspan)` か、列の範囲 `[col, col + colspan)` と交わるセルの番号を返す。載ったセル自身も含める。結合セルに載ったときも、結合セルが対象の行・列と交わるときも、この決まりを使う。
 
@@ -122,20 +122,20 @@ C は `max(1, H)` から始める。固定する行に、C の境目を `colspan
 
 ## 表内検索
 
-帯の「検索」は `aria-pressed` を持つボタンとし、`aria-label` と `title` を「表の中を検索する」にする。押すと `div[data-md-table-sticky-search]` を帯のすぐ後ろへ出し、検索の欄へフォーカスを置く。閉じている間は検索の行を置かない。検索の行は `display: flex; flex-wrap: wrap; align-items: center; gap` で並べ、帯と同じ小さな文字と色を使う。
+ツールバーの「検索」は `aria-pressed` を持つボタンとし、`aria-label` と `title` を「この表の中を検索する」にする。押すと `div[data-md-table-sticky-search]` をツールバーのすぐ後ろへ出し、検索の欄へフォーカスを置く。閉じている間は検索の行を置かない。検索の行は `display: flex; flex-wrap: wrap; align-items: center; gap` で並べ、ツールバーと同じ小さな文字と色を使う。
 
 中身は次の順にする。操作は `data-md-table-sticky-action` で区別する。
 
 | 要素 | action | 説明 |
 | --- | --- | --- |
 | `input[type=search][data-md-table-sticky-search-input]` | — | `aria-label` と `placeholder` は「表の中を検索」 |
-| 「前」のボタン | `search-prev` | `aria-label` と `title` は「前の一致へ移る（Shift+Enter）」 |
-| 「次」のボタン | `search-next` | `aria-label` と `title` は「次の一致へ移る（Enter）」 |
+| 「前」のボタン | `search-prev` | `aria-label` と `title` は「前の一致へ（Shift+Enter）」 |
+| 「次」のボタン | `search-next` | `aria-label` と `title` は「次の一致へ（Enter）」 |
 | `span[data-md-table-sticky-search-count]` | — | `aria-live="polite"` を付ける |
-| 「一致する行だけ」のチェックボックス | `search-filter` | `aria-label` と `title` は「一致するセルのある行だけを表示する」 |
+| 「一致した行だけ表示」のチェックボックス | `search-filter` | `aria-label` と `title` は「一致するセルのある行だけを表示する」 |
 | 「閉じる」のボタン | `search-close` | `aria-label` と `title` は「検索を閉じる（Esc）」 |
 
-状態は `record.search = { open, query, index, filter, composing }` に持つ。保存領域へ書かない。帯の「検索」の押し直し、検索の「閉じる」、欄の Esc で閉じる。閉じると欄、一致、今の番号、「一致する行だけ」を空に戻し、重ね塗りと絞り込みを外し、帯の「検索」へフォーカスを戻す。欄の Esc は `preventDefault()` と `stopPropagation()` を呼ぶ。セルを選ぶ状態の Esc は、先に選ぶ状態をやめる。
+状態は `record.search = { open, query, index, filter, composing }` に持つ。保存領域へ書かない。ツールバーの「検索」の押し直し、検索の「閉じる」、欄の Esc で閉じる。閉じると欄、一致、今の番号、「一致した行だけ表示」を空に戻し、重ね塗りと絞り込みを外し、ツールバーの「検索」へフォーカスを戻す。欄の Esc は `preventDefault()` と `stopPropagation()` を呼ぶ。セルを選ぶ状態の Esc は、先に選ぶ状態をやめる。
 
 一致は DOM に触れない `searchMatches(texts, query)` で求める。セルの `textContent` と欄の文字を `normalize("NFKC")`、小文字、連続する空白を 1 つの空白、前後の空白を除いた形にそろえ、部分一致するセルの番号を行・列の順に返す。空の欄では空の配列を返す。件数は、空の欄では空、一致が無ければ「0 件」、あれば「M / N 件」にする。M は今の一致の番号、N は一致したセルの数にする。
 
@@ -147,53 +147,53 @@ Enter と「次」で次へ、Shift+Enter と「前」で前へ進める。移�
 
 GitLab の並べ替えなどで行が動いたら、今の見張りによる `refresh()` で今の DOM の文字から取り直す。今の番号が一致の数を超えたら 0 に戻す。空の欄では重ね塗りも絞り込みもしない。
 
-## 一致する行だけ
+## 一致した行だけ表示
 
-「一致する行だけ」にチェックがあり、欄が空でないときだけ行を隠す。隠す行の番号は DOM に触れない `filterRows(model, matched, keepRows)` で求め、昇順で返す。`matched` は一致したセルの番号にする。`keepRows` は `headerRowCount(model)` と、手動なら `record.override.rows`、自動なら `record.region.rows` の大きい方にする。半分の上限で実際には固定しない場合も、この先頭の範囲は残す。
+「一致した行だけ表示」にチェックがあり、欄が空でないときだけ行を隠す。隠す行の番号は DOM に触れない `filterRows(model, matched, keepRows)` で求め、昇順で返す。`matched` は一致したセルの番号にする。`keepRows` は `headerRowCount(model)` と、手動なら `record.override.rows`、自動なら `record.region.rows` の大きい方にする。半分の上限で実際には固定しない場合も、この先頭の範囲は残す。
 
 先頭の `keepRows` 行、`thead` の行、`tfoot` の行は隠さない。残りの行は、あるセルの `[row, row + rowspan)` を同じまとまりとし、推移的につながる行もまとめる。まとまりの行で始まる一致したセルがあれば、そのまとまりを残し、無ければ隠す。`col === 0 && colspan === colCount && rowspan === 1` のセルだけの行は区切りとし、それ自身が一致するか、その後ろから次の区切りまでに残るまとまりがあれば残す。一致が 0 件なら、必ず残す行を除いて本文の行をすべて隠す。
 
-隠す `tr` は `desired` で `display: none` にする。検索の文字や絞り込みを変えるたびにその表を `refresh()` し、行を隠した後の寸法から固定の位置を測る。`refresh()` の初めに使わなくなった要素を戻して忘れるときは、表、包み、枠、帯の基準、今のセル、今の内側の span に加え、今の行 `parts.rows` も残す。`tr` の `originals` を失わないため。
+隠す `tr` は `desired` で `display: none` にする。検索の文字や絞り込みを変えるたびにその表を `refresh()` し、行を隠した後の寸法から固定の位置を測る。`refresh()` の初めに使わなくなった要素を戻して忘れるときは、表、包み、枠、ツールバーの基準、今のセル、今の内側の span に加え、今の行 `parts.rows` も残す。`tr` の `originals` を失わないため。
 
 `measureLayout` で列の左端を求めるときは、非表示の行の矩形を使わず、見えている行のセルから求める。見えているセルが無い列だけ補間する。行の上端は、隠さない固定する行の位置だけに使う。固定する高さは、次の行の上端ではなく、固定する最後の行の下端から求める。絞り込みを外すと `originals` の style へ戻す。
 
-## 表を写す
+## 表をコピーする
 
-帯の「写す」の `aria-label` と `title` は「表を Excel に貼れる形でクリップボードへ写す（見えている行だけ）」にする。押下の中で、今の DOM の順から見出しと見えている行を写す。GitLab の並べ替えの後は、その並びを使う。次の DOM に触れない関数で組み立てる。
+ツールバーの「コピー」の `aria-label` と `title` は「表示中の行を、Excel に貼り付けられる形でコピーする」にする。押下の中で、今の DOM の順から見出しと見えている行をコピーする。GitLab の並べ替えの後は、その並びを使う。次の DOM に触れない関数で組み立てる。
 
 - `tableMatrix(model, texts, hiddenRows)` は隠した行を除き、`{ rowCount, colCount, cells: [{ row, col, rowspan, colspan, header, text }], grid }` を返す。`grid` は行 × 列の文字の配列とし、結合セルの値は左上のマスだけに入れ、ほかは空文字にする。行はまとまりごと隠すので、残すセルの `rowspan` は変えない。
 - `toTsv(matrix)` は列をタブ、行を CRLF でつなぎ、最後にも CRLF を付ける。タブ、改行、`"` を含む値だけ `"` で囲み、値の中の `"` は `""` にする。
 - `toHtml(matrix)` は `<table>` の中に `<tr>` と `<th>` または `<td>` を置く。`rowspan` と `colspan` は 1 より大きいときだけ付ける。文字の `&`・`<`・`>`・`"` を逃がし、値の中の改行は `<br>` にする。
 
-写す文字は DOM の層で作る。セルの子をたどり、文字ノードはそのまま、`br` は改行、`p`・`div`・`li` の境目は改行にする。各行の連続する空白を 1 つにし、前後の空白と、値の前後の空の行を除く。`svg` と `aria-hidden="true"` の中は使わず、並べ替えのアイコンなどを写さない。
+コピーする文字は DOM の層で作る。セルの子をたどり、文字ノードはそのまま、`br` は改行、`p`・`div`・`li` の境目は改行にする。各行の連続する空白を 1 つにし、前後の空白と、値の前後の空の行を除く。`svg` と `aria-hidden="true"` の中は使わず、並べ替えのアイコンなどをコピーしない。
 
-最初に `navigator.clipboard.write([new ClipboardItem({ "text/html": Blob, "text/plain": Blob })])` で HTML と TSV を写す。使えないか失敗したら `navigator.clipboard.writeText(TSV)` を使う。それも使えないか失敗したら、`.md` の外の `document.body` 直下へ一時の `textarea` を置き、TSV を選んで `document.execCommand("copy")` を呼ぶ。一時の要素の追加と削除は `write()` の中で行う。
+最初に `navigator.clipboard.write([new ClipboardItem({ "text/html": Blob, "text/plain": Blob })])` で HTML と TSV をコピーする。使えないか失敗したら `navigator.clipboard.writeText(TSV)` を使う。それも使えないか失敗したら、`.md` の外の `document.body` 直下へ一時の `textarea` を置き、TSV を選んで `document.execCommand("copy")` を呼ぶ。一時の要素の追加と削除は `write()` の中で行う。
 
-右下の知らせも `write()` の中で出す。HTML と TSV を写したら「表を写した（N 行 × M 列）」、TSV だけなら「表を文字だけ写した（N 行 × M 列）」、すべて失敗したら「表を写せなかった」にする。N は見出しを含む写した行数、M は列数にする。HTML の `rowspan`・`colspan` を付けて写す。
+右下の知らせも `write()` の中で出す。HTML と TSV をコピーしたら「表をコピーした（N 行 × M 列）」、TSV だけなら「表を文字だけコピーした（N 行 × M 列）」、すべて失敗したら「表をコピーできなかった」にする。N は見出しを含むコピーした行数、M は列数にする。HTML の `rowspan`・`colspan` を付けてコピーする。
 
-## 詰めた表示
+## コンパクト表示
 
-「詰める」の `aria-label` と `title` は「セルの余白と文字を小さくして詰めて表示する」にする。オンの表のすべてのセルへ、`padding: 2px 6px`・`line-height: 1.3`・`font-size: 0.875em` を `desired` で当てる。
+「コンパクト」の `aria-label` と `title` は「セルの余白と文字を小さくして、多くの行と列を表示する」にする。オンの表のすべてのセルへ、`padding: 2px 6px`・`line-height: 1.3`・`font-size: 0.875em` を `desired` で当てる。
 
-折り返しと同じ段階で、`measureLayout` より前に当てる。固定する位置は詰めた後の寸法から求める。横スクロールの最小の幅の 12em は、今までどおり表の計算された `font-size` から求める。
+折り返しと同じ段階で、`measureLayout` より前に当てる。固定する位置はコンパクト表示にした後の寸法から求める。横スクロールの最小の幅の 12em は、今までどおり表の計算された `font-size` から求める。
 
 ## 対象とスクロールの範囲
 
-対象は `.md` の中の表。`.code` の表、`data-table-fields` の付いた JSON の表、入れ子の内側の表、セルが重なる表、セルの無い表は除く。先頭の `<tr>` にセルが無く、`parts.model.grid[0][0] === undefined` になる表も、測る基準のセルが無いため対象から外し、帯と列のチェックボックスを出さない。入れ子かどうかは、`table.parentElement.closest("table, .md")` が `.md` かで確かめる。
+対象は `.md` の中の表。`.code` の表、`data-table-fields` の付いた JSON の表、入れ子の内側の表、セルが重なる表、セルの無い表は除く。先頭の `<tr>` にセルが無く、`parts.model.grid[0][0] === undefined` になる表も、測る基準のセルが無いため対象から外し、ツールバーと列のチェックボックスを出さない。入れ子かどうかは、`table.parentElement.closest("table, .md")` が `.md` かで確かめる。
 
 表の親が `[data-sticky-header]` なら、その包みを使う。無ければ、自分の `div[data-md-table-sticky-wrap]` で包む。自分の包みには `max-height: 70vh; overflow: auto; width: fit-content; max-width: 100%; margin: 16px 0` を当てる。表・GitLab のスクロールの範囲・外側の包みの幅は、元の指定を保つ。GitLab の包みは `width: fit-content; max-width: 100%`、表は内容に応じた幅にする。表には `display: table; margin: 0; overflow: visible` を当て、横スクロール「あり」では表が広がれるよう `max-width: none` にする。
 
 自分の包みの中へ GitLab の包みが後から入ったときは、自分の包みを外す。二重にスクロールする範囲を作らないため。
 
-## GitLab の全高への対応
+## GitLab の全体表示への対応
 
-GitLab が全高にすると、`[data-sticky-header]` は `overflow-y: auto` のまま縦にスクロールしなくなる。行の `position: sticky; top` は、その枠のスクロールへ効くため、ページを縦にスクロールしても行は止まらない。
+GitLab が全体表示にすると、`[data-sticky-header]` は `overflow-y: auto` のまま縦にスクロールしなくなる。行の `position: sticky; top` は、その枠のスクロールへ効くため、ページを縦にスクロールしても行は止まらない。
 
-`refresh()` で、スクロールの枠が GitLab の `[data-sticky-header]` であり、自分の `record.wrapper` ではなく、全幅の表示中でも印刷中でもないときに全高を調べる。`updateBase` と同じく、枠の style 属性をこの道具を当てる前の文字列へ一時に戻して計算された `max-height` を読み、すぐ直前の style 属性へ戻す。値が `none` のときだけ `record.nativeFull = true` にする。全幅の表示中と印刷中は判定を休み、`nativeFull` と `fitHeight` を保持する。通常の表示に戻ってから全高でなくなったことを調べ、`fitHeight` を解除する。
+`refresh()` で、スクロールの枠が GitLab の `[data-sticky-header]` であり、自分の `record.wrapper` ではなく、全幅表示中でも印刷中でもないときに全体表示を調べる。`updateBase` と同じく、枠の style 属性をこの道具を当てる前の文字列へ一時に戻して計算された `max-height` を読み、すぐ直前の style 属性へ戻す。値が `none` のときだけ `record.nativeFull = true` にする。全幅表示中と印刷中は判定を休み、`nativeFull` と `fitHeight` を保持する。通常の表示に戻ってから全体表示でなくなったことを調べ、`fitHeight` を解除する。
 
-全高のときだけ、帯の「枠に収める」の `display` を切り替えて出す。`aria-label` と `title` は「この表だけ枠の高さを画面の 70% に収めて行を固定する（GitLab の Show full table の設定は変えない）」にする。チェックを入れると `record.fitHeight = true` にし、スクロールの枠の `desired` へ `max-height: 70vh` を足す。全幅の表示中と印刷中には足さない。GitLab の「Collapse table」で全高でなくなったら `record.fitHeight = false` に戻し、チェックボックスを隠す。自分の包みは今までどおり 70vh とし、この操作を出さない。
+全体表示のときだけ、ツールバーの「高さを制限」の `display` を切り替えて出す。`aria-label` と `title` は「この表だけ高さを画面の 70% までにして、見出しの行を固定する（GitLab の「Show full table」の設定は変えない）」にする。チェックを入れると `record.fitHeight = true` にし、スクロールの枠の `desired` へ `max-height: 70vh` を足す。全幅表示中と印刷中には足さない。GitLab の「Collapse table」で全体表示でなくなったら `record.fitHeight = false` に戻し、チェックボックスを隠す。自分の包みは今までどおり 70vh とし、この操作を出さない。
 
-全高で `fitHeight` がオフなら、行の数に自動では「（自動・全高）」、手動では「（全高）」を付ける。行の固定がページの縦スクロールには効かないことを示す。それ以外の自動の向きは「（自動）」にする。
+全体表示で `fitHeight` がオフなら、行の数に自動では「（自動・全体表示中）」、手動では「（全体表示中）」を付ける。行の固定がページの縦スクロールには効かないことを示す。それ以外の自動の向きは「（自動）」にする。
 
 `window` の `gl-markdown-table-expanded` を受け、すべての表を `requestRefresh()` する。Vue の class の更新後に測るため、今の `requestAnimationFrame` でまとめる仕組みを使う。枠の大きさの変化も今の `ResizeObserver` で拾う。イベントの受け手は `state.stop` で外す。GitLab の `localStorage` は読まない・書かない。
 
@@ -213,13 +213,13 @@ GitLab が全高にすると、`[data-sticky-header]` は `overflow-y: auto` の
 
 GitLab が元から `position: sticky` を当てているセルでも、`top` と `left` の役をどちらも持たないセルには `position: static` を当てる。`tbody` の 1 行目の途中に `th` がある場合、そのセルだけが上に貼り付くのを防ぐため。ただし、実際に当てる R が 0 のときは、行 0 のセルに GitLab 自身の固定を残す。半分の上限で行の固定を外すときも、この扱いにする。
 
-自動のときは、固定する高さ（固定する最後の行 R−1 の下端）がスクロールの範囲の `clientHeight` の半分を超えたら、行を固定しない。幅（列 C の左端）が `clientWidth` の半分を超えたら、列を固定しない。本文を動かせる範囲を残すため。手で選んだ向きには、この上限を当てない。帯には、上限で外した場合も含めて、実際に当てている数を出す。この場合も GitLab 自身の先頭行の固定は残す。
+自動のときは、固定する高さ（固定する最後の行 R−1 の下端）がスクロールの範囲の `clientHeight` の半分を超えたら、行を固定しない。幅（列 C の左端）が `clientWidth` の半分を超えたら、列を固定しない。本文を動かせる範囲を残すため。手で選んだ向きには、この上限を当てない。ツールバーには、上限で外した場合も含めて、実際に当てている数を出す。この場合も GitLab 自身の先頭行の固定は残す。
 
 閉じた `details` などで大きさが 0 の表は、測らずに待つ。`ResizeObserver` で大きさが変わってから測る。
 
 ## Ctrl+F とスクロールの余白
 
-検索結果やフォーカスの移動先を、固定した行・列の下へ隠さないため、スクロールの枠へ `scroll-padding` を指定する。帯の操作は足さない。最後の `apply()` の後、行を固定するときは `scroll-padding-top: <fixedHeight>px`、列を固定するときは `scroll-padding-left: <fixedWidth>px` を、枠の style へ `setProperty` の `important` で直に足す。固定しない向きは `removeProperty` で外す。
+検索結果やフォーカスの移動先を、固定した行・列の下へ隠さないため、スクロールの枠へ `scroll-padding` を指定する。ツールバーの操作は足さない。最後の `apply()` の後、行を固定するときは `scroll-padding-top: <fixedHeight>px`、列を固定するときは `scroll-padding-left: <fixedWidth>px` を、枠の style へ `setProperty` の `important` で直に足す。固定しない向きは `removeProperty` で外す。
 
 固定の高さ・幅は位置を測った後に決まる。`desired` に入れると、測る前と後で枠の style の組が変わり、測り直すたびに枠の style を元の文字列へ戻して当て直すことになるため、`desired` には入れない。枠の style を元へ戻すときに消えても、同じ `refresh()` の最後で足し直す。解除では `originals` の文字列へ戻すので残らない。
 
@@ -231,7 +231,7 @@ GitLab が元から `position: sticky` を当てているセルでも、`top` �
 
 固定するセルの背景のアルファが 0 なら、`var(--gl-background-color-default, 祖先の背景の色)` を当てる。祖先の色は、スクロールの範囲から `html` まで上がり、最初の透明でない背景を使う。無ければ白にする。
 
-`border-collapse: collapse` では、罫線がセルと一緒に固定されず、元の格子の位置へ描かれる。Edge で、固定したセルの端から本文が透ける帯と、固定した 2 列の間の罫線が消えることを確かめた。固定する表は `border-collapse: separate; border-spacing: 0` に替える。ただ替えるだけでは罫線が二重になるので、元の罫線を読み、各セルへ付け直す。
+`border-collapse: collapse` では、罫線がセルと一緒に固定されず、元の格子の位置へ描かれる。Edge で、固定したセルの端のすき間から本文が透けて見えることと、固定した 2 列の間の罫線が消えることを確かめた。固定する表は `border-collapse: separate; border-spacing: 0` に替える。ただ替えるだけでは罫線が二重になるので、元の罫線を読み、各セルへ付け直す。
 
 罫線の計算は、格子と各セルの 4 辺を受け、各セルの 4 辺を返す純粋な関数に分ける。次の順で決める。
 
@@ -256,19 +256,19 @@ R が 0、または半分の上限で行を固定しないときは、固定す�
 
 外すときは span の子をセルへ戻し、span を消す。元の要素を移すので、子のイベントなどを作り直さない。
 
-## 全幅の表示
+## 全幅表示
 
 GitLab の本文の外側にある `div.panel-content` は `contain: layout`、`main#content-body` と `section.work-item-view` は `container-type: inline-size` を持つ。本文の中で `position: fixed` にしても、ブラウザーの窓全体を基準にできない。作業項目の説明には `overflow: hidden` や `overflow-x: auto` の祖先もある。そのため、全幅の背景は `document.body` の直下に作る。
 
-背景は `div[data-md-table-sticky-float]` とし、`position: fixed; inset: 0; z-index: 2147483646; background: rgba(0, 0, 0, 0.4)` を当てる。右下の知らせより下に置き、`role="dialog"`・`aria-modal="true"`・`aria-label="表を全幅で表示"` を付ける。中に `div.md[data-md-table-sticky-float-panel]` を作り、`position: absolute; left: 8px; right: 8px; top: 8px; max-height: calc(100vh - 16px)` を当てる。板は縦の flex、`box-sizing: border-box; padding: 8px; overflow: hidden` とし、背景・文字の色を GitLab の CSS 変数と代わりの値で決め、枠線・角の丸み・影を付ける。`.md` を付けて表の見た目と対象の判定を保つ。
+背景は `div[data-md-table-sticky-float]` とし、`position: fixed; inset: 0; z-index: 2147483646; background: rgba(0, 0, 0, 0.4)` を当てる。右下の知らせより下に置き、`role="dialog"`・`aria-modal="true"`・`aria-label="表の全幅表示"` を付ける。中に `div.md[data-md-table-sticky-float-panel]` を作り、`position: absolute; left: 8px; right: 8px; top: 8px; max-height: calc(100vh - 16px)` を当てる。パネルは縦の flex、`box-sizing: border-box; padding: 8px; overflow: hidden` とし、背景・文字の色を GitLab の CSS 変数と代わりの値で決め、枠線・角の丸み・影を付ける。`.md` を付けて表の見た目と対象の判定を保つ。
 
-開く前に、検索の行と列のチェックボックスを含め、帯の上端から表の枠の下端までの高さを測る。帯の前に同じ高さの `div[data-md-table-sticky-placeholder]` を置き、「この表は全幅で表示している（Esc で戻す）」を点線の枠・小さい文字・中央揃えで出す。その後、帯、検索の行、列のチェックボックス、表の枠をこの順で板へ移す。元の要素を移すので、表の子やイベントを作り直さない。代わりの要素で元の場所の高さを保つ。
+開く前に、検索の行と列のチェックボックスを含め、ツールバーの上端から表の枠の下端までの高さを測る。ツールバーの前に同じ高さの `div[data-md-table-sticky-placeholder]` を置き、「この表は全幅で表示中（Esc で元に戻す）」を点線の枠・小さい文字・中央揃えで出す。その後、ツールバー、検索の行、列のチェックボックス、表の枠をこの順でパネルへ移す。元の要素を移すので、表の子やイベントを作り直さない。代わりの要素で元の場所の高さを保つ。
 
-板の中でも表の枠は内容に応じた幅とし、板の幅を上限にする。帯・検索の行・列のチェックボックス・表の枠に `align-self: flex-start` を当て、縦の flex による横への引き伸ばしを避ける。内容の長い表は板の幅まで広がり、その中で折り返す。表の枠の `max-height` を外し、`flex: 0 1 auto; min-height: 0` で板の残りの高さへ収める。GitLab の包みなら外の `.gl-table-shadow-overlay` を縦の flex にし、中の `[data-sticky-header]` の `max-height` を `none`、`min-height` を 0 にする。自分の包みなら、その包みを縮める。表の枠は余白を 0、`overscroll-behavior: contain` にする。これらの style も `originals` に覚えて戻す。通常の開閉では、その表だけをすぐ測り直し、固定・折り返し・横スクロールを継続する。
+パネルの中でも表の枠は内容に応じた幅とし、パネルの幅を上限にする。ツールバー・検索の行・列のチェックボックス・表の枠に `align-self: flex-start` を当て、縦の flex による横への引き伸ばしを避ける。内容の長い表はパネルの幅まで広がり、その中で折り返す。表の枠の `max-height` を外し、`flex: 0 1 auto; min-height: 0` でパネルの残りの高さへ収める。GitLab の包みなら外の `.gl-table-shadow-overlay` を縦の flex にし、中の `[data-sticky-header]` の `max-height` を `none`、`min-height` を 0 にする。自分の包みなら、その包みを縮める。表の枠は余白を 0、`overscroll-behavior: contain` にする。これらの style も `originals` に覚えて戻す。通常の開閉では、その表だけをすぐ測り直し、固定・折り返し・横スクロールを継続する。
 
-閉じる操作は、帯の「閉じる」、Esc、背景そのもののクリック、ブックマークの再実行とする。Esc は `window` の `keydown` を capture で受け、`preventDefault` と `stopPropagation` を呼ぶ。セルを選ぶ状態のとき、または対象が検索の行の中のときは、この受け手は何もしない。セルを選ぶ状態を先にやめ、検索の欄の Esc は先に検索を閉じる。その後の Esc で全幅の表示を閉じる。閉じるときに受け手を外す。帯、検索の行、列のチェックボックス、表の枠を代わりの要素の前へこの順で戻し、代わりの要素と背景を消す。検索の行や列のチェックボックスが無いときは、その要素を省いて移して戻す。`syncBar` と `syncColumns` でもこの並びを保つ。開いたときも閉じたときも、帯の `float` のボタンへフォーカスを置く。
+閉じる操作は、ツールバーの「閉じる」、Esc、背景そのもののクリック、ブックマークの再実行とする。Esc は `window` の `keydown` を capture で受け、`preventDefault` と `stopPropagation` を呼ぶ。セルを選ぶ状態のとき、または対象が検索の行の中のときは、この受け手は何もしない。セルを選ぶ状態を先にやめ、検索の欄の Esc は先に検索を閉じる。その後の Esc で全幅表示を閉じる。閉じるときに受け手を外す。ツールバー、検索の行、列のチェックボックス、表の枠を代わりの要素の前へこの順で戻し、代わりの要素と背景を消す。検索の行や列のチェックボックスが無いときは、その要素を省いて移して戻す。`syncBar` と `syncColumns` でもこの並びを保つ。開いたときも閉じたときも、ツールバーの `float` のボタンへフォーカスを置く。
 
-`state.floating` は一度に 1 つだけ持つ。別の表を開く前には前の表を閉じる。`scan()` の初めに代わりの要素が接続されているかを確かめ、GitLab の画面の移動などで切り離されたら背景ごと消し、表の記録を片付ける。印刷前にも全幅の表示を閉じる。`state.stop` と `printMode(true)` では `closeFloating(true, false)` で閉じ、直後の復元または測り直しに任せて、閉じる処理での再計測を省く。要素の追加・移動・削除はすべて `write()` の中で行う。
+`state.floating` は一度に 1 つだけ持つ。別の表を開く前には前の表を閉じる。`scan()` の初めに代わりの要素が接続されているかを確かめ、GitLab の画面の移動などで切り離されたら背景ごと消し、表の記録を片付ける。印刷前にも全幅表示を閉じる。`state.stop` と `printMode(true)` では `closeFloating(true, false)` で閉じ、直後の復元または測り直しに任せて、閉じる処理での再計測を省く。要素の追加・移動・削除はすべて `write()` の中で行う。
 
 ## 見張りと元への戻し方
 
@@ -280,14 +280,14 @@ GitLab の本文の外側にある `div.panel-content` は `contain: layout`、`
 
 `ResizeObserver` は表を見て、`requestAnimationFrame` で測り直しをまとめる。測った値が変わらなければ style を書き換えない。`refresh()` が同期で測り終えた表とスクロールの範囲の `width`・`height` を記録し、知らせの受け手では寸法を読む関数を呼ばずに各要素の `entry.borderBoxSize[0]` の `inlineSize`・`blockSize`（無ければ `contentRect`）と比べ、幅と高さの両方が 0.5px 以内なら測り直しを見送り、それ以外だけ `requestRefresh()` する。
 
-印刷の前は全幅の表示を閉じ、自分の包みの `max-height` を `none` にし、帯、検索の行、列のチェックボックスを隠す。印刷の後は包みの高さと操作の表示を戻す。
+印刷の前は全幅表示を閉じ、自分の包みの `max-height` を `none` にし、ツールバー、検索の行、列のチェックボックスを隠す。印刷の後は包みの高さと操作の表示を戻す。
 
-初回は表を処理し、右下に 2.5 秒だけ `role="status"` の知らせを出す。重なった表を飛ばした数も知らせる。もう一度動かすと見張りを止め、全幅の表示を閉じてから、すべてを戻し、状態を消す。検索の行と列のチェックボックスを消し、スクロール・セルを選ぶ操作・強調・検索・GitLab の全高の切り替えの受け手も外す。検索の 150 ms のタイマーも、検索を閉じるとき、対象から外れるとき、`cleanup`、`state.stop` で取り消す。絞り込みを含め、当てた `tr` とセルの style を元の文字列へ戻す。折り返し・横スクロール・全高への対応・セルで固定・強調・詰める・検索・絞り込み・写す・全幅の表示を操作した後も、すべての `.md` の `innerHTML` が始める前と同じになることを試験で確かめる。
+初回は表を処理し、右下に 2.5 秒だけ `role="status"` の知らせを出す。重なった表を飛ばした数も知らせる。もう一度動かすと見張りを止め、全幅表示を閉じてから、すべてを戻し、状態を消す。検索の行と列のチェックボックスを消し、スクロール・セルを選ぶ操作・行と列の強調・検索・GitLab の全体表示の切り替えの受け手も外す。検索の 150 ms のタイマーも、検索を閉じるとき、対象から外れるとき、`cleanup`、`state.stop` で取り消す。絞り込みを含め、当てた `tr` とセルの style を元の文字列へ戻す。折り返し・横スクロール・全体表示への対応・セルを選んで固定・行と列を強調・コンパクト・検索・絞り込み・コピー・全幅表示を操作した後も、すべての `.md` の `innerHTML` が始める前と同じになることを試験で確かめる。
 
 ## 組み立てと試験
 
-中核はクラシックスクリプトの IIFE にする。DOM に触れない格子と範囲、セルから選ぶ境目、強調するセル、見出しの行数、列の名前、初めの折り返し、セルの折り返し、列の最小の幅、検索の一致、隠す行、写す行列、TSV、HTML の関数は、Node の `module.exports` があるときだけ出す。`document` が無ければ DOM の処理には進まない。
+中核はクラシックスクリプトの IIFE にする。DOM に触れない格子と範囲、セルから選ぶ境目、強調するセル、見出しの行数、列の名前、初めの折り返し、セルの折り返し、列の最小の幅、検索の一致、隠す行、コピーする行列、TSV、HTML の関数は、Node の `module.exports` があるときだけ出す。`document` が無ければ DOM の処理には進まない。
 
 組み立ては、行全体のコメント・空行・行頭の字下げを除く。末尾へ `void 0;` を足し、`encodeURIComponent` して `javascript:` の後へ置く。評価の結果を undefined にし、ページが結果の文字列に置き換わらないようにする。
 
-Node の純粋な関数の試験、生成物とソースの一致の試験、生成物を CDP で動かすブラウザーの試験を使う。ブラウザーの試験は、GitLab の版の違いをまねたページを両方使う。ブラウザーの試験では、`Emulation.setDeviceMetricsOverride` で表示の大きさを 1248×804 に固定する。headless の Edge は、起動から十数秒後に窓の中の高さを 34px ほど縮めることがあり、70vh の枠と GitLab の全高のボタンの有無が試験の途中で変わるため（Edge で確かめた）。また headless の Edge は、ページを開いて約 20 秒後から数秒の間、ページを何度か隠し、その間のタイマーを遅らせる。見張りの待ちや測り直しの回数など、時間を測る確かめは、測る間に `visibilitychange` で隠れなかった回の結果を使い、隠れたら 10 回までやり直す（Edge で確かめた）。CSP、実際の罫線、ブックマークの登録は、実物の Edge・Chrome でも確かめる。
+Node の純粋な関数の試験、生成物とソースの一致の試験、生成物を CDP で動かすブラウザーの試験を使う。ブラウザーの試験は、GitLab の版の違いをまねたページを両方使う。ブラウザーの試験では、`Emulation.setDeviceMetricsOverride` で表示の大きさを 1248×804 に固定する。headless の Edge は、起動から十数秒後に窓の中の高さを 34px ほど縮めることがあり、70vh の枠と GitLab の全体表示のボタンの有無が試験の途中で変わるため（Edge で確かめた）。また headless の Edge は、ページを開いて約 20 秒後から数秒の間、ページを何度か隠し、その間のタイマーを遅らせる。見張りの待ちや測り直しの回数など、時間を測る確かめは、測る間に `visibilitychange` で隠れなかった回の結果を使い、隠れたら 10 回までやり直す（Edge で確かめた）。CSP、実際の罫線、ブックマークの登録は、実物の Edge・Chrome でも確かめる。

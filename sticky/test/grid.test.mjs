@@ -574,7 +574,7 @@ test("表 A の本文の rowspan=6 の中では、そのまとまりの上まで
   assert.deepEqual(plain(pickBoundaries(model, next)), { rows: 8, cols: 6 });
 });
 
-test("セルで固定する列は、選んだ行数に含まれる見出しの結合をまたがない", () => {
+test("セルを選んで固定する列は、選んだ行数に含まれる見出しの結合をまたがない", () => {
   const model = buildGrid(samples.C());
   for (const [col, expected] of [[3, 2], [6, 5]]) {
     const index = model.cells.findIndex((cell) => cell.row === 2 && cell.col === col);
@@ -906,7 +906,7 @@ test("必ず残す行に rowspan のまとまりがかかる場合は結合を�
   assert.deepEqual(plain(filterRows(model, [], 2)), [3]);
 });
 
-test("写す格子は隠した行を除き、結合セルの左上だけに文字を入れる", () => {
+test("コピー用の格子は隠した行を除き、結合セルの左上だけに文字を入れる", () => {
   const model = buildGrid(body([[th(2), th(1, 2)], [th(), th()], many(3), many(3)]));
   const texts = ["地域", "月", "1 月", "2 月", "隠す 1", "隠す 2", "隠す 3", "東", "100", "200"];
   const matrix = tableMatrix(model, texts, [2]);
@@ -925,7 +925,7 @@ test("写す格子は隠した行を除き、結合セルの左上だけに文�
   });
 });
 
-test("写す格子は隠した rowspan のまとまりを除き、後の行を今の順で詰める", () => {
+test("コピー用の格子は隠した rowspan のまとまりを除き、後の行を今の順で詰める", () => {
   const model = buildGrid(body([many(2, th), [td(2), td()], [td()], [td(2), td()], [td()]]));
   const matrix = tableMatrix(model, ["見出し 1", "見出し 2", "消す地域", "消す値 1", "消す値 2", "残る地域", "先", "後"], [1, 2]);
   assert.deepEqual(plain(matrix.grid), [["見出し 1", "見出し 2"], ["残る地域", "先"], ["", "後"]]);
@@ -946,7 +946,7 @@ test("HTML は th・td と結合を残し、文字を逃がして改行を br �
   assert.equal(toHtml(tableMatrix(buildGrid([]), [], [])), "<table></table>");
 });
 
-test("検索・絞り込み・写すの計算は入力を書き換えず、返した値も入力と共有しない", () => {
+test("検索・絞り込み・コピーの計算は入力を書き換えず、返した値も入力と共有しない", () => {
   const model = buildGrid(body([[th(2), th()], [td()], many(2)]));
   const texts = ["地域", "値", "対象", "東", "100"];
   const matched = [2];

@@ -257,7 +257,7 @@ async function createPage(directory, version, mimicTables = true) {
     emptyFirstRowSection.append(emptyFirstRowTable);
     document.body.append(emptyFirstRowSection);
     window.__emptyFirstRowTable = emptyFirstRowTable;
-    // セルで固定がリンクの既定の遷移を止めることを、外部へ移動しないリンクで確かめる。
+    // 「セルを選んで固定」がリンクの既定の遷移を止めることを、外部へ移動しないリンクで確かめる。
     const pickLinkCell = (window.__workaroundTable || window.__fixtureTables.A).rows[4].cells[0];
     const pickLink = document.createElement("a");
     pickLink.href = "#md-table-sticky-pick-probe";
@@ -574,7 +574,7 @@ async function checkNativeFallbacks(cdp) {
       window.__unfrozenNativeWrapper.remove();
     })()`);
   }
-  await waitFor(cdp, "!window.__mdTableSticky.records.has(window.__unfrozenNativeTable) && !window.__unfrozenNativeBar?.isConnected && !window.__unfrozenNativeColumns?.isConnected", "切り離した表の記録・帯・列のチェックボックスが消えない");
+  await waitFor(cdp, "!window.__mdTableSticky.records.has(window.__unfrozenNativeTable) && !window.__unfrozenNativeBar?.isConnected && !window.__unfrozenNativeColumns?.isConnected", "切り離した表の記録・ツールバー・列のチェックボックスが消えない");
 }
 
 async function waitFor(cdp, expression, message) {
@@ -722,7 +722,7 @@ async function checkDynamic(cdp, bookmarklet) {
   })()`);
   await waitFor(cdp, "!window.__dynamicOwnWrapper.isConnected && window.__dynamicTable.parentElement.hasAttribute('data-sticky-header')", "後からできた GitLab の包みへ移れない");
   assert.equal(await cdp.evaluate("window.__mdTableSticky.records.get(window.__dynamicTable).wrapper === null"), true, "自作の包みの記録も外す");
-  assert.equal(await cdp.evaluate("window.__dynamicGitLabWrapper.previousElementSibling?.hasAttribute('data-md-table-sticky-columns') && window.__dynamicGitLabWrapper.previousElementSibling.previousElementSibling === window.__dynamicBar"), true, "GitLab の包みへ移した後も帯を外の前へ移す");
+  assert.equal(await cdp.evaluate("window.__dynamicGitLabWrapper.previousElementSibling?.hasAttribute('data-md-table-sticky-columns') && window.__dynamicGitLabWrapper.previousElementSibling.previousElementSibling === window.__dynamicBar"), true, "GitLab の包みへ移した後もツールバーを外の前へ移す");
   await cdp.evaluate(`(() => {
     const record = window.__mdTableSticky.records.get(window.__dynamicTable);
     record.bar.element.querySelector('[data-md-table-sticky-action="cols-minus"]').click();
@@ -736,14 +736,14 @@ async function checkDynamic(cdp, bookmarklet) {
     window.__dynamicMarker = marker;
   })()`);
   await waitFor(cdp, "!window.__mdTableSticky.records.has(window.__dynamicTable)", "対象外になった表の記録を外す");
-  assert.equal(await cdp.evaluate("window.__dynamicBar.isConnected"), false, "対象外になった表の帯も消す");
+  assert.equal(await cdp.evaluate("window.__dynamicBar.isConnected"), false, "対象外になった表のツールバーも消す");
   await cdp.evaluate("window.__dynamicTable.removeAttribute('data-table-fields'); window.__dynamicMarker.remove()");
-  await waitFor(cdp, "!!window.__mdTableSticky.records.get(window.__dynamicTable)?.bar", "再び対象になった表へ帯を戻す");
+  await waitFor(cdp, "!!window.__mdTableSticky.records.get(window.__dynamicTable)?.bar", "再び対象になった表へツールバーを戻す");
   assert.equal(await cdp.evaluate("(() => { const selected = window.__mdTableSticky.records.get(window.__dynamicTable).override; return selected.rows === null && selected.cols === null; })()"), true, "新しく処理する表は自動から始める");
   await cdp.evaluate("window.__dynamicBar = window.__mdTableSticky.records.get(window.__dynamicTable).bar.element");
   await cdp.evaluate("window.__dynamicTable.remove(); window.__dynamicGitLabWrapper.remove()");
   await waitFor(cdp, "!window.__mdTableSticky.records.has(window.__dynamicTable)", "切り離した表の記録が残る");
-  assert.equal(await cdp.evaluate("window.__dynamicBar.isConnected"), false, "切り離した表の帯も消す");
+  assert.equal(await cdp.evaluate("window.__dynamicBar.isConnected"), false, "切り離した表のツールバーも消す");
   await cdp.evaluate(bookmarklet);
   // mimic の高さのボタンは ResizeObserver で付け外しするので、表の寸法が戻って知らせが届くまで待つ。
   await cdp.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
@@ -754,7 +754,7 @@ async function checkDynamic(cdp, bookmarklet) {
   );
 }
 
-// 帯の操作は実際のボタンを押し、当てた値とスクロール中の位置を確かめる。
+// ツールバーの操作は実際のボタンを押し、当てた値とスクロール中の位置を確かめる。
 async function exerciseControls(version) {
   const checks = [];
   const check = (pass, message) => checks.push({ pass: !!pass, message });
@@ -773,18 +773,18 @@ async function exerciseControls(version) {
   const records = Array.from(state.records.values());
   const bars = Array.from(document.querySelectorAll('[data-md-table-sticky-bar]'));
   const expected = records.filter(record => !record.skipped && record.model.cells.length);
-  check(bars.length === expected.length, 'セルがある対象の表ごとに帯を 1 つ置く');
+  check(bars.length === expected.length, 'セルがある対象の表ごとにツールバーを 1 つ置く');
   for (const record of records) {
     const bar = barOf(record);
     const needed = expected.includes(record);
-    check(!!bar === needed, '対象の表かどうかで帯の有無を決める: ' + record.table.rows[0]?.textContent.trim());
+    check(!!bar === needed, '対象の表かどうかでツールバーの有無を決める: ' + record.table.rows[0]?.textContent.trim());
     if (!bar) continue;
     const scroll = record.table.parentElement;
     const anchor = record.wrapper || scroll.closest('.gl-table-shadow-overlay') || scroll;
     const columns = bar.nextElementSibling;
-    check(columns?.hasAttribute('data-md-table-sticky-columns') && columns.nextElementSibling === anchor && bar.parentElement === anchor.parentElement && !scroll.contains(bar) && !scroll.contains(columns), '帯と列のチェックボックスをスクロールの範囲の外のすぐ前に置く');
-    check(bars.filter(candidate => candidate === bar).length === 1, '同じ表の帯を重ねない');
-    if (record.region.rows || record.region.cols) check(bar.textContent.includes('固定') && bar.textContent.includes('行') && bar.textContent.includes('列'), '帯に固定する向きを表示する');
+    check(columns?.hasAttribute('data-md-table-sticky-columns') && columns.nextElementSibling === anchor && bar.parentElement === anchor.parentElement && !scroll.contains(bar) && !scroll.contains(columns), 'ツールバーと列のチェックボックスをスクロールの範囲の外のすぐ前に置く');
+    check(bars.filter(candidate => candidate === bar).length === 1, '同じ表のツールバーを重ねない');
+    if (record.region.rows || record.region.cols) check(bar.textContent.includes('固定') && bar.textContent.includes('行') && bar.textContent.includes('列'), 'ツールバーに固定する向きを表示する');
     else check(['rows-minus', 'rows-plus', 'cols-minus', 'cols-plus', 'auto'].every(name => action(record, name).getClientRects().length === 0), '固定しない表では固定する向きと操作を隠す');
     for (const button of bar.querySelectorAll('button')) {
       check(button.type === 'button' && !!button.getAttribute('aria-label') && button.title === button.getAttribute('aria-label'), 'ボタンに種類と日本語の説明を付ける');
@@ -818,7 +818,6 @@ async function exerciseControls(version) {
   scrollA.scrollTop = 0;
   scrollA.scrollLeft = 0;
   await frame();
-  const beforeBar = barA.getBoundingClientRect();
   const cacheA = a.borderCache;
   check(a.layout.rows === 2 && count(a, 'rows') === '2（自動）', '表 A は自動の 2 行から始める');
   action(a, 'rows-plus').click();
@@ -826,6 +825,8 @@ async function exerciseControls(version) {
   // 本文の「東」は 6 行を結合しているので、2 の次に使える境目は 8 になる。
   check(a.layout.rows === 8 && a.override.rows === 8, '表 A の行を増やすと rowspan をまたぐ 3〜7 を飛ばして 8 にする');
   inspect(a);
+  // 数の文字が変わるとツールバーの折り返しが変わることがあるので、スクロールする直前の位置と比べる。
+  const beforeBar = barA.getBoundingClientRect();
   scrollA.scrollTop = 200;
   scrollA.scrollLeft = 300;
   await frame();
@@ -835,7 +836,7 @@ async function exerciseControls(version) {
   const scrollRect = scrollA.getBoundingClientRect();
   check(a.layout.roles[thirdIndex].top && getComputedStyle(third).position === 'sticky' && Math.abs(thirdRect.top - scrollRect.top - scrollA.clientTop - a.layout.rowOffsets[2]) <= 1, '行を増やすと 3 行目のセルも上に固定する');
   const afterBar = barA.getBoundingClientRect();
-  check(Math.abs(afterBar.top - beforeBar.top) <= 1 && Math.abs(afterBar.left - beforeBar.left) <= 1, '表を縦横にスクロールしても帯は動かない');
+  check(Math.abs(afterBar.top - beforeBar.top) <= 1 && Math.abs(afterBar.left - beforeBar.left) <= 1, '表を縦横にスクロールしてもツールバーは動かない');
   action(a, 'auto').click();
   await frame();
   check(a.layout.rows === 2 && a.override.rows === null && a.override.cols === null, '自動を押すと表 A の 2 行へ戻す');
@@ -897,7 +898,7 @@ async function exerciseControls(version) {
   inspect(autoColumns);
   const f = state.records.get(window.__fixtureTables.F);
   check(f.layout.cols === 0 && f.layout.colOffsets[1] > f.scroll.clientWidth / 2, '小さい表 F は半分の上限で列を外す');
-  check(!!barOf(f), '行を固定する表 F にも帯を出す');
+  check(!!barOf(f), '行を固定する表 F にもツールバーを出す');
   action(f, 'cols-plus').click();
   await frame();
   check(f.layout.cols === 1 && f.override.cols === 1 && f.layout.roles.some(role => role.left), '利用者が選んだ列の数を半分の上限より優先する');
@@ -905,7 +906,7 @@ async function exerciseControls(version) {
   action(f, 'rows-minus').click();
   action(f, 'cols-minus').click();
   await frame();
-  check(f.layout.rows === 0 && f.layout.cols === 0 && !!barOf(f)?.isConnected, '行列とも 0 を選んでも帯を残す');
+  check(f.layout.rows === 0 && f.layout.cols === 0 && !!barOf(f)?.isConnected, '行列とも 0 を選んでもツールバーを残す');
   check(getComputedStyle(f.table).borderCollapse === 'collapse', '行列とも 0 を選んだ表の罫線を元に戻す');
   inspect(f);
   action(f, 'auto').click();
@@ -916,11 +917,11 @@ async function exerciseControls(version) {
     f.scroll.style.setProperty('max-height', '30px', 'important');
     check(await waitLayout(() => f.layout?.rows === 0 && f.layout?.cols === 0), '小さい表の高さを狭めると両方向の自動固定を外す');
     const keptBar = !!barOf(f)?.isConnected;
-    check(keptBar, '両方向とも上限で 0 になっても帯を残す');
+    check(keptBar, '両方向とも上限で 0 になってもツールバーを残す');
     check(f.override.rows === null && f.override.cols === null, '両方向とも上限で外した表も自動の状態を保つ');
     if (keptBar) {
       inspect(f);
-      check(!action(f, 'rows-plus').disabled && !action(f, 'cols-plus').disabled, '両方向とも自動で 0 の帯から数を増やせる');
+      check(!action(f, 'rows-plus').disabled && !action(f, 'cols-plus').disabled, '両方向とも自動で 0 のツールバーから数を増やせる');
       action(f, 'rows-plus').click();
       action(f, 'cols-plus').click();
       await frame();
@@ -941,9 +942,9 @@ async function exerciseControls(version) {
   inspect(f);
   const displays = new Map(bars.map(bar => [bar, getComputedStyle(bar).display]));
   window.dispatchEvent(new Event('beforeprint'));
-  check(bars.every(bar => getComputedStyle(bar).display === 'none'), '印刷の前はすべての帯を隠す');
+  check(bars.every(bar => getComputedStyle(bar).display === 'none'), '印刷の前はすべてのツールバーを隠す');
   window.dispatchEvent(new Event('afterprint'));
-  check(bars.every(bar => getComputedStyle(bar).display === displays.get(bar)), '印刷の後は帯の表示を戻す');
+  check(bars.every(bar => getComputedStyle(bar).display === displays.get(bar)), '印刷の後はツールバーの表示を戻す');
   return checks;
 }
 
@@ -1023,9 +1024,9 @@ async function exerciseDisplayControls() {
   if (!originalWrap) inputsOf(a)[col].click();
   const emptyFirstRow = state.records.get(window.__emptyFirstRowTable);
   check(emptyFirstRow?.skipped === true && emptyFirstRow.model.overlap === false && emptyFirstRow.model.grid[0][0] === undefined, 'セルが重ならなくても先頭行が空の表は対象から外す');
-  check(!emptyFirstRow?.bar && !emptyFirstRow?.columns && !document.querySelector('#empty-first-row-case [data-md-table-sticky-bar], #empty-first-row-case [data-md-table-sticky-columns]'), '先頭行が空の表には帯も列のチェックボックスも出さない');
+  check(!emptyFirstRow?.bar && !emptyFirstRow?.columns && !document.querySelector('#empty-first-row-case [data-md-table-sticky-bar], #empty-first-row-case [data-md-table-sticky-columns]'), '先頭行が空の表にはツールバーも列のチェックボックスも出さない');
   const noFreeze = state.records.get(window.__noFreezeTable);
-  check(noFreeze.region.rows === 0 && noFreeze.region.cols === 0 && !!noFreeze.bar && inputsOf(noFreeze).length === 1, '固定しない表にも帯と列のチェックボックスを置く');
+  check(noFreeze.region.rows === 0 && noFreeze.region.cols === 0 && !!noFreeze.bar && inputsOf(noFreeze).length === 1, '固定しない表にもツールバーと列のチェックボックスを置く');
   check(['rows-minus', 'rows-plus', 'cols-minus', 'cols-plus', 'auto'].every(name => action(noFreeze, name).getClientRects().length === 0), '固定しない表は固定の操作だけを隠す');
   check(['scroll-x', 'wrap-all', 'nowrap-all', 'float'].every(name => action(noFreeze, name).getClientRects().length > 0), '固定しない表でも折り返し・横スクロール・全幅の操作を使える');
   const j = state.records.get(window.__fixtureTables.J);
@@ -1131,32 +1132,32 @@ async function exerciseFloating() {
   const panel = overlay.querySelector('[data-md-table-sticky-float-panel]');
   const placeholder = document.querySelector('[data-md-table-sticky-placeholder]');
   const tolerance = window.innerWidth - document.documentElement.clientWidth + 1;
-  check(overlay.parentElement === document.body && overlay.getAttribute('role') === 'dialog' && overlay.getAttribute('aria-modal') === 'true' && overlay.getAttribute('aria-label') === '表を全幅で表示', '全幅の背景を body の直下のモーダルとして置く');
-  check(panel.classList.contains('md') && Math.abs(panel.getBoundingClientRect().width - (window.innerWidth - 16)) <= tolerance && panel.contains(a.table), '表をブラウザーの幅から左右 8px ずつ引いた板へ移す');
-  check(panel.children[0] === bar && panel.children[1] === columns && panel.children[2] === anchor, '全幅の板に帯・列のチェックボックス・表の枠の順で移す');
-  check(Math.abs(placeholder.getBoundingClientRect().top - before.top) <= 2 && Math.abs(placeholder.getBoundingClientRect().height - before.height) <= 2, '元の場所に帯から表の下までと同じ位置と高さの代わりの要素を置く');
+  check(overlay.parentElement === document.body && overlay.getAttribute('role') === 'dialog' && overlay.getAttribute('aria-modal') === 'true' && overlay.getAttribute('aria-label') === '表の全幅表示', '全幅の背景を body の直下のモーダルとして置く');
+  check(panel.classList.contains('md') && Math.abs(panel.getBoundingClientRect().width - (window.innerWidth - 16)) <= tolerance && panel.contains(a.table), '表をブラウザーの幅から左右 8px ずつ引いたパネルへ移す');
+  check(panel.children[0] === bar && panel.children[1] === columns && panel.children[2] === anchor, '全幅のパネルにツールバー・列のチェックボックス・表の枠の順で移す');
+  check(Math.abs(placeholder.getBoundingClientRect().top - before.top) <= 2 && Math.abs(placeholder.getBoundingClientRect().height - before.height) <= 2, '元の場所にツールバーから表の下までと同じ位置と高さの代わりの要素を置く');
   check(window.scrollY === before.scrollY, '全幅で開いてもページの縦スクロール量を変えない');
-  check(action(a).textContent === '閉じる' && action(a).title === '全幅の表示を閉じる（Esc）' && action(a).getAttribute('aria-label') === action(a).title && document.activeElement === action(a), '全幅の閉じるボタンへフォーカスを置く');
+  check(action(a).textContent === '閉じる' && action(a).title === '全幅表示を閉じる（Esc）' && action(a).getAttribute('aria-label') === action(a).title && document.activeElement === action(a), '全幅の閉じるボタンへフォーカスを置く');
   const floatedInputs = Array.from(columns.querySelectorAll('input[data-md-table-sticky-column]'));
   const floatedElements = Array.from(a.table.rows).flatMap(row => Array.from(row.cells));
   const floatedIndex = a.model.cells.findIndex(cell => cell.col === 2 && cell.colspan === 1);
   const wasChecked = floatedInputs[2].checked;
   if (wasChecked) floatedInputs[2].click();
   await frame();
-  check(getComputedStyle(floatedElements[floatedIndex]).whiteSpace === 'nowrap', '全幅の板の中でも列の折り返しを切り替えられる');
+  check(getComputedStyle(floatedElements[floatedIndex]).whiteSpace === 'nowrap', '全幅のパネルの中でも列の折り返しを切り替えられる');
   if (wasChecked) floatedInputs[2].click();
   const floatedScrollX = bar.querySelector('[data-md-table-sticky-action="scroll-x"]');
   floatedScrollX.click();
   await frame();
-  check(floatedScrollX.checked && a.scrollX, '全幅の板の中でも横スクロールを切り替えられる');
+  check(floatedScrollX.checked && a.scrollX, '全幅のパネルの中でも横スクロールを切り替えられる');
   a.scroll.scrollTop = 200;
   a.scroll.scrollLeft = 200;
   await frame();
-  check(Math.abs(columns.scrollLeft - a.scroll.scrollLeft) <= 1, '全幅の板の中でも表と列のチェックボックスを一緒に横へ動かす');
+  check(Math.abs(columns.scrollLeft - a.scroll.scrollLeft) <= 1, '全幅のパネルの中でも表と列のチェックボックスを一緒に横へ動かす');
   const fixedIndex = a.model.cells.findIndex((cell, index) => a.layout.roles[index].top && a.layout.roles[index].left);
   const fixedCell = floatedElements[fixedIndex];
   const scrollRect = a.scroll.getBoundingClientRect();
-  check(fixedIndex >= 0 && getComputedStyle(fixedCell).position === 'sticky' && Math.abs(fixedCell.getBoundingClientRect().top - scrollRect.top - a.scroll.clientTop - a.layout.rowOffsets[a.model.cells[fixedIndex].row]) <= 1, '全幅の板の中でも見出しを上へ固定する');
+  check(fixedIndex >= 0 && getComputedStyle(fixedCell).position === 'sticky' && Math.abs(fixedCell.getBoundingClientRect().top - scrollRect.top - a.scroll.clientTop - a.layout.rowOffsets[a.model.cells[fixedIndex].row]) <= 1, '全幅のパネルの中でも見出しを上へ固定する');
   floatedScrollX.click();
   await frame();
   let escaped = 0;
@@ -1180,7 +1181,7 @@ async function exerciseFloating() {
   await open(d);
   check(document.querySelectorAll('[data-md-table-sticky-float]').length === 1 && document.querySelectorAll('[data-md-table-sticky-placeholder]').length === 1 && document.querySelector('[data-md-table-sticky-float-panel]').contains(d.table) && !document.querySelector('[data-md-table-sticky-float-panel]').contains(a.table), '別の表を全幅で開くと前の表を戻し一つだけ表示する');
   window.dispatchEvent(new Event('beforeprint'));
-  check(closed(), '印刷の前は全幅の表示を閉じる');
+  check(closed(), '印刷の前は全幅表示を閉じる');
   window.dispatchEvent(new Event('afterprint'));
   await frame();
   const j = state.records.get(window.__fixtureTables.J);
@@ -1189,17 +1190,17 @@ async function exerciseFloating() {
   await open(j);
   const jPanel = document.querySelector('[data-md-table-sticky-float-panel]');
   check(jPanel.contains(j.table) && j.table.getBoundingClientRect().width > jWidthBefore + 1, '長い内容の表 J は全幅のボタンを押す前より広く表示する');
-  check(j.scroll.scrollWidth <= j.scroll.clientWidth + 1 && j.table.getBoundingClientRect().width <= j.scroll.clientWidth + 1, '全幅の表 J も板の中の枠に収めて折り返す');
+  check(j.scroll.scrollWidth <= j.scroll.clientWidth + 1 && j.table.getBoundingClientRect().width <= j.scroll.clientWidth + 1, '全幅の表 J もパネルの中の枠に収めて折り返す');
   action(j).click();
   await frame();
-  check(closed(), '表 J の全幅の表示を閉じる');
+  check(closed(), '表 J の全幅表示を閉じる');
   const f = state.records.get(window.__fixtureTables.F);
   const fWidthBefore = f.table.getBoundingClientRect().width;
   await open(f);
-  check(Math.abs(f.table.getBoundingClientRect().width - fWidthBefore) <= 1, '小さい表 F は全幅の板の中でも表の幅を 1px 以内に保つ');
+  check(Math.abs(f.table.getBoundingClientRect().width - fWidthBefore) <= 1, '小さい表 F は全幅のパネルの中でも表の幅を 1px 以内に保つ');
   action(f).click();
   await frame();
-  check(closed(), '小さい表 F の全幅の表示を閉じる');
+  check(closed(), '小さい表 F の全幅表示を閉じる');
   return checks;
 }
 
@@ -1228,39 +1229,39 @@ async function exerciseFirstRoundControls(version) {
       const input = action(record, name);
       check(input?.type === 'checkbox' && !input.checked && input.title === input.getAttribute('aria-label') && !input.classList.contains('task-list-item-checkbox'), '新しいチェックボックスを既定でオフにし日本語の説明を付ける: ' + name);
     }
-    check(action(record, 'pick')?.getAttribute('aria-pressed') === 'false', 'セルで固定は選ぶ状態でないことを表示する');
-    check(!action(record, 'fit-height').closest('label').checkVisibility(), '全高でない表では枠に収めるを隠す');
+    check(action(record, 'pick')?.getAttribute('aria-pressed') === 'false', '「セルを選んで固定」は選択中でないことを表示する');
+    check(!action(record, 'fit-height').closest('label').checkVisibility(), '全体表示でない表では「高さを制限」を隠す');
   }
   if (version === 'master') {
     const native = state.records.get(window.__fixtureTables.A);
     const toggle = native.scroll.closest('.gl-table-shadow-overlay').parentElement.querySelector('[data-testid="markdown-table-height-toggle"]');
-    check(!!toggle, '窓の 70% より高い表に GitLab の全高のボタンを置く');
+    check(!!toggle, '窓の 70% より高い表に GitLab の全体表示のボタンを置く');
     toggle.click();
     await frame();
     const fit = action(native, 'fit-height');
-    check(native.nativeFull && fit.closest('label').checkVisibility() && !fit.checked, 'GitLab を全高へ変えると枠に収めるを出す');
-    check(native.bar.element.querySelector('[data-md-table-sticky-count="rows"]').textContent.endsWith('（自動・全高）'), '全高で枠に収めていない行の数に全高を添える');
-    check(getComputedStyle(native.scroll).maxHeight === 'none', 'GitLab の全高は高さの上限を外す');
+    check(native.nativeFull && fit.closest('label').checkVisibility() && !fit.checked, 'GitLab を全体表示へ変えると「高さを制限」を出す');
+    check(native.bar.element.querySelector('[data-md-table-sticky-count="rows"]').textContent.endsWith('（自動・全体表示中）'), '全体表示で高さを制限していない表では行の数に「全体表示中」を添える');
+    check(getComputedStyle(native.scroll).maxHeight === 'none', 'GitLab の全体表示は高さの上限を外す');
     fit.click();
     await frame();
-    check(native.fitHeight && Math.abs(parseFloat(getComputedStyle(native.scroll).maxHeight) - innerHeight * 0.7) <= 1, '枠に収めるでこの表の高さを画面の 70% にする');
-    check(getComputedStyle(window.__fixtureTables.D.parentElement).maxHeight === 'none', '枠に収めるは別の表の全高を変えない');
+    check(native.fitHeight && Math.abs(parseFloat(getComputedStyle(native.scroll).maxHeight) - innerHeight * 0.7) <= 1, '「高さを制限」でこの表の高さを画面の 70% にする');
+    check(getComputedStyle(window.__fixtureTables.D.parentElement).maxHeight === 'none', '「高さを制限」は別の表の全体表示を変えない');
     native.scroll.scrollIntoView({ block: 'start', inline: 'nearest' });
     native.scroll.scrollTop = 200;
     await frame();
     const first = elementsOf(native)[0].getBoundingClientRect();
     const wrap = native.scroll.getBoundingClientRect();
-    check(native.scroll.scrollTop === 200 && Math.abs(first.top - wrap.top - native.scroll.clientTop) <= 1, '枠に収めた全高の表では縦にスクロールしても見出しを止める');
+    check(native.scroll.scrollTop === 200 && Math.abs(first.top - wrap.top - native.scroll.clientTop) <= 1, '全体表示の表の高さを制限すると縦にスクロールしても見出しを止める');
     fit.click();
     await frame();
-    check(!native.fitHeight && getComputedStyle(native.scroll).maxHeight === 'none', '枠に収めるを外すと GitLab の全高へ戻す');
+    check(!native.fitHeight && getComputedStyle(native.scroll).maxHeight === 'none', '「高さを制限」のチェックを外すと GitLab の全体表示へ戻す');
     fit.click();
     await frame();
     toggle.click();
     await frame();
-    check(!native.nativeFull && !native.fitHeight && !fit.checked && !fit.closest('label').checkVisibility(), 'Collapse table で枠に収めるの状態を戻して隠す');
+    check(!native.nativeFull && !native.fitHeight && !fit.checked && !fit.closest('label').checkVisibility(), 'Collapse table で「高さを制限」の状態を戻して隠す');
   } else {
-    check(!!a.wrapper && !action(a, 'fit-height').closest('label').checkVisibility(), '19.5 の自分の包みには枠に収めるを出さない');
+    check(!!a.wrapper && !action(a, 'fit-height').closest('label').checkVisibility(), '19.5 の自分の包みには「高さを制限」を出さない');
   }
   action(a, 'auto').click();
   await frame();
@@ -1308,7 +1309,7 @@ async function exerciseFirstRoundControls(version) {
   check(a.compact && elements.every((cell, index) => {
     const style = getComputedStyle(cell);
     return style.paddingTop === '2px' && style.paddingBottom === '2px' && style.paddingLeft === '6px' && style.paddingRight === '6px' && Math.abs(parseFloat(style.fontSize) - original[index].fontSize * 0.875) <= 0.1 && Math.abs(parseFloat(style.lineHeight) - parseFloat(style.fontSize) * 1.3) <= 0.1;
-  }), '詰めるは全セルの余白・文字の大きさ・行の高さを変える');
+  }), 'コンパクトは全セルの余白・文字の大きさ・行の高さを変える');
   check(a.scroll.scrollTop === position.top && a.scroll.scrollLeft === position.left, '詰めた寸法を測り直しても縦横のスクロール位置を保つ');
   const styles = elements.map(cell => cell.getAttribute('style'));
   elements.forEach(cell => cell.style.setProperty('position', 'static', 'important'));
@@ -1318,19 +1319,19 @@ async function exerciseFirstRoundControls(version) {
     if (styles[index] === null) cell.removeAttribute('style');
     else cell.setAttribute('style', styles[index]);
   });
-  check(a.model.cells.some((cell, index) => cell.row > 0 && a.layout.roles[index].top) && a.model.cells.every((cell, index) => !a.layout.roles[index].top || Math.abs(parseFloat(elements[index].style.top) - rowOffsets[cell.row]) <= 1), '固定した 2 行目以降の top は詰めた後の行の上端に合わせる');
+  check(a.model.cells.some((cell, index) => cell.row > 0 && a.layout.roles[index].top) && a.model.cells.every((cell, index) => !a.layout.roles[index].top || Math.abs(parseFloat(elements[index].style.top) - rowOffsets[cell.row]) <= 1), '固定した 2 行目以降の top はコンパクトにした後の行の上端に合わせる');
   action(a, 'compact').click();
   await frame();
   check(elements.every((cell, index) => {
     const style = getComputedStyle(cell);
     return style.padding === original[index].padding && Math.abs(parseFloat(style.fontSize) - original[index].fontSize) <= 0.1 && style.lineHeight === original[index].lineHeight;
-  }), '詰めるを外すと余白と文字を元へ戻す');
+  }), 'コンパクトのチェックを外すと余白と文字を元へ戻す');
   action(a, 'pick').click();
   await frame();
-  check(a.picking && state.picking === a && action(a, 'pick').getAttribute('aria-pressed') === 'true' && getComputedStyle(a.table).cursor === 'crosshair', 'セルで固定で選ぶ状態と十字のカーソルを出す');
+  check(a.picking && state.picking === a && action(a, 'pick').getAttribute('aria-pressed') === 'true' && getComputedStyle(a.table).cursor === 'crosshair', '「セルを選んで固定」で選択中の状態と十字のカーソルを出す');
   action(a, 'pick').click();
   await frame();
-  check(!state.picking && !a.picking && action(a, 'pick').getAttribute('aria-pressed') === 'false', 'セルで固定をもう一度押すと選ぶのをやめる');
+  check(!state.picking && !a.picking && action(a, 'pick').getAttribute('aria-pressed') === 'false', '「セルを選んで固定」をもう一度押すと選択をやめる');
   action(a, 'pick').click();
   const other = state.records.get(window.__fixtureTables.D);
   action(other, 'pick').click();
@@ -1350,7 +1351,7 @@ async function exerciseFirstRoundControls(version) {
   const secondEscape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
   window.dispatchEvent(secondEscape);
   await frame();
-  check(secondEscape.defaultPrevented && !document.querySelector('[data-md-table-sticky-float]'), '全幅の中の Esc 2 回目で全幅の表示を閉じる');
+  check(secondEscape.defaultPrevented && !document.querySelector('[data-md-table-sticky-float]'), '全幅の中の Esc 2 回目で全幅表示を閉じる');
   return checks;
 }
 
@@ -1448,7 +1449,7 @@ async function checkFirstRoundControls(cdp, version) {
 }
 
 
-// 2 回目の検索・絞り込み・写すを、実際の入力とクリップボードの読み戻しで確かめる。
+// 2 回目の検索・絞り込み・コピーを、実際の入力とクリップボードの読み戻しで確かめる。
 function prepareSearchCase(version) {
   const state = window.__mdTableSticky;
   const table = version === '19.5' ? window.__workaroundTable : window.__fixtureTables.A;
@@ -1473,7 +1474,7 @@ function prepareSearchCase(version) {
     input: input.type === 'search' && input.getAttribute('aria-label') === '表の中を検索' && input.placeholder === '表の中を検索',
     count: search.querySelector('[data-md-table-sticky-search-count]').textContent,
     live: search.querySelector('[data-md-table-sticky-search-count]').getAttribute('aria-live'),
-    labels: [['search-prev', '前の一致へ移る（Shift+Enter）'], ['search-next', '次の一致へ移る（Enter）'], ['search-filter', '一致するセルのある行だけを表示する'], ['search-close', '検索を閉じる（Esc）']].every(([name, label]) => {
+    labels: [['search-prev', '前の一致へ（Shift+Enter）'], ['search-next', '次の一致へ（Enter）'], ['search-filter', '一致するセルのある行だけを表示する'], ['search-close', '検索を閉じる（Esc）']].every(([name, label]) => {
       const element = search.querySelector('[data-md-table-sticky-action="' + name + '"]');
       return element && element.title === label && element.getAttribute('aria-label') === label && !element.classList.contains('task-list-item-checkbox');
     }),
@@ -1545,7 +1546,7 @@ async function exerciseCopyFallbacks() {
     [document, 'execCommand', Object.getOwnPropertyDescriptor(document, 'execCommand')],
   ];
   const define = (owner, name, value) => Object.defineProperty(owner, name, { configurable: true, writable: true, value });
-  const inputCount = document.querySelectorAll('textarea[aria-label="表を写すための一時の欄"]').length;
+  const inputCount = document.querySelectorAll('textarea[aria-label="コピー用の一時的な欄"]').length;
   try {
     try {
       define(navigator, 'clipboard', {});
@@ -1573,19 +1574,19 @@ async function exerciseCopyFallbacks() {
     const primary = {};
     const richNotice = await run({ write: async items => {
       for (const [type, blob] of Object.entries(items[0].data)) primary[type] = await blob.text();
-    } }, () => { throw new Error('HTML を写せたら代替へ進めない'); });
+    } }, () => { throw new Error('HTML をコピーできたら代替へ進めない'); });
     check(primary['text/plain'] === expected, 'br・p・div・li の境目を改行にし、各行の空白と前後の空行を整えて TSV にする');
     const htmlCell = new DOMParser().parseFromString(primary['text/html'] || '', 'text/html').querySelector('table')?.rows[table.rows.length - 1]?.cells[1];
-    check(htmlCell?.innerHTML === '先頭 の文<br>次 の行<br>まとまり<br>項目 1<br>項目 2', 'HTML に改行を br で残し、svg と aria-hidden の子の文字を写さない');
-    check(richNotice === '表を写した' + size, 'HTML と文字を写せたときは通常の知らせを出す');
+    check(htmlCell?.innerHTML === '先頭 の文<br>次 の行<br>まとまり<br>項目 1<br>項目 2', 'HTML に改行を br で残し、svg と aria-hidden の子の文字をコピーしない');
+    check(richNotice === '表をコピーした' + size, 'HTML と文字をコピーできたときは通常の知らせを出す');
     const calls = [];
     let written = '';
     const plainNotice = await run({
       write: async () => { calls.push('write'); throw new Error('試験用の HTML の失敗'); },
       writeText: async text => { calls.push('writeText'); written = text; },
     }, () => { calls.push('execCommand'); return true; });
-    check(calls.join(',') === 'write,writeText' && written === expected, 'HTML の書き込みが失敗したら同じ TSV を writeText で写す');
-    check(plainNotice === '表を文字だけ写した' + size, 'writeText で写せたときは文字だけの知らせを出す');
+    check(calls.join(',') === 'write,writeText' && written === expected, 'HTML の書き込みが失敗したら同じ TSV を writeText でコピーする');
+    check(plainNotice === '表を文字だけコピーした' + size, 'writeText でコピーできたときは文字だけの知らせを出す');
     let temporary = null;
     let temporaryValid = false;
     calls.length = 0;
@@ -1599,11 +1600,11 @@ async function exerciseCopyFallbacks() {
       return true;
     });
     check(calls.join(',') === 'write,writeText,copy' && temporaryValid, '両方の API が失敗したら body 直下の一時の欄で TSV 全体を選んで copy する');
-    check(!temporary?.isConnected && document.querySelectorAll('textarea[aria-label="表を写すための一時の欄"]').length === inputCount, '代替で写した後は一時の欄を残さない');
-    check(fallbackNotice === '表を文字だけ写した' + size, '一時の欄で写せたときも文字だけの知らせを出す');
+    check(!temporary?.isConnected && document.querySelectorAll('textarea[aria-label="コピー用の一時的な欄"]').length === inputCount, '代替でコピーした後は一時の欄を残さない');
+    check(fallbackNotice === '表を文字だけコピーした' + size, '一時の欄でコピーできたときも文字だけの知らせを出す');
     const failedNotice = await run({}, () => false);
-    check(failedNotice === '表を写せなかった', '両方の API がなく代替の copy も失敗したら失敗を知らせる');
-    check(document.querySelectorAll('textarea[aria-label="表を写すための一時の欄"]').length === inputCount, '失敗した後も一時の欄を残さない');
+    check(failedNotice === '表をコピーできなかった', '両方の API がなく代替の copy も失敗したら失敗を知らせる');
+    check(document.querySelectorAll('textarea[aria-label="コピー用の一時的な欄"]').length === inputCount, '失敗した後も一時の欄を残さない');
     return { checks };
   } finally {
     cell.replaceChildren(...savedNodes);
@@ -1630,11 +1631,11 @@ async function checkSearchControls(cdp, t, version) {
     await frame();
   };
   const setup = await cdp.evaluate('(' + prepareSearchCase.toString() + ')(' + JSON.stringify(version) + ')');
-  assert.equal(setup.order, true, '帯に折り返さない・検索・写す・全幅の順で並べる');
+  assert.equal(setup.order, true, 'ツールバーに折り返さない・検索・コピー・全幅表示の順で並べる');
   assert.equal(setup.pressed, 'true', '検索を開くと aria-pressed を true にする');
-  assert.equal(setup.searchLabel, '表の中を検索する');
-  assert.equal(setup.copyLabel, '表を Excel に貼れる形でクリップボードへ写す（見えている行だけ）');
-  assert.equal(setup.line && setup.focused && setup.input && setup.labels, true, '検索行を帯と列帯の間の Vue の包みの外へ置き、日本語の説明と欄のフォーカスを付ける');
+  assert.equal(setup.searchLabel, 'この表の中を検索する');
+  assert.equal(setup.copyLabel, '表示中の行を、Excel に貼り付けられる形でコピーする');
+  assert.equal(setup.line && setup.focused && setup.input && setup.labels, true, '検索行をツールバーと列のチェックボックスの間の Vue の包みの外へ置き、日本語の説明と欄のフォーカスを付ける');
   assert.equal(setup.count, '');
   assert.equal(setup.live, 'polite');
   // 見出しの「店舗」は含めず、本文の 30 店だけに一致させる。
@@ -1698,9 +1699,11 @@ async function checkSearchControls(cdp, t, version) {
     }
     const expected = await cdp.evaluate('(' + copyExpectation.toString() + ')()');
     const position = await cdp.evaluate('(() => { const button = window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="copy"]\'); button.scrollIntoView({ block: "center", inline: "nearest" }); const rect = button.getBoundingClientRect(); return { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 }; })()');
+    await cdp.evaluate("window.__noticeBefore = Array.from(document.querySelectorAll('body > [role=status]')).at(-1) || null");
     await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...position, button: 'left', clickCount: 1 });
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...position, button: 'left', clickCount: 1 });
-    await delay(100);
+    // 書き込みが終わってから出る知らせを待ってから読み戻す（途中で読むと Clipboard data has changed になる）。
+    await waitFor(cdp, '(() => { const notice = Array.from(document.querySelectorAll("body > [role=status]")).at(-1); return !!notice && notice !== window.__noticeBefore && /コピー/.test(notice.textContent); })()', 'コピーの知らせが出ない');
     let copied;
     try {
       copied = await cdp.evaluate('(async () => { const result = {}; for (const item of await navigator.clipboard.read()) for (const type of item.types) result[type] = await (await item.getType(type)).text(); return result; })()');
@@ -1708,25 +1711,26 @@ async function checkSearchControls(cdp, t, version) {
       clip.skip('headless のクリップボードを読み戻せない: ' + error.message);
       return;
     }
-    assert.equal(copied['text/plain'], expected.tsv, '見えている行の TSV は結合セルの左上だけに値を持ち、今の DOM の順で写す');
-    assert.ok(copied['text/html'], 'HTML も同時に写す');
+    assert.equal(copied['text/plain'], expected.tsv, '見えている行の TSV は結合セルの左上だけに値を持ち、今の DOM の順でコピーする');
+    assert.ok(copied['text/html'], 'HTML も同時にコピーする');
     const html = await cdp.evaluate('(' + ((text) => {
       const table = new DOMParser().parseFromString(text, 'text/html').querySelector('table');
       return { rows: table?.rows.length, cells: table ? Array.from(table.rows).flatMap(row => Array.from(row.cells, cell => ({ text: cell.textContent, rowspan: cell.rowSpan, colspan: cell.colSpan, header: cell.tagName === 'TH' }))) : [] };
     }).toString() + ')(' + JSON.stringify(copied['text/html']) + ')');
     assert.equal(html.rows, expected.rows, 'HTML は見出しと見えている 6 行だけを持つ');
     assert.deepEqual(html.cells, expected.cells.map(({ text, rowspan, colspan, header }) => ({ text, rowspan, colspan, header })), 'HTML は見えている行の結合と th・td を残す');
-    assert.equal(await cdp.evaluate('Array.from(document.querySelectorAll("body > [role=status]")).at(-1)?.textContent'), '表を写した（' + expected.rows + ' 行 × ' + expected.cols + ' 列）', 'HTML と TSV を写した行数・列数を知らせる');
+    assert.equal(await cdp.evaluate('Array.from(document.querySelectorAll("body > [role=status]")).at(-1)?.textContent'), '表をコピーした（' + expected.rows + ' 行 × ' + expected.cols + ' 列）', 'HTML と TSV をコピーした行数・列数を知らせる');
     await cdp.evaluate('(() => { const table = window.__fixtureTables.D; const rows = Array.from(table.tBodies[0].rows); window.__copySortCase = { table, rows, arias: Array.from(table.tHead.rows[0].cells, cell => cell.getAttribute("aria-sort")) }; const button = table.querySelector("thead th button"); button.click(); if (table.tBodies[0].rows[0] !== rows.at(-1)) button.click(); })()');
     try {
-      await waitFor(cdp, 'window.__copySortCase.table.tBodies[0].rows[0] === window.__copySortCase.rows.at(-1)', '写す前に並べ替えのボタンで本文を降順へ変える');
+      await waitFor(cdp, 'window.__copySortCase.table.tBodies[0].rows[0] === window.__copySortCase.rows.at(-1)', 'コピーする前に並べ替えのボタンで本文を降順へ変える');
       await delay(220);
       await frame();
       const sortedExpected = await cdp.evaluate('(() => { const { table, rows } = window.__copySortCase; const text = cell => cell.textContent.replace(/\\s+/g, " ").trim(); return { firstColumn: [text(table.rows[0].cells[0]), ...rows.slice().reverse().map(row => text(row.cells[0]))], tsv: Array.from(table.rows, row => Array.from(row.cells, text).join("\\t")).join("\\r\\n") + "\\r\\n" }; })()');
       const sortedPosition = await cdp.evaluate('(() => { const record = window.__mdTableSticky.records.get(window.__copySortCase.table); const button = record.bar.element.querySelector(\'[data-md-table-sticky-action="copy"]\'); button.scrollIntoView({ block: "center", inline: "nearest" }); const rect = button.getBoundingClientRect(); return { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 }; })()');
+      await cdp.evaluate("window.__noticeBefore = Array.from(document.querySelectorAll('body > [role=status]')).at(-1) || null");
       await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...sortedPosition, button: 'left', clickCount: 1 });
       await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...sortedPosition, button: 'left', clickCount: 1 });
-      await delay(100);
+      await waitFor(cdp, '(() => { const notice = Array.from(document.querySelectorAll("body > [role=status]")).at(-1); return !!notice && notice !== window.__noticeBefore && /コピー/.test(notice.textContent); })()', '並べ替え後のコピーの知らせが出ない');
       let sortedCopied;
       try {
         sortedCopied = await cdp.evaluate('(async () => { const result = {}; for (const item of await navigator.clipboard.read()) for (const type of item.types) result[type] = await (await item.getType(type)).text(); return result; })()');
@@ -1734,7 +1738,7 @@ async function checkSearchControls(cdp, t, version) {
         clip.skip('headless の並べ替え後のクリップボードを読み戻せない: ' + error.message);
         return;
       }
-      assert.equal(sortedCopied['text/plain'], sortedExpected.tsv, '並べ替えのボタンで変えた現在の DOM の順で TSV を写す');
+      assert.equal(sortedCopied['text/plain'], sortedExpected.tsv, '並べ替えのボタンで変えた現在の DOM の順で TSV をコピーする');
       const firstColumn = await cdp.evaluate('(' + (text => {
         const table = new DOMParser().parseFromString(text, 'text/html').querySelector('table');
         return table ? Array.from(table.rows, row => row.cells[0].textContent) : [];
@@ -1759,7 +1763,7 @@ async function checkSearchControls(cdp, t, version) {
   assert.equal((await inspect()).visibleRows.length, 32, '絞り込みを外すとすべての行を戻す');
   await cdp.evaluate('window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="float"]\').click()');
   await frame();
-  assert.equal(await cdp.evaluate('(() => { const { bar, anchor, record } = window.__searchCase; const search = bar.nextElementSibling; const panel = document.querySelector("[data-md-table-sticky-float-panel]"); return panel.children[0] === bar && panel.children[1] === search && search.hasAttribute("data-md-table-sticky-search") && panel.children[2] === record.columns.element && panel.children[3] === anchor; })()'), true, '全幅の板へ検索行も帯・検索・列帯・枠の順で移す');
+  assert.equal(await cdp.evaluate('(() => { const { bar, anchor, record } = window.__searchCase; const search = bar.nextElementSibling; const panel = document.querySelector("[data-md-table-sticky-float-panel]"); return panel.children[0] === bar && panel.children[1] === search && search.hasAttribute("data-md-table-sticky-search") && panel.children[2] === record.columns.element && panel.children[3] === anchor; })()'), true, '全幅のパネルへ検索行もツールバー・検索・列のチェックボックス・枠の順で移す');
   await cdp.evaluate('window.__searchCase.bar.nextElementSibling.querySelector("[data-md-table-sticky-search-input]").focus()');
   await key('Escape');
   assert.equal(await cdp.evaluate('!!document.querySelector("[data-md-table-sticky-float]") && window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="search"]\').getAttribute("aria-pressed") === "false"'), true, '検索欄の Esc 1 回目は検索だけを閉じる');
@@ -1767,6 +1771,10 @@ async function checkSearchControls(cdp, t, version) {
   assert.equal(await cdp.evaluate('(() => { const { bar, anchor, record } = window.__searchCase; return !document.querySelector("[data-md-table-sticky-float]") && bar.nextElementSibling === record.columns.element && record.columns.element.nextElementSibling === anchor; })()'), true, 'Esc 2 回目で全幅を閉じて元の並びへ戻す');
   await cdp.evaluate('window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="search"]\').click()');
   assert.equal(await cdp.evaluate('(() => { const { bar } = window.__searchCase; const search = bar.nextElementSibling; return search.querySelector("input[type=search]").value === "" && search.querySelector("[data-md-table-sticky-search-count]").textContent === "" && !search.querySelector(\'[data-md-table-sticky-action="search-filter"]\').checked; })()'), true, '検索を閉じると欄・件数・絞り込みを空へ戻す');
+  // 検索の行を開いたまま、要素ではない window に Esc が届いても全幅表示を閉じる。
+  await cdp.evaluate('window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="float"]\').click()');
+  await frame();
+  assert.equal(await cdp.evaluate('(() => { const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented && !document.querySelector("[data-md-table-sticky-float]"); })()'), true, '検索の行を開いたまま window に届いた Esc でも全幅表示を閉じる');
   await cdp.evaluate('window.dispatchEvent(new Event("beforeprint"))');
   assert.equal(await cdp.evaluate('window.__searchCase.bar.nextElementSibling.getClientRects().length === 0'), true, '印刷の前は検索行を隠す');
   await cdp.evaluate('window.dispatchEvent(new Event("afterprint"))');
@@ -1776,11 +1784,11 @@ async function checkSearchControls(cdp, t, version) {
   assert.equal(await cdp.evaluate('window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="search"]\').getAttribute("aria-pressed") === "false" && window.__searchCase.bar.nextElementSibling === window.__searchCase.record.columns.element'), true, '検索ボタンをもう一度押しても検索を閉じる');
   await cdp.evaluate('window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="search"]\').click()');
   await cdp.evaluate('window.__searchCase.bar.nextElementSibling.querySelector(\'[data-md-table-sticky-action="search-close"]\').click()');
-  assert.equal(await cdp.evaluate('document.activeElement === window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="search"]\')'), true, '閉じるボタンで検索を閉じると帯の検索へフォーカスを戻す');
+  assert.equal(await cdp.evaluate('document.activeElement === window.__searchCase.bar.querySelector(\'[data-md-table-sticky-action="search"]\')'), true, '閉じるボタンで検索を閉じるとツールバーの検索へフォーカスを戻す');
 }
 
 async function checkOwnedMutationScope(cdp, bookmarklet) {
-  // 自分の帯・列帯・板の追加と削除から、遅れて表を測り直さないことを確かめる。
+  // 自分のツールバー・列のチェックボックス・パネルの追加と削除から、遅れて表を測り直さないことを確かめる。
   const result = await whileVisible(cdp, () => cdp.evaluate('(async () => {\n' +
     'const run = ' + JSON.stringify(bookmarklet) + ';\n' +
     'const tables = { A: window.__fixtureTables.A, D: window.__fixtureTables.D };\n' +
@@ -1800,7 +1808,7 @@ async function checkOwnedMutationScope(cdp, bookmarklet) {
     'return delayed;\n' +
     '} finally { Element.prototype.getBoundingClientRect = original; }\n' +
     '})()'));
-  assert.deepEqual(result, Array.from({ length: 5 }, () => ({ A: 0, D: 0 })), '帯・列帯・板を作る操作の後に見張りが余分な測り直しを走らせない');
+  assert.deepEqual(result, Array.from({ length: 5 }, () => ({ A: 0, D: 0 })), 'ツールバー・列のチェックボックス・パネルを作る操作の後に見張りが余分な測り直しを走らせない');
 }
 
 
@@ -1852,7 +1860,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
       assert.ok(target?.webSocketDebuggerUrl, "CDP のページがある");
       cdp = await CDP.connect(target.webSocketDebuggerUrl);
       await cdp.send("Page.enable");
-      // headless の Edge は、起動から十数秒後に窓の中の高さを 30px ほど縮めることがある。表の高さ（70vh）と GitLab の全高のボタンを揃えるため、表示の大きさを固定する。
+      // headless の Edge は、起動から十数秒後に窓の中の高さを 30px ほど縮めることがある。表の高さ（70vh）と GitLab の全体表示のボタンを揃えるため、表示の大きさを固定する。
       await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1248, height: 804, deviceScaleFactor: 1, mobile: false });
       // Windows の環境によっては、headless の Edge が開いてから約 20 秒でページを隠し、requestAnimationFrame が止まる。
       // 1 秒ごとに前面へ出し、隠れても 2 秒以内に戻す。
@@ -1931,8 +1939,8 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         const stickyDetails = await cdp.evaluate("(" + checkStickyDetails.toString() + ")(" + JSON.stringify(version === "master" ? "A" : "回避形") + ")");
         assert.ok(stickyDetails.topEdges.length, "2 行目以降の見出しの上端を調べる");
         assert.ok(stickyDetails.leftEdges.length, "2 列目以降の見出しの左端を調べる");
-        for (const edge of stickyDetails.topEdges) assert.equal(edge.covered, true, "見出しの上端の帯をセルが覆う: " + edge.text);
-        for (const edge of stickyDetails.leftEdges) assert.equal(edge.covered, true, "見出しの左端の帯をセルが覆う: " + edge.text);
+        for (const edge of stickyDetails.topEdges) assert.equal(edge.covered, true, "見出しの上端のすき間をセルが覆う: " + edge.text);
+        for (const edge of stickyDetails.leftEdges) assert.equal(edge.covered, true, "見出しの左端のすき間をセルが覆う: " + edge.text);
         assert.equal(stickyDetails.borders.collapse, "separate", "固定する表は separate にする");
         assert.ok(stickyDetails.borders.right > 0, "固定した 2 列の間の罫線を残す");
         assert.ok(stickyDetails.vertical.length, "見出しの下まで続く縦の結合セルがある");
@@ -1989,7 +1997,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         })()`);
         assert.equal(await cdp.evaluate("window.__mdTableSticky.records.get(window.__fixtureTables.A).override.rows"), 0, "手動の数を選んだ状態で解除する");
         await cdp.evaluate('window.__mdTableSticky.records.get(window.__fixtureTables.A).bar.element.querySelector(\'[data-md-table-sticky-action="float"]\').click()');
-        assert.equal(await cdp.evaluate("!!document.querySelector('[data-md-table-sticky-float]')"), true, "全幅の表示を開いたまま解除する");
+        assert.equal(await cdp.evaluate("!!document.querySelector('[data-md-table-sticky-float]')"), true, "全幅表示を開いたまま解除する");
         await cdp.evaluate('(() => { const record = window.__mdTableSticky.records.get(window.__fixtureTables.A); for (const name of ["highlight", "compact", "pick"]) record.bar.element.querySelector(\'[data-md-table-sticky-action="\' + name + \'"]\').click(); window.__cleanupPickCell = record.table.rows[2].cells[1]; })()');
         assert.equal(await cdp.evaluate('!!window.__mdTableSticky.picking'), true, 'セルを選ぶ状態のまま解除する');
         await cdp.evaluate('(() => { const record = window.__mdTableSticky.records.get(window.__fixtureTables.A); record.bar.element.querySelector(\'[data-md-table-sticky-action="search"]\').click(); const input = record.bar.element.nextElementSibling.querySelector("[data-md-table-sticky-search-input]"); window.__cleanupSearch = { record, input }; input.focus(); })()');
@@ -2000,9 +2008,9 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         assert.equal(await cdp.evaluate('Array.from(window.__cleanupSearch.record.table.rows).some(row => getComputedStyle(row).display === "none")'), true, '検索行を開き、絞り込んだまま解除する');
         await cdp.evaluate('(() => { const input = window.__cleanupSearch.input; input.value = "解除前の入力"; input.dispatchEvent(new InputEvent("input", { bubbles: true })); })()');
         await cdp.evaluate(bookmarklet);
-        assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-float], [data-md-table-sticky-placeholder], [data-md-table-sticky-columns], [data-md-table-sticky-search]').length"), 0, "解除すると全幅の背景・代わりの要素・列帯・検索行を消す");
+        assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-float], [data-md-table-sticky-placeholder], [data-md-table-sticky-columns], [data-md-table-sticky-search]').length"), 0, "解除すると全幅の背景・代わりの要素・列のチェックボックス・検索行を消す");
         assert.equal(await cdp.evaluate("typeof window.__mdTableSticky"), "undefined", "固定の状態を消す");
-        assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-bar]').length"), 0, "固定を外すと帯も消す");
+        assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-bar]').length"), 0, "解除するとツールバーも消す");
         // mimic の高さのボタンは ResizeObserver で付け外しするので、表の寸法が戻って知らせが届くまで待つ。
         await cdp.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
         const restored = await cdp.evaluate("Array.from(document.querySelectorAll('.md'), md => md.innerHTML)");

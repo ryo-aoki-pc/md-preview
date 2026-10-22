@@ -6,7 +6,7 @@
   const tableRecords = new WeakMap();
   let isExpanded = false;
   let nextTableId = 0;
-  // Vue の :class と同じく、全高でないときだけ高さの上限の class を先頭に置く。
+  // Vue の :class と同じく、全体表示でないときだけ高さの上限の class を先頭に置く。
   const scrollClasses = () => (isExpanded ? "" : "gl-max-h-[70vh] ") + "gl-w-fit gl-max-w-full gl-overflow-x-auto gl-overflow-y-auto print:gl-max-h-none";
   function updateHeightToggle(record) {
     const clipped = record.table.offsetHeight > window.innerHeight * 0.7;

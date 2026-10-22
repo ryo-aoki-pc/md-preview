@@ -345,7 +345,7 @@
   if (previous) {
     previous.stop();
     delete window.__mdTableSticky;
-    notice("表の固定を外した");
+    notice("表の固定を解除した");
     return;
   }
 
@@ -608,7 +608,7 @@
         restoreStyle(scroll, saved);
       }
     }
-    // 全幅の表示と印刷の間は、元の枠で測れるまで選択を保つ。
+    // 全幅表示と印刷の間は、元の枠で測れるまで選択を保つ。
     if (!record.nativeFull) record.fitHeight = false;
   }
 
@@ -672,7 +672,7 @@
     state.picking = record;
     const onClick = (event) => {
       const target = event.target;
-      if (record.bar && record.bar.buttons.pick.contains(target)) return;
+      if (record.bar && target instanceof Node && record.bar.buttons.pick.contains(target)) return;
       const cell = target && target.closest ? target.closest("td, th") : null;
       if (cell && cell.closest("table") === record.table) {
         event.preventDefault();
@@ -819,8 +819,8 @@
       listen(node, "click", handler);
       return node;
     }
-    const previous = button("search-prev", "前", "前の一致へ移る（Shift+Enter）", () => moveSearch(record, -1));
-    const next = button("search-next", "次", "次の一致へ移る（Enter）", () => moveSearch(record, 1));
+    const previous = button("search-prev", "前", "前の一致へ（Shift+Enter）", () => moveSearch(record, -1));
+    const next = button("search-next", "次", "次の一致へ（Enter）", () => moveSearch(record, 1));
     const count = document.createElement("span");
     count.setAttribute("data-md-table-sticky-search-count", "");
     count.setAttribute("aria-live", "polite");
@@ -837,7 +837,7 @@
       record.search.filter = filter.checked;
       write(() => refresh(record));
     });
-    label.append(filter, document.createTextNode("一致する行だけ"));
+    label.append(filter, document.createTextNode("一致した行だけ表示"));
     const close = button("search-close", "閉じる", "検索を閉じる（Esc）", () => write(() => closeSearch(record)));
     element.append(input, previous, next, count, label, close);
     listen(element, "keydown", (event) => {
@@ -985,7 +985,7 @@
     const focused = document.activeElement;
     const textarea = document.createElement("textarea");
     textarea.value = text;
-    textarea.setAttribute("aria-label", "表を写すための一時の欄");
+    textarea.setAttribute("aria-label", "コピー用の一時的な欄");
     setStyles(textarea, { position: "fixed", left: "0", top: "0", opacity: "0", "pointer-events": "none" });
     try {
       return write(() => {
@@ -1017,7 +1017,7 @@
         html = true;
       }
     } catch (error) {
-      // HTML を写せないときは文字だけで試す。
+      // HTML をコピーできないときは文字だけで試す。
     }
     if (!state.active || state.records.get(record.table) !== record || !record.table.isConnected) return;
     if (!copied) {
@@ -1027,7 +1027,7 @@
           copied = true;
         }
       } catch (error) {
-        // 文字だけでも写せないときは一時の欄で試す。
+        // 文字だけでもコピーできないときは一時的な欄で試す。
       }
     }
     if (!state.active || state.records.get(record.table) !== record || !record.table.isConnected) return;
@@ -1035,11 +1035,11 @@
       try {
         copied = copyFallback(tsv);
       } catch (error) {
-        // どの手段でも写せなかったことを知らせる。
+        // どの手段でもコピーできなかったことを知らせる。
       }
     }
     const size = "（" + matrix.rowCount + " 行 × " + matrix.colCount + " 列）";
-    const message = copied ? (html ? "表を写した" : "表を文字だけ写した") + size : "表を写せなかった";
+    const message = copied ? (html ? "表をコピーした" : "表を文字だけコピーした") + size : "表をコピーできなかった";
     write(() => {
       if (state.notification) {
         window.clearTimeout(state.notification.timer);
@@ -1144,11 +1144,11 @@
       const count = document.createElement("span");
       count.setAttribute("data-md-table-sticky-count", axis);
       counts[axis] = count;
-      group.append(name, button(axis + "-minus", "−", "固定する" + text + "を 1 つ減らす"), count, button(axis + "-plus", "+", "固定する" + text + "を 1 つ増やす"));
+      group.append(name, button(axis + "-minus", "−", "固定する" + text + "を減らす"), count, button(axis + "-plus", "+", "固定する" + text + "を増やす"));
       fixed.appendChild(group);
     }
-    fixed.appendChild(button("auto", "自動", "固定する行と列を自動に戻す"));
-    fixed.appendChild(button("pick", "セルで固定", "セルを選び、その上の行と左の列を固定する（Esc でやめる）"));
+    fixed.appendChild(button("auto", "自動", "固定する行と列を自動の数に戻す"));
+    fixed.appendChild(button("pick", "セルを選んで固定", "クリックしたセルより上の行と左の列を固定する（Esc で取り消し）"));
     const separator = document.createElement("span");
     separator.textContent = "|";
     separator.setAttribute("aria-hidden", "true");
@@ -1167,11 +1167,11 @@
       element.appendChild(label);
       return { input, label };
     }
-    const scrollX = checkbox("scroll-x", "横スクロール", "表を横スクロールする").input;
-    const fitHeight = checkbox("fit-height", "枠に収める", "この表だけ枠の高さを画面の 70% に収めて行を固定する（GitLab の Show full table の設定は変えない）");
-    const highlight = checkbox("highlight", "強調", "マウスを載せたセルの行と列を色付けする").input;
-    const compact = checkbox("compact", "詰める", "セルの余白と文字を小さくして詰めて表示する").input;
-    element.append(button("wrap-all", "すべて折り返す", "すべての列を折り返す"), button("nowrap-all", "すべて折り返さない", "すべての列を折り返さない"), button("search", "検索", "表の中を検索する"), button("copy", "写す", "表を Excel に貼れる形でクリップボードへ写す（見えている行だけ）"), button("float", "全幅で表示", "表を全幅で表示"));
+    const scrollX = checkbox("scroll-x", "横スクロール", "列の幅を保ち、はみ出す分を横にスクロールする").input;
+    const fitHeight = checkbox("fit-height", "高さを制限", "この表だけ高さを画面の 70% までにして、見出しの行を固定する（GitLab の「Show full table」の設定は変えない）");
+    const highlight = checkbox("highlight", "行と列を強調", "マウスを合わせたセルの行と列に色を付ける").input;
+    const compact = checkbox("compact", "コンパクト", "セルの余白と文字を小さくして、多くの行と列を表示する").input;
+    element.append(button("wrap-all", "すべて折り返す", "すべての列を折り返す"), button("nowrap-all", "すべて折り返さない", "すべての列を折り返さない"), button("search", "検索", "この表の中を検索する"), button("copy", "コピー", "表示中の行を、Excel に貼り付けられる形でコピーする"), button("float", "全幅で表示", "表をブラウザーの幅いっぱいに表示する"));
     return { element, buttons, counts, fixed, separator, scrollX, fitHeight: fitHeight.input, fitHeightLabel: fitHeight.label, highlight, compact };
   }
 
@@ -1199,14 +1199,14 @@
     bar.buttons.search.setAttribute("aria-pressed", record.search.open ? "true" : "false");
     const floating = state.floating && state.floating.record === record;
     bar.buttons.float.textContent = floating ? "閉じる" : "全幅で表示";
-    const description = floating ? "全幅の表示を閉じる（Esc）" : "表を全幅で表示";
+    const description = floating ? "全幅表示を閉じる（Esc）" : "表をブラウザーの幅いっぱいに表示する";
     bar.buttons.float.setAttribute("aria-label", description);
     bar.buttons.float.title = description;
     const rowBoundaries = usableRowBoundaries(record.model);
     const colBoundaries = usableColBoundaries(record.model, rows);
     for (const [axis, value, boundaries] of [["rows", rows, rowBoundaries], ["cols", cols, colBoundaries]]) {
       const full = axis === "rows" && record.nativeFull && !record.fitHeight;
-      const suffix = record.override[axis] === null ? (full ? "（自動・全高）" : "（自動）") : (full ? "（全高）" : "");
+      const suffix = record.override[axis] === null ? (full ? "（自動・全体表示中）" : "（自動）") : (full ? "（全体表示中）" : "");
       const text = String(value) + suffix;
       if (bar.counts[axis].textContent !== text) bar.counts[axis].textContent = text;
       bar.buttons[axis + "-minus"].disabled = stepBoundary(boundaries, value, -1) === null;
@@ -1319,7 +1319,7 @@
     const anchorRect = anchor.getBoundingClientRect();
     const placeholder = document.createElement("div");
     placeholder.setAttribute("data-md-table-sticky-placeholder", "");
-    placeholder.textContent = "この表は全幅で表示している（Esc で戻す）";
+    placeholder.textContent = "この表は全幅で表示中（Esc で元に戻す）";
     setStyles(placeholder, {
       height: Math.max(0, anchorRect.bottom - barRect.top) + "px", "box-sizing": "border-box",
       margin: window.getComputedStyle(record.bar.element).marginTop + " 0 " + window.getComputedStyle(anchor).marginBottom,
@@ -1331,7 +1331,7 @@
     overlay.setAttribute("data-md-table-sticky-float", "");
     overlay.setAttribute("role", "dialog");
     overlay.setAttribute("aria-modal", "true");
-    overlay.setAttribute("aria-label", "表を全幅で表示");
+    overlay.setAttribute("aria-label", "表の全幅表示");
     setStyles(overlay, { position: "fixed", inset: "0", "z-index": "2147483646", background: "rgba(0, 0, 0, 0.4)" });
     const panel = document.createElement("div");
     panel.className = "md";
@@ -1351,7 +1351,7 @@
     panel.appendChild(anchor);
     const keydown = (event) => {
       if (event.key !== "Escape" || state.picking) return;
-      if (record.searchUi && record.searchUi.element.contains(event.target)) return;
+      if (record.searchUi && event.target instanceof Node && record.searchUi.element.contains(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
       write(() => closeFloating());
@@ -1795,7 +1795,7 @@
   scan();
   const skipped = Array.from(state.records.values()).filter((record) => record.skipped).length;
   const count = state.records.size - skipped;
-  let message = count ? "表の固定: " + count + " 個の表" : "固定する表が見つからない（GitLab の Markdown の表が対象）";
-  if (skipped) message += "（" + skipped + " 個は固定しなかった）";
+  const excluded = skipped ? "、" + skipped + " 個は対象外" : "";
+  const message = count ? "表の固定を有効にした（" + count + " 個の表" + excluded + "）" : "固定できる表が見つからない（GitLab の Markdown の表が対象" + excluded + "）";
   write(() => { state.notification = notice(message); });
 })();
