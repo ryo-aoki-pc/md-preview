@@ -1,6 +1,6 @@
 # 設計と変換の規則
 
-[README](../../README.md) / [ロールバック](../extra/readme.md) / [検証記録](https://github.com/ryo-aoki-pc/setup-notes-verification/blob/main/repos/md-table-excel/docs/verification/readme.md)
+[README](../../README.md) / [検証記録](https://github.com/ryo-aoki-pc/setup-notes-verification/blob/main/repos/md-table-excel/docs/verification/readme.md)
 
 ## 全体の流れ
 
