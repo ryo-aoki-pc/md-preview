@@ -2,7 +2,7 @@
 
 このリポジトリで作業するコーディングエージェント（Claude Code・Codex・Grok Build・Antigravity CLI）への指示。Claude Code は CLAUDE.md の `@AGENTS.md` で、Codex・Grok Build・Antigravity CLI はこのファイルを直接読む。
 
-GLFM の文書にある表（パイプ表・HTML の表）を Excel で編集して書き戻す `mdtable` コマンド。セルの書き方と書き戻しの規則は [README.md](README.md)、設計の理由と変換の規則は [docs/reference/readme.md](docs/reference/readme.md)、検証記録は [非公開側の readme.md](https://github.com/ryo-aoki-pc/setup-notes-verification/blob/main/repos/md-table-excel/docs/verification/readme.md)。
+GLFM の文書にある表（パイプ表・HTML の表）を Excel で編集して書き戻す `mdtable` コマンド。セルの書き方と書き戻しの規則は [README.md](README.md)、設計の理由と変換の規則は [docs/reference/readme.md](docs/reference/readme.md)、検証記録は `repos/md-table-excel/docs/verification/readme.md`。
 
 ## 導入手順の正本
 
@@ -46,8 +46,8 @@ python3 -B -m unittest discover -s tests -v
 ## 文書の置き場所
 
 - 導入・利用・更新の手順は正本に置き、README の「導入」の表から正本の項へ直接リンクする（手順書の先頭やカテゴリの見出しへはリンクしない）。執筆規則は setup-notes の `docs/dev/writing-rules.md`
-- `docs/extra/` は注意点。ロールバック（取り消し）の手順は書かない。`docs/reference/` は背景と規則。検証記録（環境・日付・対象コミット・実出力・未確認事項）は、非公開の `ryo-aoki-pc/setup-notes-verification` の `repos/md-table-excel/docs/verification/` に置く。テストのコマンドは上の「テスト」
-- 検証記録を書く・直すときは、非公開の `setup-notes-verification` を clone し、そちらへ Pull Request を作る
+- `docs/extra/` は注意点。ロールバック（取り消し）の手順は書かない。`docs/reference/` は背景と規則。検証記録（環境・日付・対象コミット・実出力・未確認事項）は、Forgejo の非公開リポジトリ `setup-notes-verification` の `repos/md-table-excel/docs/verification/` に置く。テストのコマンドは上の「テスト」
+- 検証記録を書く・直すときは、Forgejo の非公開リポジトリ `setup-notes-verification` を clone し、そちらへ Pull Request を作る。このリポジトリから検証記録へは URL で指さず、「`<検証記録のパス>` の「<見出し>」」と文字で書く（見出しを指さないときは、同じ名前の文書の記録なら「検証記録」とだけ書き、ほかの記録はパスを添える）
 - 文書を移す・分ける・まとめるときは、移した経緯と、旧ファイル名・旧見出しとの対応を文書に書かない（経緯は git の履歴と Pull Request の本文に残す）。リンクを今の場所へ直す。中身が新しい場所への案内だけになったファイルは消す
 - 残す検証記録の実施日・対象版・環境・出力・成功と失敗・未実施の範囲・記録したときの手順番号は書き換えない。再検証せずに検証範囲を広げない。記録の手順番号が今の手順と違い、本文を読むのに要るときだけ「記録の手順 | 今の手順」の表で結ぶ
 - 導入先（仮想環境・起動コマンドの場所）を変えたら、正本の「mdtable を導入・更新する」を合わせて直す
