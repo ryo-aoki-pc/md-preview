@@ -2,11 +2,11 @@
 
 このリポジトリで作業するコーディングエージェント（Claude Code・Codex・Grok Build・Antigravity CLI）への指示。Claude Code は CLAUDE.md の `@AGENTS.md` で、Codex・Grok Build・Antigravity CLI はこのファイルを直接読む。
 
-GitLab の Markdown の表で、先頭行・先頭列を固定してスクロールし、セルの折り返し・横スクロール・全幅表示を切り替える `md-table-sticky` のブックマークレット。使い方は [README.md](README.md)、設計は [docs/reference/design.md](docs/reference/design.md)、検証記録は `repos/md-table-sticky/docs/verification/readme.md`。
+GitLab の Markdown の表で、先頭行・先頭列を固定してスクロールし、セルの折り返し・横スクロール・全幅表示を切り替える `md-table-sticky` のブックマークレット。使い方は [README.md](README.md)、Edge での登録と使う手順は [docs/install.md](docs/install.md)・[docs/usage.md](docs/usage.md)、設計は [docs/reference/design.md](docs/reference/design.md)、検証記録は `repos/md-table-sticky/docs/verification/readme.md`。
 
 ## 導入手順の正本
 
-導入・更新・使い方の手順は、setup-notes の [windows-setup.md](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#md-table-sticky) の「md-table-sticky」の項にある。README の登録のしかたと正本の手順を合わせる（正本は setup-notes の Pull Request で直す）。
+Windows 11 の Edge での登録と更新の手順は [docs/install.md](docs/install.md)、GitLab で使う手順は [docs/usage.md](docs/usage.md) にある。README の登録のしかた・使い方と、これらの手順を合わせる。setup-notes の手順書には項を置かず、「Git と開発の道具」のリードと「更新」から案内している。項の見出しを変えたら、そこへのリンク（setup-notes の手順書、setup-notes-verification の検証記録）も直す。
 
 ## 構成
 
@@ -20,6 +20,8 @@ GitLab の Markdown の表で、先頭行・先頭列を固定してスクロー
 - `test/fixtures/gitlab.css`・`test/fixtures/mimic-master.js`・`test/fixtures/mimic-19.5.js` — GitLab の CSS と版ごとの表の置き換えをまねるページの材料
 - `tools/render-gitlab.mjs` — `GITLAB_TOKEN` を使い、gitlab.com の Markdown API で fixture の HTML を描き直す道具
 - `README.md`・`docs/reference/design.md` — 使い方と設計
+- `docs/install.md` — Windows 11 の Edge でブックマークレットを登録・更新する手順
+- `docs/usage.md` — Windows 11 の Edge で GitLab の表を固定し、折り返し・幅・検索・コピーを使う手順
 - `AGENTS.md`・`CLAUDE.md` — エージェントへの指示と Claude Code の入口
 - `package.json`・`.gitignore` — Node.js のスクリプトと、リポジトリへ含めないもの
 - 検証記録は、Forgejo の非公開リポジトリ `setup-notes-verification` の `repos/md-table-sticky/docs/verification/` に置く。このリポジトリには利用者の GitLab の URL・ホスト名を書かない。このリポジトリから検証記録へは URL で指さず、「`<検証記録のパス>` の「<見出し>」」と文字で書く（見出しを指さないときは、同じ名前の文書の記録なら「検証記録」とだけ書き、ほかの記録はパスを添える）

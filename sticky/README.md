@@ -11,6 +11,8 @@ GitLab の Markdown の表で、先頭行・先頭列を固定してスクロー
 1. [dist/bookmarklet.txt](dist/bookmarklet.txt) を GitHub の **Raw** で開き、全部をコピーする。ブラウザーのブックマークの管理（Edge は「お気に入り」）で新しいブックマークを作り、URL の欄に貼る。アドレスバーには貼らない。`javascript:` が消されるため。
 2. [dist/bookmarklet.html](dist/bookmarklet.html) を手元に落として開く。「GitLab の表を固定」のリンクをブックマークバーへドラッグする。ページの「URL をコピー」ボタンも使える。
 
+Windows 11 の Edge のお気に入りに登録する手順は [docs/install.md](docs/install.md)、GitLab で使う手順は [docs/usage.md](docs/usage.md) にある。
+
 ## 使い方
 
 表のある GitLab のページで、登録したブックマークを押す。もう一度押すと元に戻り、表のそばのツールバー、検索の行、列のチェックボックスも消える。ページを読み込み直したら押し直す。
