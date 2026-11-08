@@ -41,7 +41,7 @@
 
    - ensurepip で止まったら `sudo dnf install python3-pip` を行う
    - `~/.local/bin` が PATH に無いときは、案内に従って加える
-   - 更新時は `git -C ~/md-table-excel pull --ff-only` し、この手順の `(`〜`)` の導入・確認を再実行する
+   - 更新時は `git -C ~/md-table-excel pull --ff-only` し、この項の手順 1 の `(`〜`)` の導入・確認を再実行する
 
 <details id="mdtable-を導入更新する-の補足と注意点">
   <summary>mdtable を導入・更新する の補足と注意点</summary>
