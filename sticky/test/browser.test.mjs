@@ -116,7 +116,104 @@ async function removeTemporary(directory) {
   }
 }
 
-async function stopBrowser(child) {
+async function readBrowserPort(directory) {
+  try {
+    const active = await readFile(path.join(directory, "DevToolsActivePort"), "utf8");
+    return Number(active.split(/\r?\n/)[0]) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+// 起動役が先に終わっていても本体を閉じられるよう、ブラウザー自身の CDP で終了する。
+async function closeBrowser(port) {
+  const versionUrl = "http://127.0.0.1:" + port + "/json/version";
+  const controller = new AbortController();
+  let timer = setTimeout(() => controller.abort(), 3000);
+  let socket;
+  let pid;
+  let closing = false;
+  try {
+    const version = await fetch(versionUrl, { signal: controller.signal }).then(response => response.json());
+    if (controller.signal.aborted) return;
+    socket = new WebSocket(version.webSocketDebuggerUrl);
+    await new Promise((resolve) => {
+      const close = () => {
+        if (closing) return;
+        closing = true;
+        clearTimeout(timer);
+        timer = setTimeout(() => controller.abort(), 3000);
+        try {
+          socket.send(JSON.stringify({ id: 2, method: "Browser.close" }));
+        } catch {
+          resolve();
+        }
+      };
+      controller.signal.addEventListener("abort", resolve, { once: true });
+      socket.addEventListener("open", () => {
+        clearTimeout(timer);
+        timer = setTimeout(close, 3000);
+        try {
+          socket.send(JSON.stringify({ id: 1, method: "SystemInfo.getProcessInfo" }));
+        } catch {
+          close();
+        }
+      }, { once: true });
+      socket.addEventListener("message", (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.id !== 1) return;
+          const browserPid = Number(message.result?.processInfo?.find(entry => entry.type === "browser")?.id);
+          if (Number.isSafeInteger(browserPid) && browserPid > 0 && browserPid !== process.pid) pid = browserPid;
+          close();
+        } catch {}
+      });
+      socket.addEventListener("close", resolve, { once: true });
+      socket.addEventListener("error", resolve, { once: true });
+    });
+  } catch {} finally {
+    clearTimeout(timer);
+    try {
+      socket?.close();
+    } catch {}
+  }
+  if (!pid) {
+    if (!closing) return;
+    // プロセス ID が取れないときは、CDP の待ち受けが終わるのを待つ。
+    const deadline = Date.now() + 10000;
+    try {
+      while (Date.now() < deadline) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        const response = await fetch(versionUrl, { signal: AbortSignal.timeout(Math.min(1000, remaining)) });
+        await response.body?.cancel();
+        const wait = deadline - Date.now();
+        if (wait > 0) await delay(Math.min(100, wait));
+      }
+    } catch {}
+    return;
+  }
+  // 閉じ終わるまで時間がかかることがあるので、本体のプロセスが終わるまで待つ。
+  const waitForExit = async (attempts) => {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        if (error.code === "ESRCH") return true;
+      }
+      await delay(100);
+    }
+    return false;
+  };
+  try {
+    if (await waitForExit(100)) return;
+    process.kill(pid);
+    await waitForExit(30);
+  } catch {}
+}
+
+async function stopBrowser(child, port) {
+  if (port) await closeBrowser(port);
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
   await new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -147,15 +244,13 @@ async function launch(browser, directory) {
   child.stderr.on("data", (data) => { stderr = (stderr + data.toString()).slice(-1600); });
   for (let attempt = 0; attempt < 120; attempt++) {
     if (failure) throw Object.assign(failure, { browserChild: child });
-    if (child.exitCode !== null) break;
-    try {
-      const active = await readFile(path.join(directory, "DevToolsActivePort"), "utf8");
-      const port = Number(active.split(/\r?\n/)[0]);
-      if (port) return { child, port, diagnostics: () => stderr };
-    } catch {}
+    // Windows の Edge は、本体を別に起こした起動役が正常終了してもポートの用意が続くことがある。
+    if ((child.exitCode !== null && child.exitCode !== 0) || child.signalCode !== null) break;
+    const port = await readBrowserPort(directory);
+    if (port) return { child, port, diagnostics: () => stderr };
     await delay(100);
   }
-  await stopBrowser(child);
+  await stopBrowser(child, await readBrowserPort(directory));
   throw new Error("DevToolsActivePort が作られなかった。 " + stderr.trim().slice(-800));
 }
 
@@ -1844,8 +1939,8 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
   let child;
   let cdp;
   let keepVisible;
+  let launched;
   try {
-    let launched;
     try {
       launched = await launch(browser, directory);
     } catch (error) {
@@ -1869,7 +1964,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
     } catch (error) {
       await delay(100);
       const diagnostic = launched.diagnostics();
-      if (child.exitCode !== null || /FATAL:.*GPU|GPU process isn.t usable/.test(diagnostic)) {
+      if ((child.exitCode !== null && child.exitCode !== 0) || child.signalCode !== null || /FATAL:.*GPU|GPU process isn.t usable/.test(diagnostic)) {
         t.skip("ブラウザーが起動中に終了した（終了コード " + child.exitCode + "）: " + diagnostic.trim().split(/\r?\n/).at(-1));
         return;
       }
@@ -2028,7 +2123,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
   } finally {
     clearInterval(keepVisible);
     if (cdp) cdp.close();
-    await stopBrowser(child);
+    await stopBrowser(child, launched?.port || await readBrowserPort(directory));
     await removeTemporary(directory);
   }
 });
