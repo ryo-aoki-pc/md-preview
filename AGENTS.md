@@ -36,6 +36,9 @@ Go の単一実行ファイルへの移行中。Go 版が Node.js 版と同じ�
 - `page/embed.go` — ページと `page/lib/` の資産の埋め込み。Go のソースは含めない
 - `cmd/mdpreview/` — Go 版のコマンド。現段階は `--version` と `--help` だけ
 - `internal/version/` — 既定の版と、ビルド時に差し替える変数
+- `internal/plantuml/` — 絶対パスの PATH の探索、原文を標準入力だけに渡す手元の描画、共有・直列の待ち行列・成功のキャッシュ。取り消し・時間切れ・終了では子孫も止める
+- `assets/embed.go` — 公式資産そのものを含めず、`assets/assets.lock.json` の元のバイト列だけを埋め込む
+- `internal/assets/` — 固定した公式資産の取得・CSS の相対化・一時領域からの入れ替えと、通信しない導入状態の検査。検査済みのバイト列の写しだけを許可リストで渡す
 - `internal/pipeline/api.go` — 描画の流れ（消毒・フィルター・配色・取り込み・知らせ）の型と入口（`Renderer.Render`）。ほかのパッケージは、この形で使う。中身を移すまで、`stub.go` が仮の実装を持つ
 - `internal/pipeline/testdata/golden/pipeline.jsonl.gz` — Node.js 版（`80784dd`）の `renderDocument` の入力と出力 2,715 件（Node.js 版の試験が通した入力と、公開の文書）。Go 版の出力を、HTML は木で、ほかは JSON で比べる見本。手で書き換えない
 
@@ -123,6 +126,8 @@ gofmt -l .
 ```
 
 `-race` には C のコンパイラーが要る。Go 版の試験は描画の見本、GitLab のオプション、異常終了・取り消しからの復帰、メモリー上限、同時呼び出し、埋め込んだ資産の大きさと sha256、コマンドの出力を確かめる。Node.js 版の試験も引き続き残す。
+
+`internal/plantuml/` の試験は `go test` 自身の実行ファイルを偽のコマンドとして使い、本物の PlantUML・Java を起こさない。`internal/assets/` の試験は一時の保存先と 127.0.0.1 の偽のレジストリを使う。本物の保存先には触れず、公開レジストリへの試験用の要求も手元へ置き換える。`GOFLAGS=-mod=readonly`・`GOPROXY=off` と、作業ツリー内の `GOCACHE` で実行する。
 
 ```sh
 npm test
