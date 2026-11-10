@@ -5,7 +5,7 @@ import re
 from collections import Counter
 
 from . import blocks, inline
-from .cell_syntax import NotRepresentable, to_pipe_cell
+from .cell_syntax import NotRepresentable, task_marker, to_pipe_cell
 from .model import Cell, TableModel, normalize_text
 
 _BR = re.compile(r"<br[ \t]*/?>\Z", re.I)
@@ -170,6 +170,8 @@ def _render_list(node, marker_char):
         else:
             marker = marker_char + " "
         body = _render_nodes(item) or [""]
+        if task_marker(body[0]):
+            body[0] = "\\" + body[0]
         lines.append((marker + body[0]).rstrip(" ") if body[0] else marker.rstrip(" "))
         for line in body[1:]:
             lines.append(" " * len(marker) + line if line else "")

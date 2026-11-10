@@ -191,6 +191,74 @@ class ExportImportTest(unittest.TestCase):
         book = openpyxl.load_workbook(self.xlsx)
         return [t for t in book.sheetnames if t.startswith("表%d" % number)][0]
 
+    def test_list_spacing_is_unchanged_and_original_cell_is_reused(self):
+        source = ("<table>\n<tr><th>内容</th><th>値</th></tr>\n<tr><td>\n\n"
+                  "前の文\n\n- 項目\n\n</td><td>元</td></tr>\n</table>\n")
+        for text in ("前の文\n\n- 項目", "前の文\n- 項目"):
+            with self.subTest(text=text):
+                write(self.md, source)
+                self.export()
+                edit_sheet(self.xlsx, self.sheet(1), {"A2": text})
+                report = sync.import_workbook(self.xlsx)
+                self.assertFalse(report.errors, report.errors)
+                self.assertFalse(report.changed)
+                self.assertIn("変更なし", "\n".join(report.messages))
+                self.assertEqual(read(self.md), source)
+                edit_sheet(self.xlsx, self.sheet(1), {"B2": "変更"})
+                report = sync.import_workbook(self.xlsx)
+                self.assertFalse(report.errors, report.errors)
+                self.assertEqual(read(self.md), source.replace("<td>元</td>", "<td>変更</td>"))
+
+    def test_export_warns_about_link_definitions(self):
+        source = ("<table>\n<tr><th>内容</th></tr>\n<tr><td>\n\n"
+                  "[名前]: https://example.com/\n\n[名前]\n\n</td></tr>\n</table>\n")
+        write(self.md, source)
+        report = self.export()
+        self.assertEqual(report.warnings, ["表 1: 2 行 1 列のセルにリンク参照の定義がある"
+                                           "（このセルを Excel で変えると、定義が文字になる）"])
+        self.assertTrue(os.path.exists(self.xlsx))
+        report = sync.import_workbook(self.xlsx)
+        self.assertFalse(report.errors)
+        self.assertEqual(read(self.md), source)
+
+    def test_export_does_not_warn_about_link_definitions_in_code(self):
+        write(self.md, "<table>\n<tr><td>\n\n```\n[a]: b\n```\n\n</td></tr>\n</table>\n")
+        self.assertEqual(self.export().warnings, [])
+
+    def test_pipe_table_typed_in_cell_has_positioned_error(self):
+        sources = ["| 内容 | 値 |\n| --- | --- |\n| 元 | 元 |\n",
+                   "<table>\n<tr><th>内容</th><th>値</th></tr>\n<tr><td>元</td><td>元</td></tr>\n</table>\n"]
+        for source in sources:
+            write(self.md, source)
+            self.export()
+            edit_sheet(self.xlsx, self.sheet(1), {"B2": "| a | b |\n| --- | --- |\n| 1 | 2 |"})
+            report = sync.import_workbook(self.xlsx)
+            self.assertEqual(report.errors, ["表 1: 書き戻せない: 2 行 2 列: セルの中に表（| a | b | の形）は書けない"])
+            self.assertEqual(read(self.md), source)
+
+    def test_typed_tasks_keep_automatic_conversion_and_keep_kind(self):
+        source = "| 内容 |\n| --- |\n| 元 |\n"
+        write(self.md, source)
+        self.export()
+        edit_sheet(self.xlsx, self.sheet(1), {"A2": "- [ ] 未完"})
+        report = sync.import_workbook(self.xlsx, keep_kind=True)
+        self.assertIn("パイプ表のままでは書けない", report.errors[0])
+        self.assertEqual(read(self.md), source)
+        report = sync.import_workbook(self.xlsx)
+        self.assertFalse(report.errors, report.errors)
+        self.assertIn("- [ ] 未完", read(self.md))
+        self.assertIn("<table>", read(self.md))
+
+    def test_dry_run_shows_difference_after_long_prefix(self):
+        source = "| 内容 |\n| --- |\n| " + "同" * 40 + "前 |\n"
+        write(self.md, source)
+        self.export()
+        edit_sheet(self.xlsx, self.sheet(1), {"A2": "同" * 40 + "後"})
+        report = sync.import_workbook(self.xlsx, dry_run=True)
+        self.assertFalse(report.errors, report.errors)
+        self.assertIn("  A2: 「…%s前」→「…%s後」" % ("同" * 10, "同" * 10), report.messages)
+        self.assertEqual(read(self.md), source)
+
     def test_import_selected_tables_only(self):
         original = "| h |\n|---|\n| a |\n\n| h2 |\n|---|\n| b |\n\n| h3 |\n|---|\n| c |\n"
         write(self.md, original)

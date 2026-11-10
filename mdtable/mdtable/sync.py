@@ -2,9 +2,10 @@
 
 import difflib
 import os
+import re
 from copy import copy
 
-from . import __version__, blocks, html_table, pipe_table, workbook
+from . import __version__, blocks, cell_syntax, html_table, inline, pipe_table, workbook
 from .cell_syntax import NotRepresentable
 from .changes import compare_models
 from .document import (MarkdownError, MarkdownFile, Replacement, apply_replacements,
@@ -82,6 +83,12 @@ def export(md_path, xlsx_path=None, selectors=None, force=False):
             continue
         for warning in region.warnings:
             report.warnings.append("表 %d: %s" % (region.number, warning))
+        if region.kind == "html":
+            for cell in region.parsed.cells:
+                if cell.link_definitions:
+                    report.warnings.append(
+                        "表 %d: %d 行 %d 列のセルにリンク参照の定義がある（このセルを Excel で変えると、定義が文字になる）"
+                        % (region.number, cell.row + 1, cell.col + 1))
         tables.append(workbook.ExportTable(region, region.parsed.model, occurrences[region.number],
                                            same[region.source_hash()]))
     if not tables:
@@ -102,6 +109,8 @@ def _normalized_sheet_model(sheet_model, region):
     model = TableModel(region.kind, sheet_model.rows, sheet_model.cols,
                        [copy(cell) for cell in sheet_model.cells])
     export_model = region.parsed.model
+    for cell in model.cells:
+        cell.text = cell_syntax.normalize_list_spacing(cell.text)
     if region.kind == "pipe":
         for cell in model.cells:
             cell.header = cell.row == 0
@@ -246,7 +255,10 @@ def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False, keep_ki
                     "%s: パイプ表のままでは書けない（%s）。HTML の表に変えてよければ --keep-kind を外す"
                     % (label, reason))
             else:
-                report.errors.append("%s: 書き戻せない: %s" % (label, error))
+                reason = str(error)
+                if error.row is not None and error.col is not None:
+                    reason = "%d 行 %d 列: %s" % (error.row, error.col, reason)
+                report.errors.append("%s: 書き戻せない: %s" % (label, reason))
             continue
         for warning in warnings:
             report.warnings.append("%s: %s" % (label, warning))
@@ -310,6 +322,53 @@ def _leaf_signature(doc, skip_ranges, shift):
     return result
 
 
+def _html_block_name(doc, node):
+    """HTML のブロックの最初のタグ（エラーに出す名前）。"""
+    line_no, offset, _lazy = node.lines[0]
+    first = doc.lines[line_no][offset:].strip(" \t")
+    if first.startswith("<!--"):
+        return "コメント"
+    match = re.match(r"</?([A-Za-z][A-Za-z0-9-]*)", first)
+    if match:
+        return "<%s>" % match.group(1).lower()
+    # <![CDATA[・<?xml・<!DOCTYPE などは、開きの記号を出す
+    match = re.match(r"<[!?][A-Za-z\[]*", first)
+    return match.group(0) if match else "HTML"
+
+
+def _check_conversion_cells(region, target):
+    """モデルが同じでも描画が変わるセルを、種類の変更の前に断る。"""
+    original_rows = region.parsed.all_rows() if region.kind == "pipe" else None
+    for cell in region.parsed.model.cells:
+        row, col = cell.row + 1, cell.col + 1
+        if region.kind == "html" and region.parsed.cell_at[(cell.row, cell.col)].link_definitions:
+            raise NotRepresentable("セルの中にリンク参照の定義がある", row, col)
+        if target == "html":
+            original = original_rows[cell.row]
+            raw = original.contents[cell.col] if cell.col < len(original.contents) else ""
+            leading = re.match(r"^<br[ \t]*/?>", raw.strip(), re.I)
+            if leading and re.sub(r"<br[ \t]*/?>", "", raw, flags=re.I).strip():
+                raise NotRepresentable("セルの先頭の <br> は、HTML の表にすると消える", row, col)
+            if "\n\n\n" in cell.text:
+                raise NotRepresentable("3 つ以上続く <br> は、HTML の表では段落の区切り 1 つになる", row, col)
+        doc = cell_syntax.parse(cell.text)
+        for node in doc.root.walk():
+            if node.kind != blocks.HTML_BLOCK:
+                continue
+            allowed = (len(doc.root.children) == 1 and node is doc.root.children[0]
+                       and node.start_line == node.end_line)
+            if allowed:
+                for token in inline.tokenize(cell.text):
+                    if token.kind not in ("html", "text") or (
+                            token.kind == "text" and re.search(r"[\\`*_~\[\]$]", token.text)):
+                        allowed = False
+                        break
+            if not allowed:
+                raise NotRepresentable(
+                    "セルに HTML のブロック（%s）があり、種類を変えると描画が変わる" % _html_block_name(doc, node),
+                    row, col)
+
+
 def convert(md_path, selectors, target, dry_run=False):
     """セルの中身を保ったまま、選んだ表の種類だけを変える。"""
     if not selectors:
@@ -333,6 +392,7 @@ def convert(md_path, selectors, target, dry_run=False):
             continue
         warnings = []
         try:
+            _check_conversion_cells(region, target)
             if target == "html":
                 lines = html_table.render_from_pipe(region, region.parsed.model, warnings)
             else:

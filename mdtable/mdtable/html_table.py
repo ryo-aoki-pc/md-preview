@@ -225,6 +225,7 @@ class HtmlCell(object):
         self.rowspan = 1
         self.colspan = 1
         self.text = ""
+        self.link_definitions = False
 
     def attribute(self, name):
         return self.start_token.attribute(name)
@@ -334,6 +335,7 @@ def analyze(md, region):
     try:
         _parse_structure(table, tokens)
         _build_grid(table)
+        _mark_link_definitions(table)
     except NotRepresentable as error:
         region.excluded = str(error)
         region.parsed = None
@@ -543,7 +545,32 @@ def _build_grid(table):
     table.model = TableModel("html", rows, cols, model_cells, holes)
 
 
+def _mark_link_definitions(table):
+    """通常の解析で消える定義だけの段落も、元の位置からセルに結び付ける。"""
+    if "]:" not in table.text:
+        return
+    doc = blocks.parse_text(table.text, front_matter=False, keep_definitions=True)
+    starts = []
+    position = 0
+    for line in doc.lines:
+        starts.append(position)
+        position += len(line) + 1
+    for node in doc.root.walk():
+        if node.kind != blocks.PARAGRAPH:
+            continue
+        content = "\n".join(doc.lines[n][o:] for n, o, _lazy in node.lines)
+        if blocks.strip_link_reference_definitions(content) == content:
+            continue
+        line_no, offset, _lazy = node.lines[0]
+        position = starts[line_no] + offset
+        for cell in table.cells:
+            if cell.content_start <= position < cell.content_end:
+                cell.link_definitions = True
+                break
+
+
 # --- 書き戻し ---
+
 
 def _inner_sources(table):
     """Excel の文字 → 元のセルの中身（同じ文字のセルが複数あれば最初のもの）。"""
@@ -555,11 +582,14 @@ def _inner_sources(table):
     return result
 
 
-def _new_inner(text, reuse, warnings):
+def _new_inner(text, reuse, warnings, row, col):
     """セルの中身。(文字, 新しく作った Markdown の部分か, 元のセルの中身をそのまま使ったか)。"""
     if text in reuse:
         return reuse[text], False, True
-    kind, payload, cell_warnings = to_html_cell(text)
+    try:
+        kind, payload, cell_warnings = to_html_cell(text)
+    except NotRepresentable as error:
+        raise NotRepresentable(str(error), row + 1, col + 1) from error
     warnings.extend(cell_warnings)
     if kind == "inline":
         return payload, False, False
@@ -658,7 +688,7 @@ def _patch(region, model, warnings):
             if cell.end_token is not None and new_tag != cell.tag:
                 edits.append((cell.end_token.start, cell.end_token.end, "</%s>" % new_tag))
         if new.text != cell.text:
-            inner, block, reused = _new_inner(new.text, reuse, warnings)
+            inner, block, reused = _new_inner(new.text, reuse, warnings, new.row, new.col)
             block = block or (reused and "\n" in inner)
             start, end = cell.content_start, cell.content_end
             if block:
@@ -791,7 +821,8 @@ def _regenerate(region, model, warnings, from_pipe):
                                         % (cell.row + 1, cell.col + 1, " ".join(a.raw for a in extra)))
                     attributes = [a for a in attributes if a.name == "style"]
                 start_tag = _start_tag(attributes, tag, cell.align, align_style, cell.rowspan, cell.colspan)
-                inner, block, reused = _new_inner(cell.text, {} if from_pipe else reuse, warnings)
+                inner, block, reused = _new_inner(cell.text, {} if from_pipe else reuse, warnings,
+                                                  cell.row, cell.col)
                 # 新しく作った Markdown の部分は空行で終わるので、終了タグは行頭から始まる
                 lines.extend((start_tag + inner + "</%s>" % tag).split("\n"))
             lines.append("</tr>")

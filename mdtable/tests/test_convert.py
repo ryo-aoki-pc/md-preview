@@ -297,6 +297,127 @@ class ConvertTest(unittest.TestCase):
             with self.assertRaises(MdTableError):
                 convert(self.path, selectors, target)
 
+    def test_paragraph_lists_pipe_html_pipe(self):
+        cells = ["前の文<ul><li>項目</li></ul>後の文",
+                 "前の文<ul><li>項目 1</li><li>項目 2</li></ul>",
+                 "前の文<ol><li>一</li><li>二</li></ol>"]
+        for cell in cells:
+            with self.subTest(cell=cell):
+                source = "| 見出し |\n| --- |\n| " + cell + " |\n"
+                self.write(source)
+                for target in ("html", "pipe"):
+                    report = convert(self.path, ["1"], target)
+                    self.assertFalse(report.errors, report.errors)
+                self.assertEqual(self.read(), source)
+
+    def test_complex_list_item_table_round_trip(self):
+        source = ("- | 内容 | コード |\n  | --- | --- |\n"
+                  "  | **太字**<br>2 行目<ul><li>a<ul><li>b</li></ul></li></ul> | `x \\| y` |\n")
+        self.write(source)
+        for target in ("html", "pipe"):
+            report = convert(self.path, ["1"], target)
+            self.assertFalse(report.errors, report.errors)
+        self.assertEqual(self.read(), source)
+
+    def test_html_paragraph_lists_convert_both_ways(self):
+        cells = ["前の文\n\n- 項目\n\n後の文",
+                 "説明の文\n\n1. 手順 1\n2. 手順 2\n\n補足\n\n用語\n: 意味",
+                 "1 行目\n2 行目\n\n- a\n  b\n- c",
+                 "1 行目<br>\n2 行目\n\n- a\n  b\n- c", "前の文\n- 項目 1\n- 項目 2",
+                 "手順:\n\n2. 二\n3. 三", "前の文\n\n用語\n: 説明"]
+        for cell in cells:
+            with self.subTest(cell=cell):
+                source = "<table>\n<tr><th>見出し</th></tr>\n<tr><td>\n\n" + cell + "\n\n</td></tr>\n</table>\n"
+                model = regions(source)[0].parsed.model
+                self.write(source)
+                for target in ("pipe", "html"):
+                    report = convert(self.path, ["1"], target)
+                    self.assertFalse(report.errors, report.errors)
+                    self.assertTrue(regions(self.read())[0].parsed.model.same_content(model))
+
+    def test_loose_lists_still_refused(self):
+        for cell in ("- 項目 1\n\n- 項目 2", "1. 一\n\n   - 中\n\n2. 二"):
+            self.assert_refused("<table>\n<tr><th>見出し</th></tr>\n<tr><td>\n\n" + cell +
+                                "\n\n</td></tr>\n</table>\n", "種類を変えると、表の中身が変わる")
+
+    def test_literal_task_lists_pipe_html_pipe(self):
+        for cell in ("<ul><li>[ ] 未完</li><li>[x] 完了</li></ul>",
+                     "<ol><li>[X] 完了</li><li>[注] 説明</li></ol>",
+                     "<ul><li>親<ul><li>[ ] 子</li></ul></li></ul>",
+                     "<ul><li>[ ]<ul><li>子</li></ul></li></ul>"):
+            source = "| 見出し |\n| --- |\n| " + cell + " |\n"
+            self.write(source)
+            report = convert(self.path, ["1"], "html")
+            self.assertFalse(report.errors, report.errors)
+            self.assertIn("\\[", self.read())
+            report = convert(self.path, ["1"], "pipe")
+            self.assertFalse(report.errors, report.errors)
+            self.assertEqual(self.read(), source)
+
+    def test_relaxed_markdown_tasks_refused(self):
+        self.assert_refused("<table>\n<tr><th>見出し</th></tr>\n<tr><td>\n\n"
+                            "- [注] 説明\n- [1] 番号\n\n</td></tr>\n</table>\n",
+                            "種類を変えると、表の中身が変わる")
+
+    def test_html_blocks_refused_in_both_directions(self):
+        cells = ["<details><summary>要約</summary>中身 **太字**</details>",
+                 "<details>\n<summary>要約</summary>\n中身\n</details>",
+                 "前\n\n<!-- コメント -->\n\n後"]
+        for cell in cells:
+            self.assert_refused("<table>\n<tr><th>見出し</th></tr>\n<tr><td>\n\n" + cell +
+                                "\n\n</td></tr>\n</table>\n", "セルに HTML のブロック")
+        for middle in ("**太字**", "`code`", "_斜体_", "~文字~", "[a]", "$x$", "\\記号"):
+            source = "| 見出し |\n| --- |\n| <details>" + middle + "</details> |\n"
+            self.write(source)
+            report = convert(self.path, ["1"], "html")
+            self.assertEqual(report.errors, ["表 1: HTML の表にできない: 2 行 1 列: "
+                                            "セルに HTML のブロック（<details>）があり、種類を変えると描画が変わる"])
+            self.assertEqual(self.read(), source)
+
+    def test_html_block_error_names_the_tag(self):
+        # 文の後の <br> の直後のリストは、<ul> のまま読まれて HTML のブロックになる
+        cases = [("文<br><ul><li>項目</li></ul>", "<ul>"), ("<DIV>**太字**</DIV>", "<div>"),
+                 ("<![CDATA[ a ]]> **太字**", "<![CDATA["), ("<?php echo 1; ?> **太字**", "<?php")]
+        for cell, name in cases:
+            source = "| 見出し |\n| --- |\n| " + cell + " |\n"
+            self.write(source)
+            report = convert(self.path, ["1"], "html")
+            self.assertEqual(report.errors, ["表 1: HTML の表にできない: 2 行 1 列: セルに HTML のブロック（%s）があり、"
+                                            "種類を変えると描画が変わる" % name])
+            self.assertEqual(self.read(), source)
+        self.assert_refused("<table>\n<tr><th>見出し</th></tr>\n<tr><td>\n\n前\n\n<!-- コメント -->\n\n後"
+                            "\n\n</td></tr>\n</table>\n", "セルに HTML のブロック（コメント）")
+
+    def test_safe_single_html_block_converts(self):
+        for cell in ('<img src="a.png" width="100">', "<details><summary>要約</summary>中身</details>"):
+            source = "| 見出し |\n| --- |\n| " + cell + " |\n"
+            self.write(source)
+            for target in ("html", "pipe"):
+                report = convert(self.path, ["1"], target)
+                self.assertFalse(report.errors, report.errors)
+            self.assertEqual(self.read(), source)
+
+    def test_link_definitions_refused(self):
+        report = self.assert_refused("<table>\n<tr><th>見出し</th></tr>\n<tr><td>\n\n"
+                                     "[名前]: https://example.com/\n\n[名前]\n\n</td></tr>\n</table>\n",
+                                     "セルの中にリンク参照の定義がある")
+        self.assertEqual(report.errors, ["表 1: Markdown の表にできない: 2 行 1 列: セルの中にリンク参照の定義がある"])
+
+    def test_leading_and_repeated_breaks_refused(self):
+        for cell, reason in (("<br>先頭に改行", "セルの先頭の <br> は、HTML の表にすると消える"),
+                             ("段落 2<br><br><br>段落 3", "3 つ以上続く <br> は、HTML の表では段落の区切り 1 つになる")):
+            source = "| 見出し |\n| --- |\n| " + cell + " |\n"
+            self.write(source)
+            report = convert(self.path, ["1"], "html")
+            self.assertEqual(report.errors, ["表 1: HTML の表にできない: 2 行 1 列: " + reason])
+            self.assertEqual(self.read(), source)
+
+    def test_trailing_and_only_breaks_convert(self):
+        for cell in ("末尾<br>", "<br>", "<br><br><br>", "<BR /> <br> "):
+            self.write("| 見出し |\n| --- |\n| " + cell + " |\n")
+            report = convert(self.path, ["1"], "html")
+            self.assertFalse(report.errors, report.errors)
+
 
 class ConversionVerifyTest(unittest.TestCase):
     def test_model_differences_block_conversion(self):

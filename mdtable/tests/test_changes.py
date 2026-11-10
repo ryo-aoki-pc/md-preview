@@ -157,6 +157,26 @@ class ChangesTest(unittest.TestCase):
         self.assertEqual(changes.details(), ["  A1: 「a⏎b」→「」", "  B1: 「」→「%s」" % ("y" * 30),
                                              "  C1: 「%s…」→「%s…」" % ("x" * 30, "z" * 30)])
 
+    def test_long_text_shows_first_difference(self):
+        before = "同" * 40 + "前" + "終" * 40
+        after = "同" * 40 + "後" + "終" * 40
+        self.assertEqual(compare_models(model([[before]]), model([[after]])).details(),
+                         ["  A1: 「…%s前%s…」→「…%s後%s…」" % ("同" * 10, "終" * 19, "同" * 10, "終" * 19)])
+
+    def test_long_text_append_and_delete_use_same_window(self):
+        before = "同" * 40
+        after = before + "追加"
+        for old, new, first, second in ((before, after, "同" * 10, "同" * 10 + "追加"),
+                                       (after, before, "同" * 10 + "追加", "同" * 10)):
+            self.assertEqual(compare_models(model([[old]]), model([[new]])).details(),
+                             ["  A1: 「…%s」→「…%s」" % (first, second)])
+
+    def test_long_text_window_normalizes_newlines(self):
+        before = "前\r\n" + "同" * 35 + "前"
+        after = "前\n" + "同" * 35 + "後"
+        self.assertEqual(compare_models(model([[before]]), model([[after]])).details(),
+                         ["  A1: 「…%s前」→「…%s後」" % ("同" * 10, "同" * 10)])
+
     def test_limit_and_excel_column_address(self):
         changes = compare_models(model([["a"] * 28]), model([["b"] * 28]))
         self.assertEqual(changes.summary(), "（セル 28 個を変更）")

@@ -33,6 +33,59 @@ def rewrite(text, number, edit):
     return new_text, converted, problems
 
 
+class ComplexCellTest(unittest.TestCase):
+    def test_link_definitions_are_recorded_only_in_markdown(self):
+        bodies = [("[a]: https://example.com/", True),
+                  ("[a]: https://example.com/\n続く文章", True),
+                  ("- [a]: https://example.com/", True),
+                  ("```\n[a]: https://example.com/\n```", False),
+                  ("    [a]: https://example.com/", False),
+                  ("`[a]: https://example.com/`", False),
+                  ("\\[a]: https://example.com/", False)]
+        for body, expected in bodies:
+            with self.subTest(body=body):
+                source = "<table>\n<tr><td>\n\n" + body + "\n\n</td></tr>\n</table>\n"
+                table = regions(source)[0].parsed
+                self.assertEqual(table.cells[0].link_definitions, expected)
+        table = regions("<table><tr><td>[a]: https://example.com/</td></tr></table>\n")[0].parsed
+        self.assertFalse(table.cells[0].link_definitions)
+
+    def test_unchanged_nested_table_cell_is_preserved(self):
+        for nested in ("<td><table><tr><td>入れ子</td></tr></table></td>",
+                       "<td>\n\n| a |\n| --- |\n| b |\n\n</td>"):
+            source = "<table>\n<tr>" + nested + "<td>元</td></tr>\n</table>\n"
+            result, converted, problems = rewrite(source, 1, lambda m: set_text(m, 0, 1, "変更"))
+            self.assertEqual(result, source.replace("<td>元</td>", "<td>変更</td>"))
+            self.assertIsNone(converted)
+            self.assertEqual(problems, [])
+
+            def add_row(model):
+                set_text(model, 0, 1, "変更")
+                model.rows += 1
+                model.cells.extend([Cell(1, 0, "追加"), Cell(1, 1, "")])
+
+            result, converted, problems = rewrite(source, 1, add_row)
+            self.assertIn(nested, result)
+            self.assertIsNone(converted)
+            self.assertEqual(problems, [])
+
+    def test_cell_write_errors_include_position_in_both_render_paths(self):
+        from mdtable.cell_syntax import NotRepresentable
+        source = "<table>\n<tr><td>元</td><td>値</td></tr>\n</table>\n"
+        for body in ("| a | b |\n| --- | --- |\n| 1 | 2 |", "<td>中身</td>", "<!-- 未完"):
+            for regenerate in (False, True):
+                with self.subTest(body=body, regenerate=regenerate):
+                    region = regions(source)[0]
+                    model = clone(region.parsed.model)
+                    set_text(model, 0, 1, body)
+                    if regenerate:
+                        model.rows += 1
+                        model.cells.extend([Cell(1, 0, "追加"), Cell(1, 1, "")])
+                    with self.assertRaises(NotRepresentable) as caught:
+                        sync._render(region, model, [])
+                    self.assertEqual((caught.exception.row, caught.exception.col), (1, 2))
+
+
 class TableSelectionTest(unittest.TestCase):
     def test_heading_selects_one_or_several_tables(self):
         table = "| a |\n|---|\n| b |\n\n"

@@ -30,6 +30,34 @@ def parse(text):
     return blocks.parse_text(text, front_matter=False, keep_definitions=True)
 
 
+def normalize_list_spacing(text):
+    """最外側の段落を中断できるリストの前だけ、空行を除く。
+
+    改行を LF にそろえた文字（normalize_text の後）に使う。
+    """
+    if "\n\n" not in text:
+        return text
+    doc = parse(text)
+    removed = set()
+    children = doc.root.children
+    for previous, node in zip(children, children[1:]):
+        if previous.kind != blocks.PARAGRAPH or node.kind != blocks.LIST:
+            continue
+        line = doc.lines[node.start_line]
+        offset = len(line) - len(line.lstrip(" \t"))
+        if blocks.parse_list_marker(line, offset, True) is None:
+            continue
+        between = range(previous.end_line + 1, node.start_line)
+        if all(not doc.lines[n].strip(" \t") for n in between):
+            removed.update(between)
+    return "\n".join(line for n, line in enumerate(text.split("\n")) if n not in removed)
+
+
+def task_marker(text):
+    """項目の先頭が、GitLab の通常または拡張のタスクの印か。"""
+    return bool(_TASK_MARKER.match(text) or _RELAXED_TASK.match(text))
+
+
 def _paragraph_lines(doc, node):
     return [doc.lines[n][o:] for n, o, _lazy in node.lines]
 
@@ -164,7 +192,12 @@ def _render_pipe_block(doc, node):
         for item in node.children:
             if _is_task_item(doc, item):
                 raise NotRepresentable("タスクリストはパイプ表のセルに書けない")
-            items.append("<li>" + _render_item_content(doc, item.children) + "</li>")
+            body = _render_item_content(doc, item.children)
+            if item.children and item.children[0].kind == blocks.PARAGRAPH:
+                first = _paragraph_lines(doc, item.children[0])[0]
+                if first.startswith("\\[") and task_marker(first[1:]):
+                    body = body[1:]
+            items.append("<li>" + body + "</li>")
         return open_tag + "".join(items) + close_tag
     if kind == blocks.DESCRIPTION_LIST:
         parts = ["<dl>"]
@@ -307,9 +340,13 @@ def to_html_cell(text):
     warnings = []
     if not text:
         return "inline", "", warnings
+    # 表の区切り行は is_plain でも通るので、複数行の | は先に解析する
+    doc = parse(text) if "\n" in text and "|" in text else None
+    if doc is not None and any(node.kind == blocks.TABLE for node in doc.root.walk()):
+        raise NotRepresentable("セルの中に表（| a | b | の形）は書けない")
     if is_plain(text):
         return "inline", "<br>".join(text.split("\n")), warnings
-    doc = parse(text)
+    doc = doc or parse(text)
     lines = list(doc.lines)
     if _structural_tags_outside(doc, text):
         raise NotRepresentable("セルの中に表の構造のタグ（<td> など）がある")

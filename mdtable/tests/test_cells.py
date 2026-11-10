@@ -6,13 +6,70 @@ import helpers  # noqa: F401  （mdtable を読めるようにする）
 
 from mdtable import htmltok
 from mdtable.cell_from_html import convert
-from mdtable.cell_syntax import NotRepresentable, chunk_to_excel, to_html_cell, to_pipe_cell
+from mdtable.cell_syntax import (NotRepresentable, chunk_to_excel, normalize_list_spacing,
+                                 to_html_cell, to_pipe_cell)
 from mdtable.pipe_table import cell_to_excel
 
 
 def from_html(source):
     tree = htmltok.build_tree(htmltok.tokenize(source))
     return convert(tree.children, source)
+
+
+class ListSpacingTest(unittest.TestCase):
+    def test_interrupting_lists(self):
+        for marker in ("- 項目", "* 項目", "+ 項目", "1. 一", "1) 一"):
+            for blank in ("\n\n", "\n\n\n"):
+                text = "前の文" + blank + marker + "\n\n後の文\n"
+                expected = "前の文\n" + marker + "\n\n後の文\n"
+                self.assertEqual(normalize_list_spacing(text), expected)
+                self.assertEqual(normalize_list_spacing(expected), expected)
+
+    def test_keeps_noninterrupting_and_nested_spacing(self):
+        texts = ["手順:\n\n2. 二\n3. 三", "前の文\n\n-\n- 次", "前の文\n\n1.\n2. 二",
+                 "前の文\n\n用語\n: 説明", "# 見出し\n\n- 項目", "> 前\n>\n> - 項目",
+                 "- 前\n\n  - 内側", "```\n前\n\n- コード\n```", "    前\n\n    - コード"]
+        for text in texts:
+            with self.subTest(text=text):
+                self.assertEqual(normalize_list_spacing(text), text)
+
+    def test_alternating_paragraphs_and_lists(self):
+        text = "段落 1\n\n- 項目 1\n\n段落 2\n\n- 項目 2"
+        expected = "段落 1\n- 項目 1\n\n段落 2\n- 項目 2"
+        self.assertEqual(normalize_list_spacing(text), expected)
+        self.assertEqual(normalize_list_spacing(expected), expected)
+
+    def test_keeps_blank_lines_inside_loose_list(self):
+        text = "前\n\n1. 一\n\n   - 中\n\n2. 二"
+        self.assertEqual(normalize_list_spacing(text), text.replace("前\n\n", "前\n", 1))
+
+    def test_without_double_newline_does_not_parse(self):
+        from unittest import mock
+        with mock.patch("mdtable.cell_syntax.parse") as parse:
+            self.assertEqual(normalize_list_spacing("前\n- 項目"), "前\n- 項目")
+        parse.assert_not_called()
+
+    def test_html_elements_use_same_spacing(self):
+        self.assertEqual(from_html("<p>前</p><ul><li>項目</li></ul><p>後</p>"), "前\n- 項目\n\n後")
+
+    def test_literal_task_markers_round_trip(self):
+        for marker in ("[ ]", "[x]", "[X]", "[注]", "[1]"):
+            for opening, closing, prefix in (("<ul>", "</ul>", "- "), ("<ol>", "</ol>", "1. ")):
+                source = opening + "<li>" + marker + " 説明</li>" + closing
+                text = prefix + "\\" + marker + " 説明"
+                self.assertEqual(cell_to_excel(source), text)
+                self.assertEqual(to_pipe_cell(text), source)
+                self.assertIn("\\" + marker, "\n".join(to_html_cell(text)[1]))
+
+    def test_non_task_brackets_stay_literal(self):
+        for text in ("[注釈] 説明", "[x]続き", "[ ]続き", "[] 説明"):
+            self.assertEqual(cell_to_excel("<ul><li>" + text + "</li></ul>"), "- " + text)
+
+    def test_refuses_pipe_table_before_plain_fast_path(self):
+        for text in ("| a | b |\n| --- | --- |\n| 1 | 2 |", "- | a |\n  | --- |\n  | 1 |"):
+            with self.assertRaisesRegex(NotRepresentable, "セルの中に表"):
+                to_html_cell(text)
+        self.assertEqual(to_html_cell("```\n| a |\n| --- |\n``` ")[0], "chunk")
 
 
 class PipeToExcelTest(unittest.TestCase):

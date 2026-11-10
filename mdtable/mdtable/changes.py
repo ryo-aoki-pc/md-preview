@@ -42,7 +42,7 @@ class Changes(object):
         for cell in self.cells:
             descriptions = cells.setdefault((cell.row, cell.col), [])
             if cell.kind == "文字":
-                descriptions.append("「%s」→「%s」" % (_short_text(cell.old_text), _short_text(cell.new_text)))
+                descriptions.append("「%s」→「%s」" % _short_pair(cell.old_text, cell.new_text))
             else:
                 descriptions.append("%sを変更" % cell.kind)
         lines = ["  %s: %s" % (_address(row, col), "、".join(descriptions))
@@ -61,9 +61,22 @@ def _address(row, col):
     return "%s%d" % (letters, row + 1)
 
 
-def _short_text(text):
+def _short_text(text, start=0):
     text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "⏎")
-    return text[:30] + "…" if len(text) > 30 else text
+    return ("…" if start and text else "") + text[start:start + 30] + ("…" if len(text) > start + 30 else "")
+
+
+def _short_pair(before, after):
+    """最初の違いが見える、同じ位置の窓で前後を切る。"""
+    texts = [text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "⏎")
+             for text in (before, after)]
+    if max(map(len, texts)) <= 30:
+        return tuple(texts)
+    difference = 0
+    while difference < min(map(len, texts)) and texts[0][difference] == texts[1][difference]:
+        difference += 1
+    start = max(0, difference - 10)
+    return tuple(_short_text(text, start) for text in texts)
 
 
 # 置換のかたまりを、似ているもの同士で対応させる大きさの上限（元の数 × 新しい数）

@@ -14,7 +14,7 @@ import html
 import re
 
 from . import blocks, inline
-from .cell_syntax import chunk_to_excel
+from .cell_syntax import chunk_to_excel, normalize_list_spacing
 from .htmltok import Element, Markdown, Raw, Text
 from .model import normalize_text
 
@@ -497,4 +497,4 @@ def _render_block(element, context, previous):
 def convert(nodes, source):
     """セルの中身の節（htmltok の木の子）を、Excel に書く Markdown にする。"""
     context = _Context(source)
-    return normalize_text("\n".join(_join(_render_flow(nodes, context))))
+    return normalize_list_spacing(normalize_text("\n".join(_join(_render_flow(nodes, context)))))
