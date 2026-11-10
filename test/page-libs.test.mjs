@@ -110,7 +110,7 @@ test('開発用依存を解決できない隔離コピーでも起動し、固�
   mkdirSync(join(root, 'lib'));
   mkdirSync(join(root, 'assets'));
   writeFileSync(join(root, 'assets', 'directory.mjs'), readFileSync(join(repo, 'assets', 'directory.mjs')));
-  for (const file of ['server.mjs', 'documents.mjs', 'resolve.mjs', 'assets.mjs'])
+  for (const file of ['server.mjs', 'documents.mjs', 'resolve.mjs', 'assets.mjs', 'page-libs.mjs'])
     writeFileSync(join(root, 'lib', file), readFileSync(join(repo, 'lib', file)));
   writeFileSync(join(root, 'page', 'lib', 'katex', 'unlisted.js'), '配ってはいけないファイル');
   // 固定情報にあるファイルでも、中身が差し替わっていたら配らない。

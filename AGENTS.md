@@ -48,6 +48,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `lib/watch.mjs` — フォルダーの監視と定期的な stat で、置き換え保存にも追従する。ファイル文書の表示側には削除専用の通知も渡せる。include では、まだ無い親フォルダーの出現にも追従する
 - `lib/page.mjs`・`page/` — ページ設定の埋め込みとブラウザの表示。文書の移動・一覧・見出し欄・GitLab との違いの知らせ・印刷の表示も扱う。KaTeX・mermaid は同じサーバーから読む
 - `page/lib/` — ブラウザに配る KaTeX・mermaid と原文のライセンス。`lock.json` に npm の版・integrity と各ファイルの sha256・大きさを固定する
+- `lib/page-libs.mjs` — `page/lib/` の写しを読む。名前は `lock.json` にあるものだけ、中身は `lock.json` の大きさと sha256 に合うものだけを返す。サーバーの配信と HTML への書き出しが使う
 - `tools/update-page-libs.mjs` — 開発用。`node_modules` の原文を写し直し、`--check` で固定情報・原文との一致を検査する
 - `scripts/setup.mjs` — リポジトリ外への導入・更新と `--check`。実行時のファイルと本番の依存を一時フォルダーで確かめて入れ替え、`mdpreview` の起動役を置く。任意の公式スタイルを保存する隣の `md-preview-assets` は触らない
 - `docs/install.md` — AlmaLinux 10・Windows 11 の導入・更新の手順
