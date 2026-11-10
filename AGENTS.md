@@ -11,6 +11,8 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 ## 守ること
 
 - 描画と表示の経路から、外へ通信しない。本文を GitLab の API に送る処理、CDN からライブラリを読む処理を足さない
+- 公式スタイルの取得は、利用者が明示した `mdpreview install-style` だけで行う。起動と `--check` は通信しない。配信する資産はロック・導入情報・全ファイルの大きさと sha256 を確かめ、実パスを `resolve()` で保存先の内側に限り、検証したバイト列だけを許可リストで配る。失敗時は同梱スタイルへ戻す
+- `mdpreview render` は worker で60秒以内に描画し、消毒済みの `renderDocument.html` だけを本文に使う。公式資産は再配布せず、同梱スタイルと文書に必要な KaTeX・mermaid だけを埋める。スクリプトごとの sha256 を CSP に固定し、数式も図も無ければスクリプトを入れない。サーバーの token や端末の絶対パスを生成しない。出力は完成後に隣の一時ファイルから入れ替える
 - `lib/engine.mjs` の HTML は消毒していない。消毒を通す前の HTML を、ページにもファイルにも出さない
 - `engine/src/glfm.rs`・`engine/src/formatter.rs`・`engine/licenses/gitlab-glfm-markdown.txt` は gem `gitlab-glfm-markdown` の写し、`engine/gitlab/glfm_markdown.rb` は GitLab のソースの写しで、書き換えない。GitLab の描画に合わせる直しは、gem の版を上げて取り込む
 - フィルターの順序は GitLab の `GfmPipeline` に合わせる。消毒より前のフィルターを消毒の後ろへ動かさない。配色（SyntaxHighlight）は最後に置き、その後ろに消毒を掛けない。消毒の後ろのフィルターが足す属性と `style` は、検証した値だけにする
@@ -35,6 +37,8 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `lib/filters/` — GitLab のフィルターごとの木の変換。最後に `syntax-highlight.mjs` でコードを配色する
 - `lib/highlight.mjs` — highlight.js を遅延して読み、字句を Rouge のクラスと行ごとの木へ変換する
 - `lib/tree.mjs` — フィルターで共有する hast の操作
+- `assets/`・`lib/assets.mjs` — 固定版の GitLab 公式スタイルの明示的な取得と、通信しない導入状態の検査。`assets.lock.json` は元の固定情報をバイト単位で保つ。保存先はアプリとは別の `md-preview-assets` で、直下に版ごとのフォルダーを置く
+- `lib/export.mjs` — 単一 HTML の書き出し。既存 worker の include・メディアの存在確認、ルート内の相対 URL の書き換え、本文と印刷用スタイル、必要なライブラリと woff2 の埋め込み、CSP のハッシュ、原子的な出力を扱う。知らせの件数は CLI が標準エラーへ出す
 - `cli.mjs` — 引数の解釈、ブラウザの起動、ファイルの監視と終了処理。実行コマンドは `mdpreview`。ファイル・フォルダー表示と `--stdio` の入口を切り替える
 - `lib/resolve.mjs`・`lib/server.mjs` — ルート内のパス検査、127.0.0.1 の HTTP / SSE サーバーとローカルのライブラリ配信
 - `lib/session.mjs`・`lib/worker.mjs` — 文書とスクロールの状態、1つの worker による文書ごとの描画と集約、時間制限、休止時の取り消し。ファイル文書の購読・監視・破棄と、include の依存先の監視も管理する
@@ -44,6 +48,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `lib/watch.mjs` — フォルダーの監視と定期的な stat で、置き換え保存にも追従する。ファイル文書の表示側には削除専用の通知も渡せる。include では、まだ無い親フォルダーの出現にも追従する
 - `lib/page.mjs`・`page/` — ページ設定の埋め込みとブラウザの表示。文書の移動・一覧・見出し欄・GitLab との違いの知らせ・印刷の表示も扱う。KaTeX・mermaid は同じサーバーから読む
 - `page/lib/` — ブラウザに配る KaTeX・mermaid と原文のライセンス。`lock.json` に npm の版・integrity と各ファイルの sha256・大きさを固定する
+- `lib/page-libs.mjs` — `page/lib/` の写しを読む。名前は `lock.json` にあるものだけ、中身は `lock.json` の大きさと sha256 に合うものだけを返す。サーバーの配信と HTML への書き出しが使う
 - `tools/update-page-libs.mjs` — 開発用。`node_modules` の原文を写し直し、`--check` で固定情報・原文との一致を検査する
 - `scripts/setup.mjs` — リポジトリ外への導入・更新と `--check`。実行時のファイルと本番の依存を一時フォルダーで確かめて入れ替え、`mdpreview` の起動役を置く。任意の公式スタイルを保存する隣の `md-preview-assets` は触らない
 - `docs/install.md` — AlmaLinux 10・Windows 11 の導入・更新の手順
@@ -110,6 +115,8 @@ git diff --check
 - `test/xss.test.mjs` — 悪意のある入力を直接渡す場合と include から取り込む場合を通し、出力を HTML として読み直した木に、許可していない要素・属性・URL が無いことを確かめる
 - `test/resolve.test.mjs`・`test/server.test.mjs` — Windows / POSIX のパス検査と実 HTTP / SSE、配信の許可リスト、ヘッダー、文書別 SSE と一覧の拒否条件・順序・上限の試験
 - `test/page-libs.test.mjs` — 写しの sha256・大きさ・ライセンス・更新と改変検出、許可リスト外の拒否と、KaTeX・mermaid の `node_modules` がない導入での配信を確かめる
+- `test/install-style.test.mjs`・`test/assets.test.mjs` — 偽のループバックレジストリによる取得・改変と中断の拒否、資産の検査、配信の許可リスト・MIME・sandbox・キャッシュ、通信しない `install-style --check` を確かめる。ページ試験では小さな合成 CSS を使い、公式スタイルの読み込みと失敗時の復帰を確かめる
+- `test/export.test.mjs` — スクリプト無し・数式・図と CSP のハッシュ、既存の XSS 入力と同じ読み直し検査、include・URL・ルートの検査、出力の保護、worker の時間切れと標準出力を確かめる。`test/export-xss-helper.mjs` は既存 XSS 試験から移した検査と入力の写し。`test/page.test.mjs` には単一 HTML を `file://` で開き、数式・図・配色と CSP 違反・外部要求が無いことを確かめる試験も置く
 - `test/session.test.mjs`・`test/watch.test.mjs`・`test/cli.test.mjs` — 描画の集約と時間切れからの復帰、文書ごとの最新入力、32件の上限と5秒後の破棄、include の変更・削除・出現と32個の監視上限・入れ替え・解除、ファイル保存、CLI のファイル・フォルダーの起動と終了の試験
 - `test/page.test.mjs` — 本物のサーバー・KaTeX・mermaid によるブラウザ試験。文書の移動・戻ると進む・一覧・見出し欄・違いの知らせの安全な表示と行への移動・include の再描画・印刷と、外部要求の試みがないことを確認する。Playwright（`PLAYWRIGHT_MODULE` または `playwright`）と Edge / Chrome / Chromium がない場合は理由を付けて skip する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる
 - `test/stdio.test.mjs` — 実際の子プロセスで hello / ready、本文・スクロール、タブ数、休止・再開、ジャンプ、行の分割・上限、パイプと終了、別ルートへの切り替え時のファイル文書の reload を確かめる

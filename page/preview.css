@@ -106,6 +106,7 @@ body {
   display: none;
 }
 
+/* ==== 本文のスタイル: ここから (HTML への書き出しでも使う。lib/export.mjs が、この印の間を切り出す) ==== */
 #gp-page.file-holder {
   box-sizing: border-box;
   width: 100%;
@@ -163,6 +164,8 @@ body {
 #gp-content .gp-raw {
   white-space: pre-wrap;
 }
+
+/* ==== 本文のスタイル: ここまで ==== */
 
 /* 見出しの欄は本文と別にスクロールし、本文の幅だけを狭める。 */
 :root {

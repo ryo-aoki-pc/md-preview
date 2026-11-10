@@ -9,12 +9,49 @@ import { createServer } from './lib/server.mjs';
 import { loadPage } from './lib/page.mjs';
 import { watchFile } from './lib/watch.mjs';
 import { runStdio } from './lib/stdio.mjs';
+import { defaultAssetsDirectory, loadAssets } from './lib/assets.mjs';
+import { install } from './assets/install.mjs';
+import { exportDocument } from './lib/export.mjs';
 
 const version = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 const HELP =
-  '使い方: mdpreview [--port <番号>] [--root <フォルダー>] [--no-open] [--browser <実行ファイル>] <file.md | フォルダー>\n       mdpreview --stdio [--port <番号>]\n       mdpreview --help | --version\n';
+  '使い方: mdpreview [--port <番号>] [--root <フォルダー>] [--no-open] [--browser <実行ファイル>] [--assets-dir <保存先>] [--no-official-style] <file.md | フォルダー>\n       mdpreview --stdio [--port <番号>] [--assets-dir <保存先>] [--no-official-style]\n       mdpreview install-style [--dir <保存先>] [--check]\n       mdpreview render [--root <フォルダー>] [--theme system|light|dark] [--width fluid|fixed] [-o <out.html>] <file.md>\n       mdpreview --help | --version\n';
 
 export function parseArgs(argv) {
+  if (argv[0] === 'render') {
+    const result = { command: 'render', theme: 'system', width: 'fluid' };
+    let positional = false;
+    for (let i = 1; i < argv.length; i++) {
+      const arg = argv[i];
+      if (!positional && arg === '--') {
+        positional = true;
+        continue;
+      }
+      if (!positional && ['--root', '--theme', '--width', '-o'].includes(arg)) {
+        const value = argv[++i];
+        if (!value || value.startsWith('-')) throw new Error(`${arg} の値を指定してください`);
+        result[arg === '-o' ? 'output' : arg.slice(2)] = value;
+      } else {
+        if (!positional && arg.startsWith('-')) throw new Error(`不明なオプションです: ${arg}`);
+        if (result.file) throw new Error('文書は1つだけ指定してください');
+        result.file = arg;
+      }
+    }
+    if (!result.file) throw new Error('Markdown ファイルを指定してください');
+    if (!['system', 'light', 'dark'].includes(result.theme))
+      throw new Error('配色は system・light・dark で指定してください');
+    if (!['fluid', 'fixed'].includes(result.width)) throw new Error('本文幅は fluid・fixed で指定してください');
+    return result;
+  }
+  if (argv[0] === 'install-style') {
+    const result = { command: 'install-style' };
+    for (let i = 1; i < argv.length; i++) {
+      if (argv[i] === '--check') result.check = true;
+      else if (argv[i] === '--dir' && argv[i + 1] && !argv[i + 1].startsWith('-')) result.dir = argv[++i];
+      else throw new Error('使い方: mdpreview install-style [--dir <保存先>] [--check]');
+    }
+    return result;
+  }
   const options = { port: 0, open: true };
   let positional = false;
   for (let i = 0; i < argv.length; i++) {
@@ -35,14 +72,18 @@ export function parseArgs(argv) {
       options.open = false;
       continue;
     }
-    if (!positional && ['--port', '--root', '--browser'].includes(arg)) {
+    if (!positional && arg === '--no-official-style') {
+      options.officialStyle = false;
+      continue;
+    }
+    if (!positional && ['--port', '--root', '--browser', '--assets-dir'].includes(arg)) {
       const value = argv[++i];
       if (!value || value.startsWith('--')) throw new Error(`${arg} の値を指定してください`);
       if (arg === '--port') {
         if (!/^\d+$/.test(value) || Number(value) > 65535)
           throw new Error('ポート番号は 0 から 65535 の整数で指定してください');
         options.port = Number(value);
-      } else options[arg.slice(2)] = value;
+      } else options[arg === '--assets-dir' ? 'assetsDir' : arg.slice(2)] = value;
       continue;
     }
     if (!positional && arg.startsWith('-')) throw new Error(`不明なオプションです: ${arg}`);
@@ -51,7 +92,9 @@ export function parseArgs(argv) {
   }
   if (options.stdio) {
     if (options.file || !options.open || options.browser || options.root)
-      throw new Error('--stdio は --port 以外のオプションやファイルと一緒に指定できません');
+      throw new Error(
+        '--stdio は --port・--assets-dir・--no-official-style 以外のオプションやファイルと一緒に指定できません',
+      );
     return options;
   }
   if (!options.file) throw new Error('Markdown ファイルまたはフォルダーを指定してください');
@@ -77,6 +120,53 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   let shutdown;
   try {
     const options = parseArgs(argv);
+    if (options.command === 'render') {
+      try {
+        const result = await exportDocument(options);
+        if (!options.output) stdout.write(result.html);
+        const labels = {
+          reference: '参照',
+          diagram: '図',
+          suggestion: '提案',
+          include: '取り込み',
+          emoji: '絵文字',
+          missing: '見つからないメディア',
+          more: '省略した知らせ',
+        };
+        for (const warning of result.warnings) report(warning);
+        for (const [kind, count] of result.notices) report(`${labels[kind] || '表示の違い'}: ${count} 件`);
+        return 0;
+      } catch (error) {
+        report(error.message);
+        return 1;
+      }
+    }
+    if (options.command === 'install-style') {
+      if (options.check) {
+        const loaded = loadAssets(options.dir, io.assetsLockPath);
+        report(loaded ? '公式スタイルを利用できます' : '公式スタイルが未導入または破損しています');
+        return loaded ? 0 : 1;
+      }
+      report(
+        'GitLab の公式の CSS・フォント・ライセンスを導入します（未導入のときは、registry.gitlab.com などから約 785 MB を取得します）',
+      );
+      const controller = new AbortController();
+      const stop = () => controller.abort(new Error('中断しました'));
+      signals.once('SIGINT', stop);
+      signals.once('SIGTERM', stop);
+      try {
+        // 途中の知らせ (導入済みの確認・取得の開始・導入先) も、標準エラーに 1 行ずつ出す。
+        await install({ dataDir: options.dir, lockPath: io.assetsLockPath, signal: controller.signal, log: report });
+        return 0;
+      } catch (error) {
+        if (controller.signal.aborted) report('公式スタイルの導入を中断しました');
+        else report('公式スタイルの導入に失敗しました: ' + String(error?.message || error).split(/\r?\n/)[0]);
+        return 1;
+      } finally {
+        signals.off('SIGINT', stop);
+        signals.off('SIGTERM', stop);
+      }
+    }
     if (options.action) {
       stdout.write(options.action === 'help' ? HELP : version + '\n');
       return 0;
@@ -88,6 +178,8 @@ export async function main(argv = process.argv.slice(2), io = {}) {
         signals,
         port: options.port,
         version,
+        assetsDir: options.assetsDir || defaultAssetsDirectory(),
+        officialStyle: options.officialStyle,
         onStart: io.onStart,
       });
     const path = await realpath(resolve(options.file)).catch(() => {
@@ -111,7 +203,13 @@ export async function main(argv = process.argv.slice(2), io = {}) {
       onRender: (data) => server?.broadcast('render', data),
       onScroll: (data) => server?.broadcast('scroll', data),
     });
-    server = await createServer({ session, page: loadPage({ directory }), port: options.port });
+    server = await createServer({
+      session,
+      page: loadPage({ directory }),
+      port: options.port,
+      assetsDir: options.assetsDir || defaultAssetsDirectory(),
+      officialStyle: options.officialStyle,
+    });
     let rev = 1;
     if (!directory) session.setDocument({ path, name: basename(path), text, rev });
     let reading = false;

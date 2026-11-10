@@ -42,6 +42,7 @@ function workspace(t, { assets = false } = {}) {
   for (const name of [
     'cli.mjs',
     'lib',
+    'assets',
     'page',
     'engine/glfm_markdown.wasm',
     'engine/engine.lock.json',
@@ -159,7 +160,7 @@ test('導入: 実行時のファイルと依存だけを写し、起動役と記
   ]) {
     assert.ok(existsSync(installed(space, name)), name);
   }
-  for (const name of ['engine/src', 'engine/build.sh', 'test', 'tools', 'docs', '_ref', 'scripts', 'assets']) {
+  for (const name of ['engine/src', 'engine/build.sh', 'test', 'tools', 'docs', '_ref', 'scripts']) {
     assert.equal(existsSync(installed(space, name)), false, name);
   }
   assert.deepEqual(JSON.parse(read(installed(space, 'npm-args.json'))), [

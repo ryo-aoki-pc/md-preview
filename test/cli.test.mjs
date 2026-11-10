@@ -6,7 +6,9 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { main, parseArgs, browserCommand } from '../cli.mjs';
-import { events, temp, until } from './helpers.mjs';
+import { events, isolateUserData, temp, until } from './helpers.mjs';
+
+isolateUserData();
 
 function output() {
   const io = { out: '', err: '', signals: new EventEmitter() };

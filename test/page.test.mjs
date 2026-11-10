@@ -8,6 +8,9 @@ import { createServer } from '../lib/server.mjs';
 import { loadPage } from '../lib/page.mjs';
 import { createSession } from '../lib/session.mjs';
 import { temp } from './helpers.mjs';
+import { assetFixture } from './assets-fixture.mjs';
+import { exportDocument } from '../lib/export.mjs';
+import { pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
 let chromium;
@@ -33,6 +36,97 @@ const skip = !chromium
   : !browserPath
     ? 'Edge / Chrome / Chromium が見つからない（EDGE_BIN または CHROME_BIN を指定できる）'
     : false;
+
+test('書き出した単一 HTML を file:// で開き、数式と図を外部要求と CSP 違反なしで描く', { skip }, async (t) => {
+  const root = temp(t),
+    file = join(root, 'sample.md'),
+    output = join(root, 'out.html');
+  writeFileSync(file, '# 書き出し\n\n$`x^2`$\n\n```mermaid\ngraph TD; A-->B\n```\n');
+  await exportDocument({ file, root, output });
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const context = await browser.newContext();
+  t.after(() => context.close());
+  const outside = [],
+    violations = [],
+    errors = [];
+  await context.exposeBinding('recordExportViolation', (_source, value) => violations.push(value));
+  await context.addInitScript(() => {
+    document.addEventListener(
+      'securitypolicyviolation',
+      (event) => void window.recordExportViolation({ directive: event.violatedDirective, uri: event.blockedURI }),
+    );
+  });
+  context.on('request', (req) => {
+    if (!/^(file:|data:|blob:)/.test(req.url())) outside.push(req.url());
+  });
+  await context.route('**/*', (route) =>
+    /^(file:|data:|blob:)/.test(route.request().url()) ? route.continue() : route.abort(),
+  );
+  const page = await context.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(pathToFileURL(output).href);
+  await page.waitForSelector('.katex');
+  await page.waitForSelector('.gp-mermaid svg');
+  await page.evaluate(() => document.fonts.ready);
+  assert.deepEqual(violations, []);
+  assert.deepEqual(outside, []);
+  assert.deepEqual(errors, []);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(31, 30, 36)');
+  await page.waitForSelector('.gp-mermaid svg');
+  assert.deepEqual(violations, []);
+  assert.deepEqual(outside, []);
+});
+
+test('小さな公式 CSS の読み込み・配色と失敗時の同梱スタイルへの復帰', { skip }, async (t) => {
+  const f = assetFixture(t);
+  f.save();
+  const server = await createServer({
+    session: {
+      root: () => null,
+      last: () => ({ render: { file: 'sample.md', dir: '', rev: 1, html: '<p>本文</p>', headings: [] } }),
+    },
+    page: loadPage(),
+    assetsDir: f.directory,
+    assetsLockPath: f.lockPath,
+  });
+  t.after(() => server.close());
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  for (const failure of [false, true]) {
+    const context = await browser.newContext({ colorScheme: 'light' });
+    t.after(() => context.close());
+    const outside = [];
+    await context.route('**/*', (route) => {
+      const url = route.request().url();
+      if (!url.startsWith(server.url)) {
+        outside.push(url);
+        return route.abort();
+      }
+      if (failure && url.endsWith('/app.css')) return route.abort();
+      return route.continue();
+    });
+    const page = await context.newPage();
+    await page.goto(server.url);
+    await page.waitForFunction(
+      (want) => document.documentElement.dataset.style === want,
+      failure ? 'fallback' : 'official',
+    );
+    if (failure) {
+      await page.waitForSelector('#gp-fallback-style', { state: 'attached' }); // <link> は画面に見えない要素
+      assert.match(await page.locator('#gp-banner').textContent(), /公式スタイルを読み込めません/);
+    } else {
+      assert.equal(await page.locator('#gp-content').evaluate((el) => getComputedStyle(el).color), 'rgb(1, 2, 3)');
+      await page.selectOption('#gp-theme', 'dark');
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector('#gp-content')).color === 'rgb(4, 5, 6)',
+      );
+      assert.equal(await page.locator('#gp-fallback-style').count(), 0);
+    }
+    assert.deepEqual(outside, []);
+  }
+});
 
 const payload = (html, extra = {}) => ({
   file: 'docs/試験.md',
@@ -67,6 +161,7 @@ async function fixturePage(
   server = await createServer({
     session,
     page: loadPage({ jump, directory }),
+    officialStyle: false,
     onJump: jump ? (value) => jumps.push(value) : undefined,
   });
   if (live && !directory)
