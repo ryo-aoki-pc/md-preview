@@ -271,7 +271,7 @@ test('ファイル文書のサイズ制限と、削除・再作成を文書ご�
   t.after(stop);
   await until(() => received.length > 0);
   assert.match(received[0].error, /大きすぎ/);
-  assert.equal(received[0].markdown, '日本');
+  assert.equal(received[0].markdown, ''); // 大きすぎるファイルは読まず、本文をページへ送らない
   unlinkSync(file);
   await until(() => received.some((value) => value.error === 'この文書は開けない'));
   writeFileSync(file, 'ok');
