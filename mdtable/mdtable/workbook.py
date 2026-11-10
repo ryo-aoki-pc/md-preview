@@ -444,6 +444,9 @@ def write(path, md_path, tables, excluded, tool_version):
     meta = workbook.create_sheet(META_SHEET)
     _write_meta(meta, md_path, path, tables, tool_version)
     meta.sheet_state = "veryHidden"
+    workbook.active = workbook[tables[0].sheet_name] if len(tables) == 1 else index_sheet
+    for sheet in workbook:
+        sheet.sheet_view.tabSelected = sheet is workbook.active
 
     target = os.path.abspath(path)
     directory = os.path.dirname(target)

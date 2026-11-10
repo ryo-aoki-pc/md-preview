@@ -198,6 +198,31 @@ class ExportImportTest(unittest.TestCase):
         self.assertEqual(report.warnings, [])
         self.assertEqual(read(self.md), SAMPLE)
 
+    def test_single_table_opens_its_sheet(self):
+        for number in ("1", "2"):
+            with self.subTest(number=number):
+                self.export(selectors=[number])
+                book = openpyxl.load_workbook(self.xlsx)
+                self.assertEqual(book.active.title, self.sheet(int(number)))
+                self.assertEqual([sheet.title for sheet in book if sheet.sheet_view.tabSelected],
+                                 [book.active.title])
+                book.close()
+
+    def test_single_table_document_opens_its_sheet(self):
+        write(self.md, "| a |\n|---|\n| b |\n")
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        self.assertEqual(book.active.title, "表1")
+        self.assertEqual([sheet.title for sheet in book if sheet.sheet_view.tabSelected], ["表1"])
+        book.close()
+
+    def test_multiple_tables_open_index_sheet(self):
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        self.assertEqual(book.active.title, "目次")
+        self.assertEqual([sheet.title for sheet in book if sheet.sheet_view.tabSelected], ["目次"])
+        book.close()
+
     def test_discarded_cell_features(self):
         self.export()
         book = openpyxl.load_workbook(self.xlsx)

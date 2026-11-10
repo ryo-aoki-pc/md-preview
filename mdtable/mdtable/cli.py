@@ -3,10 +3,12 @@
 import argparse
 import hashlib
 import os
+import queue
 import secrets
 import shutil
 import sys
 import tempfile
+import threading
 import time
 
 from . import __version__
@@ -15,6 +17,10 @@ from .sync import MdTableError, default_output, export, import_workbook, list_ta
 from .workbook import WorkbookError
 
 USER_ERRORS = (MarkdownError, MdTableError, WorkbookError, OSError)
+POLL_SECONDS = 0.3
+EOF_GRACE_SECONDS = 30
+# Excel が開くのを待つ秒。この間の Enter は、ブックが開いたか（~$ が現れたか）を見てから扱う
+OPEN_GRACE_SECONDS = 3
 
 
 def _prepare_streams():
@@ -94,6 +100,124 @@ def _owner_files(directory):
     return [name for name in os.listdir(directory) if name.startswith("~$") or name.startswith(".~lock.")]
 
 
+def _read_line():
+    """標準入力の 1 行（改行は除く）。閉じていれば EOFError。
+
+    端末でない標準入力（パイプなど）は、ファイル記述子から直接読む。input() は標準入力のバッファのロックを
+    持ったまま待つので、読み待ちのスレッドを残して終わると、Python 3.9 は終了時に異常終了する
+    （could not acquire lock for <stdin> at interpreter shutdown）。端末の input() はそのロックを使わない。
+    """
+    stream = sys.stdin
+    if stream is None:
+        raise EOFError
+    try:
+        descriptor = None if stream.isatty() else stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        descriptor = None       # 差し替えられた標準入力は input() に任せる
+    if descriptor is None:
+        return input()
+    data = bytearray()
+    while True:
+        chunk = os.read(descriptor, 1)
+        if not chunk:
+            if data:
+                break
+            raise EOFError
+        if chunk == b"\n":
+            break
+        data.extend(chunk)
+    return data.decode("utf-8", "replace").rstrip("\r")
+
+
+def _wait_until_closed(directory, xlsx):
+    """入力を待ちながら、開かれたブックが閉じられたかを確かめる。"""
+    requests = queue.Queue()
+    results = queue.Queue()
+    read_line = _read_line
+
+    def read_input():
+        # 頼まれた 1 行だけ読む。自動で進んだ後に次の入力を読み始めないようにする
+        while requests.get():
+            try:
+                answer = read_line()
+            except EOFError:
+                results.put(("eof", None))
+                return
+            except (Exception, KeyboardInterrupt) as error:
+                results.put(("error", error))
+                return
+            results.put(("line", answer))
+
+    threading.Thread(target=read_input, daemon=True).start()
+    requests.put(True)
+    started = time.monotonic()
+    seen_owner = False
+    confirming = False
+    eof_deadline = None
+    held = None     # Excel が開く前に届いた 1 行
+
+    def answered(answer):
+        """ブックが開いている間に届いた 1 行を扱う。このまま取り込むなら True。"""
+        nonlocal confirming
+        if confirming and answer.strip().lower() == "y":
+            return True
+        if not confirming:
+            _err("ブックがまだ開いているようです。保存して閉じると自動で進みます"
+                 "（このまま取り込むなら y を入力して Enter）")
+            confirming = True
+        # 入力がすぐ返る場合も、次の確認まで間隔を空ける
+        time.sleep(POLL_SECONDS)
+        requests.put(True)
+        return False
+
+    try:
+        while True:
+            owners = _owner_files(directory)
+            if owners:
+                seen_owner = True
+            elif seen_owner:
+                try:
+                    with open(xlsx, "rb"):
+                        pass
+                except PermissionError:
+                    pass
+                else:
+                    _err("ブックが閉じられたので取り込みます")
+                    return
+            if held is not None:
+                # Excel が開く前の Enter は、~$ が現れるか、開くのを待つ時間が過ぎてから扱う
+                if owners:
+                    answer, held = held, None
+                    if answered(answer):
+                        return
+                elif time.monotonic() - started >= OPEN_GRACE_SECONDS:
+                    return
+                else:
+                    time.sleep(POLL_SECONDS)
+                continue
+            try:
+                kind, answer = results.get(timeout=POLL_SECONDS)
+            except queue.Empty:
+                kind, answer = None, None
+            if kind == "error":
+                raise answer
+            if kind == "eof":
+                eof_deadline = time.monotonic() + EOF_GRACE_SECONDS
+            elif kind == "line":
+                if _owner_files(directory):
+                    seen_owner = True
+                    if answered(answer):
+                        return
+                elif seen_owner or time.monotonic() - started >= OPEN_GRACE_SECONDS:
+                    return
+                else:
+                    held = answer
+            if eof_deadline is not None and not seen_owner and time.monotonic() >= eof_deadline:
+                raise EOFError
+    finally:
+        requests.put(False)
+
+
 def cmd_edit(args):
     if os.name != "nt":
         raise MdTableError("edit は Windows だけで使えます（export と import を使ってください）")
@@ -102,22 +226,19 @@ def cmd_edit(args):
     stem = os.path.splitext(os.path.basename(markdown))[0]
     xlsx = os.path.join(directory, "%s.tables.%s.xlsx" % (stem, secrets.token_hex(4)))
     import_options = (" --keep-kind" if args.keep_kind else "") + (" --strict-text" if args.strict_text else "")
-    keep = True
+    keep = False
+    opened = False
     try:
         report = export(markdown, xlsx, args.table, True)
         _print_report(report)
         before = _file_hash(xlsx)
         os.startfile(xlsx)
-        _err("Excel で編集して保存し、閉じたら Enter を押してください（中止は Ctrl+C）")
-        while True:
-            input()
-            if _owner_files(directory):
-                _err("ブックがまだ開いているようです。保存して閉じてから Enter を押してください"
-                     "（このまま取り込むなら y を入力して Enter）")
-                answer = input()
-                if answer.strip().lower() != "y":
-                    continue
-            break
+        opened = True
+        keep = True
+        _err("Excel で編集して保存し、ブックを閉じると自動で書き戻します（Enter でも進めます。中止は Ctrl+C）")
+        _wait_until_closed(directory, xlsx)
+        if not os.path.exists(markdown):
+            raise MdTableError("書き戻す Markdown が見つかりません（--md で指定してください）: %s" % markdown)
         if _file_hash(xlsx) == before:
             _err("ブックは保存されていないので、Markdown は変えません")
             keep = False
@@ -125,32 +246,48 @@ def cmd_edit(args):
         report = None
         for attempt in range(2):
             try:
-                report = import_workbook(xlsx, markdown, keep_kind=args.keep_kind,
+                report = import_workbook(xlsx, markdown, dry_run=args.dry_run, keep_kind=args.keep_kind,
                                          strict_text=args.strict_text)
                 break
             except WorkbookError:
                 if attempt == 1:
                     raise
                 time.sleep(1)
+        if args.dry_run and report.diff:
+            sys.stdout.write(report.diff)
         _print_report(report)
         if report.errors:
             _err("ブックを残しました。直してから次で取り込めます:")
             _err('  mdtable import "%s" --md "%s"%s' % (xlsx, markdown, import_options))
             return 1
         if report.changed:
+            if args.dry_run:
+                _err("（--dry-run なので書き戻していません）")
+                _err("ブックを残しました。取り込むときは:")
+                _err('  mdtable import "%s" --md "%s"%s' % (xlsx, markdown, import_options))
+                return 0
             _err("書き戻しました: %s" % markdown)
         else:
             _err("Markdown は変わりません")
         keep = False
         return 0
     except (KeyboardInterrupt, EOFError):
+        keep = True
         _err("")
         _err("中止しました。ブックを残しました: %s" % xlsx)
         _err('取り込むときは: mdtable import "%s" --md "%s"%s' % (xlsx, markdown, import_options))
         return 1
+    except USER_ERRORS:
+        if opened:
+            _err("ブックを残しました: %s" % xlsx)
+            _err('取り込むときは: mdtable import "%s" --md "%s"%s' % (xlsx, markdown, import_options))
+        raise
     finally:
         if not keep:
             shutil.rmtree(directory, ignore_errors=True)
+            if os.path.isdir(directory):
+                # ブックを開いたまま取り込んだときは、Excel がブックを使っていて消せない
+                _err("一時フォルダーを消せませんでした（ブックを閉じてから消してください）: %s" % directory)
 
 
 def build_parser():
@@ -186,6 +323,7 @@ def build_parser():
     p = sub.add_parser("edit", help="Excel で開いて編集し、閉じたら書き戻す（Windows）")
     p.add_argument("markdown", help="Markdown のファイル")
     p.add_argument("--table", action="append", metavar="番号|L行", help="編集する表")
+    p.add_argument("--dry-run", action="store_true", help="書き戻さずに差分を出す")
     p.add_argument("--keep-kind", action="store_true", help="パイプ表を HTML の表に変える必要があれば止める")
     p.add_argument("--strict-text", action="store_true", help="数値・真偽値・数式・エラー値のセルがあれば止める")
     p.set_defaults(func=cmd_edit)
@@ -205,7 +343,9 @@ def main(argv=None):
             raise
         message = str(error)
         if isinstance(error, OSError) and not isinstance(error, (MarkdownError,)):
-            message = "%s: %s" % (getattr(error, "filename", "") or "", error.strerror or error)
+            message = "%s" % (error.strerror or error,)
+            if getattr(error, "filename", None):
+                message = "%s: %s" % (error.filename, message)
         _err("エラー: " + message)
         return 1
     except KeyboardInterrupt:
