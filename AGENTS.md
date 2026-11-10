@@ -55,6 +55,7 @@ Go の単一実行ファイルへの移行中。Go 版が Node.js 版と同じ�
 - `internal/highlight/` — Chroma の字句と Rouge 系の短いクラス、行ごとの包み。使う言語だけ遅延して準備する
 - `internal/include/`・`internal/paths/`・`internal/notices/` — include の展開と行の対応、相対パス、完成した木を変えない知らせの収集
 - `internal/plantumlsource/` — 図の原文の SHA-256 と標準入力の開始・終了の補完
+- `internal/pagetest/` — ブラウザの試験（`test/page.test.mjs`）だけが使う、試験用のサーバーのコマンド。Go 版の `internal/server` を、標準入力の JSON の行で動かす（偽の文書の状態・本物の `internal/session` と描画・偽の図・合成の公式資産を切り替える）。製品の実行ファイルには入らない
 - `internal/pipeline/fixtures_test.go`・`internal/pipeline/testdata/known_differences.json` — GitLab の本物の出力（`test/fixtures/*.gitlab.html`）との比べ。許した5つの正規化のほかは、要素・属性・文字を厳密に比べる。GitLab のデータや設定が要って直せない差だけを、場所・理由・両側の値を固定して表に置く
 - `internal/pipeline/testdata/golden/pipeline.jsonl.gz` — Node.js 版（`80784dd`）の `renderDocument` の入力と出力 2,715 件（Node.js 版の試験が通した入力と、公開の文書）。Go 版の出力を、HTML は木で、ほかは JSON で比べる見本。手で書き換えない
 
@@ -171,7 +172,7 @@ git diff --check
 - `test/install-style.test.mjs`・`test/assets.test.mjs` — 偽のループバックレジストリによる取得・改変と中断の拒否、資産の検査、配信の許可リスト・MIME・sandbox・キャッシュ、通信しない `install-style --check` を確かめる。ページ試験では小さな合成 CSS を使い、公式スタイルの読み込みと失敗時の復帰を確かめる
 - `test/export.test.mjs` — スクリプト無し・数式・図と CSP のハッシュ、既存の XSS 入力と同じ読み直し検査、include・URL・ルートの検査、出力の保護、worker の時間切れと標準出力を確かめる。`test/export-xss-helper.mjs` は既存 XSS 試験から移した検査と入力の写し。`test/page.test.mjs` には単一 HTML を `file://` で開き、数式・図・配色と CSP 違反・外部要求が無いことを確かめる試験も置く
 - `test/session.test.mjs`・`test/watch.test.mjs`・`test/cli.test.mjs` — 描画の集約と時間切れからの復帰、文書ごとの最新入力、32件の上限と5秒後の破棄、include の変更・削除・出現と32個の監視上限・入れ替え・解除、ファイル保存、CLI のファイル・フォルダーの起動と終了の試験
-- `test/page.test.mjs` — 本物のサーバー・KaTeX・mermaid によるブラウザ試験。文書の移動・戻ると進む・一覧・見出し欄・違いの知らせの安全な表示と行への移動・include の再描画・印刷と、外部要求の試みがないことを確認する。Playwright（`PLAYWRIGHT_MODULE` または `playwright`）と Edge / Chrome / Chromium がない場合は理由を付けて skip する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる
+- `test/page.test.mjs` — Go 版のサーバー（`internal/pagetest` を試験の最初に `go build` して子プロセスで起こす）・本物の KaTeX・mermaid によるブラウザ試験。書き出しの試験は、Go 版の `mdpreview render` を使う。Go が無い場合も理由を付けて skip する。文書の移動・戻ると進む・一覧・見出し欄・違いの知らせの安全な表示と行への移動・include の再描画・印刷と、外部要求の試みがないことを確認する。Playwright（`PLAYWRIGHT_MODULE` または `playwright`）と Edge / Chrome / Chromium がない場合は理由を付けて skip する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる
 - `test/stdio.test.mjs` — 実際の子プロセスで hello / ready、本文・スクロール、タブ数、休止・再開、ジャンプ、行の分割・上限、パイプと終了、別ルートへの切り替え時のファイル文書の reload を確かめる
 - `test/setup.test.mjs` — 偽の npm と手元の依存を使う、ネットワーク不要の導入試験。一時の clone と導入先を作業ツリー内に作り、コピー・ハッシュ・依存・起動役・PATH・失敗時の復元・中断後の回収・引数を確かめる。Windows では PowerShell の標準入力も確かめ、シェルが無ければ理由を付けて skip する
 - `test/helpers.mjs` — 作業ツリー内の一時ファイル、HTTP と SSE、非同期条件の試験用補助
