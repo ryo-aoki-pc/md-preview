@@ -11,7 +11,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 
 | 同梱のスタイル | GitLab の公式スタイル |
 | --- | --- |
-| ![同梱のスタイルで表示したプレビュー](docs/images/preview-bundled.png) | ![GitLab の公式スタイルで表示したプレビュー](docs/images/preview-official.png) |
+| <img src="docs/images/preview-bundled.png" alt="同梱のスタイルで表示したプレビュー" width="380"> | <img src="docs/images/preview-official.png" alt="GitLab の公式スタイルで表示したプレビュー" width="380"> |
 
 どちらも Windows 11 の Edge で、ライトの配色で撮った。日本語の字形は、OS に入っているフォントで変わる。
 
