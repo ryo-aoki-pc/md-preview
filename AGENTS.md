@@ -12,6 +12,9 @@ Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本
 - フィルターの順序は GitLab の `GfmPipeline` に合わせる。消毒より前のフィルターを消毒の後ろへ動かさない。配色（SyntaxHighlight）は最後に置き、その後ろに消毒を掛けない。消毒の後ろのフィルターが足す属性と `style` は、検証した値だけにする
 - 消毒は `hast-util-sanitize` と `lib/sanitize.mjs` の規則で行う。正規表現で HTML の文字列を直接書き換えて消毒しない
 - `test/fixtures/*.gitlab.html` は GitLab が返した HTML そのままで、手で書き換えない。見本の入力（`test/fixtures/*.md`）は合成の文章だけにし、実在の利用者・プロジェクトに解決される参照（`@名前` など）を入れない（GitLab が返す HTML に、その人の名前が入る）
+- サーバーは 127.0.0.1 だけで待ち受け、URL に推測できない token を入れる。`Host` と `Sec-Fetch-Site` を確かめ、CORS のヘッダーは付けない。ファイルは `lib/resolve.mjs` の `resolve()` でルートの内側の実ファイルに限る（`..`・`\`・Windows の `:`・末尾の点と空白・デバイス名・`.git`・リンクでの脱出を拒む）。これらを緩めない
+- ページの CSP は `script-src 'self'`。ページに入れるスクリプトとライブラリは、同じサーバーから配る。配るライブラリは許可リストのファイルだけにし、`node_modules` をそのまま見せない
+- ページでは、サーバーから届いた文字（見出し・知らせ・ファイル名）を `textContent` で入れる。HTML として入れてよいのは、`renderDocument` の `html` だけ
 - `engine/glfm_markdown.wasm` を手で差し替えない。`engine/build.sh --update` で作り、`engine/engine.lock.json` と一緒にコミットする
 
 ## 構成
@@ -26,6 +29,13 @@ Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本
 - `lib/filters/` — GitLab のフィルターごとの木の変換。最後に `syntax-highlight.mjs` でコードを配色する
 - `lib/highlight.mjs` — highlight.js を遅延して読み、字句を Rouge のクラスと行ごとの木へ変換する
 - `lib/tree.mjs` — フィルターで共有する hast の操作
+- `cli.mjs` — 引数の解釈、ブラウザの起動、ファイルの監視と終了処理。実行コマンドは `mdpreview`。ファイル・フォルダー表示と `--stdio` の入口を切り替える
+- `lib/resolve.mjs`・`lib/server.mjs` — ルート内のパス検査、127.0.0.1 の HTTP / SSE サーバーとローカルのライブラリ配信
+- `lib/session.mjs`・`lib/worker.mjs` — 文書とスクロールの状態、1つの worker による文書ごとの描画と集約、時間制限、休止時の取り消し。ファイル文書の購読・監視・破棄も管理する
+- `lib/stdio.mjs` — Neovim 用の JSON 行の入出力、96 MB の行制限、休止と再開、タブ数とジャンプの通知
+- `lib/documents.mjs` — Markdown の拡張子と一覧。隠しファイル・依存・フォルダーのリンクを除き、深さと件数を制限する
+- `lib/watch.mjs` — フォルダーの監視と定期的な stat で、置き換え保存にも追従する。ファイル文書の表示側には削除専用の通知も渡せる
+- `lib/page.mjs`・`page/` — ページ設定の埋め込みとブラウザの表示。文書の移動・一覧・見出し欄・印刷の表示も扱う。KaTeX・mermaid は同じサーバーから読む
 - `tools/make-fixtures.mjs` — 開発用。見本の入力を gitlab.com の Markdown API に送り、返った HTML を保存する。アプリからは呼ばれない
 - `test/` — `node --test` の試験。`test/fixtures/` は、合成の Markdown（`<名前>.md`）、GitLab の本物の出力（`<名前>.gitlab.html`）、取得した条件（`fixtures.json`）
 
@@ -64,7 +74,7 @@ GITLAB_TOKEN=<read_api のトークン> node tools/make-fixtures.mjs <名前>   
 
 ```sh
 npm test
-for f in lib/*.mjs lib/filters/*.mjs test/*.mjs; do node --check "$f"; done
+for f in cli.mjs lib/*.mjs lib/filters/*.mjs page/*.js test/*.mjs tools/*.mjs; do node --check "$f"; done
 git diff --check
 ```
 
@@ -76,8 +86,30 @@ git diff --check
 - `test/fixtures.test.mjs` — GitLab の保存済みの実出力と木を厳密に比較する。意図した差だけを正規化し、設定が必要な差は場所と値を固定する
 - `test/pipeline.test.mjs` — 全 Markdown 素材と代表構文、消毒の境界、文書間の独立性
 - `test/xss.test.mjs` — 悪意のある入力を直接渡す場合と include から取り込む場合を通し、出力を HTML として読み直した木に、許可していない要素・属性・URL が無いことを確かめる
+- `test/resolve.test.mjs`・`test/server.test.mjs` — Windows / POSIX のパス検査と実 HTTP / SSE、配信の許可リスト、ヘッダー、文書別 SSE と一覧の拒否条件・順序・上限の試験
+- `test/session.test.mjs`・`test/watch.test.mjs`・`test/cli.test.mjs` — 描画の集約と時間切れからの復帰、文書ごとの最新入力、32件の上限と5秒後の破棄、ファイル保存、CLI のファイル・フォルダーの起動と終了の試験
+- `test/page.test.mjs` — 本物のサーバー・KaTeX・mermaid によるブラウザ試験。文書の移動・戻ると進む・一覧・見出し欄・印刷と、外部要求の試みがないことを確認する。Playwright（`PLAYWRIGHT_MODULE` または `playwright`）と Edge / Chrome / Chromium がない場合は理由を付けて skip する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる
+- `test/stdio.test.mjs` — 実際の子プロセスで hello / ready、本文・スクロール、タブ数、休止・再開、ジャンプ、行の分割・上限、パイプと終了、別ルートへの切り替え時のファイル文書の reload を確かめる
+- `test/helpers.mjs` — 作業ツリー内の一時ファイル、HTTP と SSE、非同期条件の試験用補助
 - Node.js 22 以上
 - 描画に関わる変更は、試験に例を足す。GitLab の出力と比べて確かめたことだけを「同じ」と書く
+
+## 文書の移動と一覧
+
+- `/<token>/` は編集中の文書、`?doc=<ルートからの相対パス>` はファイルの文書。`_/events?doc=...` はその文書の描画だけを送り、スクロールは編集中の文書のタブだけへ送る。ファイルのパスは `resolve()` で検査する
+- Markdown の拡張子は `md`・`markdown`・`mdown`・`mkd`・`mkdn`。同じファイルを編集している場合は未保存の本文を使い、別ルートへ移ったファイル文書のタブには `reload` を送る
+- 見張るファイル文書は32件まで。最後のタブが離れて5秒後に監視と結果を捨てる。上限に達した場合は、タブのいない古い文書から捨てる
+- `_/list` はルート内の Markdown の一覧を JSON で返す。`?list` で一覧の画面を出す。深さ20・5000件までで、隠しファイル・`node_modules`・フォルダーのリンクは除く。無名の文書だけでルートがないときは空
+- フォルダーを引数にした場合はその場所をルートとし、最初に一覧を出す。`--root` とは併用しない
+- 見出し欄の開閉は配色・本文幅と同じ sessionStorage に保存する。文字は textContent で入れ、印刷時は見出し欄と操作欄を隠す
+
+## Neovim との取り決め
+
+- 取り決めの版は1。`mdpreview --stdio [--port <番号>]` の標準入力と標準出力を、UTF-8 の JSON オブジェクト1行ずつ（区切りは `\n`）でつなぐ。標準出力に人向けの文は書かない。ブラウザの起動は Lua が行う
+- Lua からは、最初に `hello`（`protocol: 1` と省略できる `appearance`）、続いて `doc`・`scroll`・`pause`・`resume` を送る。休止中の本文とスクロールは捨て、再開後の本文で描画を戻す。休止してもプロセス・サーバー・URL は保つ
+- アプリからは `ready`（版・アプリの version・URL）を1回、`clients`（タブ数。最初は0）、`jump`（今の文書の path と行）、`error`（日本語1行）を返す。hello 前の行と対応しない版は `fatal: true` と終了コード2にする
+- 入力の1行は96 MBまで。誤りのある行は捨てて続ける。標準入力が閉じたらタブに `stop`（`reason: 'exit'`）を送り、サーバーと worker を閉じて終了コード0で終わる
+- `CONFIG.jump` が真で、編集中の文書を見ている場合だけ、本文のダブルクリックから `POST _/jump` に行番号を送る。サーバーは token・Host・Sec-Fetch-Site・Origin・JSON の型と1 KBの本文上限を確かめる。単体のファイル表示では無効
 
 ## 書き方の規則
 

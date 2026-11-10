@@ -2,7 +2,25 @@
 
 Markdown を GitLab の描画でプレビューするアプリ（`mdpreview`）。本文を GitLab に送らず、手元で HTML にする。
 
-今あるのは、Markdown を HTML にする部分（描画エンジンと、その後ろの消毒・フィルター）まで。プレビューのサーバーとページ、コマンドは、これから足す。
+導入のスクリプトと手順書は、これから足す。今は、clone の中で `npm ci --ignore-scripts` を実行してから、`node cli.mjs` で動かす。
+
+## 使い方
+
+```sh
+node cli.mjs README.md          # ファイルを開く。ブラウザに表示し、ファイルが変わると描き直す
+node cli.mjs docs               # フォルダーを開く。中の Markdown の一覧を出す
+node cli.mjs --no-open README.md   # ブラウザを開かず、URL だけを出す
+```
+
+- 127.0.0.1 だけで待ち受け、URL に推測できない値を入れる。出てきた URL（`プレビュー: http://127.0.0.1:…`）をブラウザで開く
+- 本文の相対リンクが別の Markdown を指すとき、同じタブの中でその文書へ移る（ブラウザの戻る・進むで戻れる）。操作欄の「一覧」で、フォルダーの Markdown の一覧を出す
+- 操作欄の「見出し」で、見出しの一覧を左に出し入れする。配色（システム・ライト・ダーク）と本文幅（全幅・固定幅）も操作欄で変える
+- 数式（KaTeX）と図（mermaid）は、同じサーバーから配るライブラリでブラウザが描く。CDN は使わない
+- 画像・動画・リンクの相対パスは、手元のファイルを指す。読めるのは、開いたファイルのリポジトリ（`.git` のあるフォルダー。無ければファイルのあるフォルダー）の内側だけで、`.git` の中は返さない。`--root <フォルダー>` で変えられる
+- 本文が外部の URL の画像・動画を指すときは、ブラウザがその URL から読む（GitLab と同じ）。それ以外に、表示のために外へ通信することはない
+- `--port <番号>` で待ち受けるポートを、`--browser <実行ファイル>` で開くブラウザを指定する。Ctrl+C で終わる
+
+Neovim からは、[LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter) の `<leader>cp` が `mdpreview --stdio` を起こして使う（未保存の内容の表示、カーソルに合わせたスクロール、プレビューのダブルクリックでエディタの行へ移る）。取り決めは [AGENTS.md](AGENTS.md) の「Neovim との取り決め」にある。
 
 ## 描画エンジン
 
@@ -44,7 +62,10 @@ const { html, headings, notices } = renderDocument('# 題\n\n- [x] 済み\n');
 ## テスト
 
 ```sh
+npm ci --ignore-scripts
 npm test
 ```
+
+ページの試験（`test/page.test.mjs`）は、Playwright と Edge・Chrome・Chromium のどれかが要る。Playwright を通常の場所から読めないときは、`PLAYWRIGHT_MODULE` に導入先を指定する。無ければ、その試験だけ skip になる（合格には数えない）。
 
 作り直す手順と決まりは [AGENTS.md](AGENTS.md) にある。

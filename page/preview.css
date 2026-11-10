@@ -1,0 +1,212 @@
+/* プレビューの外枠。本文のスタイルは公式資産か fallback.css に任せる。
+   --gl-* は GitLab 本体と md-table-sticky が使うので、ここでは上書きしない。 */
+:root {
+  --gp-bg: #fff;
+  --gp-fg: #333238;
+  --gp-muted: #626168;
+  --gp-border: #dcdcde;
+  --gp-subtle: #fbfafd;
+  --gp-warning: #ab6100;
+  --gp-caution: #dd2b0e;
+  --gp-header-height: 40px;
+  --gp-toolbar-height: 40px;
+  color-scheme: light;
+}
+
+:root[data-style="official"] {
+  --gp-bg: var(--gl-background-color-default, #fff);
+  --gp-fg: var(--gl-text-color-default, #333238);
+  --gp-muted: var(--gl-text-color-subtle, #626168);
+  --gp-border: var(--gl-border-color-default, #dcdcde);
+  --gp-subtle: var(--gl-background-color-subtle, #fbfafd);
+  --gp-warning: var(--gl-text-color-warning, #ab6100);
+  --gp-caution: var(--gl-text-color-danger, #dd2b0e);
+}
+
+:root.gl-dark {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--gp-bg);
+  color: var(--gp-fg);
+}
+
+body {
+  margin: 0;
+}
+
+#gp-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 6px 16px;
+  background: var(--gp-subtle);
+  border-bottom: 1px solid var(--gp-border);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+#gp-file {
+  flex: 1 1 12em;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+#gp-mode {
+  color: var(--gp-muted);
+  overflow-wrap: anywhere;
+}
+
+#gp-mode[data-mode="fallback"] {
+  color: var(--gp-warning);
+  font-weight: 600;
+}
+
+#gp-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+#gp-controls label {
+  margin: 0;
+  font: inherit;
+  white-space: nowrap;
+}
+
+#gp-controls select {
+  margin-left: 4px;
+  padding: 2px 4px;
+  color: var(--gp-fg);
+  background: var(--gp-bg);
+  border: 1px solid var(--gp-border);
+  border-radius: 4px;
+  font: inherit;
+}
+
+#gp-banner {
+  position: sticky;
+  top: var(--gp-header-height);
+  z-index: 9;
+  padding: 6px 16px;
+  background: var(--gl-background-color-warning-subtle, var(--gp-banner-bg, #fdf1dd));
+  color: var(--gl-text-color-warning, var(--gp-banner-fg, #5c3900));
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+#gp-banner[hidden] {
+  display: none;
+}
+
+#gp-page.file-holder {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  margin: 0 auto;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+
+:root[data-width="fixed"] #gp-page.file-holder {
+  max-width: 1600px;
+}
+
+#gp-content.md {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  /* 文書末尾の行も Neovim のカーソルと同じ高さへ合わせられるようにする。 */
+  padding: 16px 24px 50vh;
+}
+
+#gp-content [id] {
+  scroll-margin-top: calc(var(--gp-toolbar-height) + 8px);
+}
+
+/* GitLab 本体の操作用要素は、このページでは初期化しない。 */
+#gp-content copy-code,
+#gp-content task-button,
+#gp-content insert-code-snippet {
+  display: none;
+}
+
+#gp-content .gp-math-display,
+#gp-content .gp-mermaid {
+  margin: 0 0 16px;
+  overflow-x: auto;
+}
+
+#gp-content .gp-mermaid {
+  text-align: center;
+}
+
+#gp-content .gp-error {
+  display: block;
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  white-space: pre-wrap;
+  color: var(--gp-caution);
+  border: 1px dashed var(--gp-caution);
+  border-radius: 4px;
+}
+
+#gp-content .gp-raw {
+  white-space: pre-wrap;
+}
+
+/* 見出しの欄は本文と別にスクロールし、本文の幅だけを狭める。 */
+:root { --gp-outline-width: 260px; }
+#gp-layout { margin-inline-start: 0; }
+:root[data-outline="open"] #gp-layout { margin-inline-start: var(--gp-outline-width); }
+#gp-outline {
+  position: fixed;
+  inset-block-start: var(--gp-toolbar-height);
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  box-sizing: border-box;
+  width: var(--gp-outline-width);
+  overflow: auto;
+  padding: 12px;
+  border-inline-end: 1px solid var(--gp-border);
+  background: var(--gp-subtle);
+  color: var(--gp-fg);
+  font: 13px/1.6 sans-serif;
+}
+#gp-outline[hidden] { display: none; }
+#gp-outline ul { list-style: none; margin: 0; padding: 0; }
+#gp-outline a { display: block; padding: 3px 6px; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+#gp-outline a[aria-current] { background: var(--gp-border); font-weight: 600; border-radius: 4px; }
+#gp-controls a,
+#gp-controls button {
+  box-sizing: border-box;
+  border: 1px solid var(--gp-border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  background: var(--gp-bg);
+  color: var(--gp-fg);
+  text-decoration: none;
+  font: inherit;
+}
+#gp-controls [hidden] { display: none; }
+#gp-controls button:disabled { opacity: .5; }
+#gp-content a[aria-disabled="true"] { color: inherit; text-decoration: none; }
+@media (max-width: 700px) {
+  :root { --gp-outline-width: 42vw; }
+}
+@media print {
+  #gp-header, #gp-banner, #gp-outline { display: none !important; }
+  #gp-layout { margin: 0 !important; }
+  #gp-page.file-holder { width: 100% !important; max-width: none !important; }
+  #gp-content.md { padding: 0 !important; }
+  pre, table { break-inside: avoid; page-break-inside: avoid; }
+}
