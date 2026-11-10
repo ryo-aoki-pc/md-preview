@@ -62,7 +62,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `page/lib/` — ブラウザに配る KaTeX・mermaid と原文のライセンス。`lock.json` に npm の版・integrity と各ファイルの sha256・大きさを固定する
 - `tools/update-page-libs.mjs` — 開発用。`node_modules` の原文を写し直し、`--check` で固定情報・原文との一致を検査する
 - `docs/install.md` — AlmaLinux 10・Windows 11 の導入・更新の手順
-- `docs/images/` — README に載せるプレビューの画面（`preview-bundled.png`・`preview-official.png`）と、そのもとの合成の Markdown（`sample.md`）。画面は、`mdpreview docs/images/sample.md`（同梱のスタイルは `--no-official-style` を付ける）を、幅 640 px・倍率 2・ライトの配色のブラウザで開き、数式と図が描けてから、本文の終わりまでを撮ったもの。表示を変えたら撮り直す
+- `docs/images/` — README に載せるプレビューの画面（`preview-bundled.png`・`preview-official.png`）と、そのもとの合成の Markdown（`sample.md`）。画面は、`mdpreview docs/images/sample.md`（同梱のスタイルは `--no-official-style` を付ける）を、幅 640 px・倍率 2・ライトの配色のブラウザで開き、数式と図が描けてから、本文の終わりまでを撮ったもの（2 枚は、長いほうの高さに揃える。並べたときに上下がずれないように）。表示を変えたら撮り直す
 - `tools/make-fixtures.mjs` — 開発用。見本の入力を gitlab.com の Markdown API に送り、返った HTML を保存する。アプリからは呼ばれない
 - `test/` — ブラウザの試験と、その補助。`test/fixtures/` は、合成の Markdown（`<名前>.md`）、GitLab の本物の出力（`<名前>.gitlab.html`）、取得した条件（`fixtures.json`）
 
