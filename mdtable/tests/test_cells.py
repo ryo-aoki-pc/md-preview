@@ -301,6 +301,95 @@ class HtmlToExcelTest(unittest.TestCase):
         self.assertEqual(from_html('<a href="u" target="_blank">t</a>'), '<a href="u" target="_blank">t</a>')
         self.assertEqual(from_html('<a href="https://x">https://x</a>'), "<https://x>")
 
+    def test_raw_links_and_images(self):
+        source = ('[リンク](https://example.com "題") と ![図](https://example.com/a.png)'
+                  ' と **太字** と [相対](docs/usage.md) と [アンカー](#top)')
+        expected = ('[リンク](https://example.com "題") と ![図](https://example.com/a.png)'
+                    ' と \\*\\*太字\\*\\* と [相対](docs/usage.md) と [アンカー](#top)')
+        self.assertEqual(from_html(source), expected)
+
+    def test_raw_link_after_backslash(self):
+        self.assertEqual(from_html(r'\[リンク](https://example.com/a)'),
+                         r'\\[リンク](https://example.com/a)')
+        self.assertEqual(from_html(r'\![図](a.png)'), r'\\![図](a.png)')
+
+    def test_raw_reference_links_are_escaped(self):
+        self.assertEqual(from_html('[参照][ref] と [ref] と ![図][image]'),
+                         r'\[参照]\[ref] と \[ref] と !\[図]\[image]')
+
+    def test_raw_links_in_excluded_elements(self):
+        cases = {
+            '<code>[a](b)</code>': '`[a](b)`',
+            '<pre>[a](b)</pre>': '```\n[a](b)\n```',
+            '<kbd>[a](b)</kbd>': r'<kbd>\[a](b)</kbd>',
+            '<kbd><span>[a](b)</span></kbd>': r'<kbd><span>\[a](b)</span></kbd>',
+            '<a href="https://example.com">[a](b)</a>': r'[\[a\](b)](https://example.com)',
+            '<a href="u" target="_blank">[a](b)</a>': r'<a href="u" target="_blank">\[a](b)</a>',
+            '<a>[a](b)</a>': r'<a>\[a](b)</a>',
+            '<a href="u"><em>[a](b)</em></a>': r'[*\[a\](b)*](u)',
+            '<script>[a](b)</script>': r'<script>\[a](b)</script>',
+            '<style>[a](b)</style>': r'<style>\[a](b)</style>',
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                self.assertEqual(from_html(source), expected)
+
+    def test_raw_links_do_not_cross_elements(self):
+        cases = {
+            '[<b>a</b>](https://example.com)': r'\[**a**](https://example.com)',
+            '[a]<span>(b)</span>': r'\[a]<span>(b)</span>',
+            '[a](<span>b</span>)': r'\[a](<span>b</span>)',
+            '[a]<!-- 区切り -->(b)': r'\[a]<!-- 区切り -->(b)',
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                self.assertEqual(from_html(source), expected)
+
+    def test_raw_links_decode_entities(self):
+        self.assertEqual(from_html('[a](https://example.com/?x=1&amp;y=2)'),
+                         '[a](https://example.com/?x=1&y=2)')
+        self.assertEqual(from_html('&#91;*a*&#93;(b &quot;題&quot;)'), '[*a*](b "題")')
+
+    def test_raw_links_escape_surrounding_text(self):
+        self.assertEqual(from_html('*[a](b)* と _![c](d)_ と [f](g) と [e]'),
+                         r'\*[a](b)\* と \_![c](d)\_ と [f](g) と \[e]')
+        self.assertEqual(from_html('&lt;![a](b)'), r'\<![a](b)')
+        self.assertEqual(from_html('$[a](b)$ と ~[c](d)~'), r'\$[a](b)\$ と \~[c](d)\~')
+
+    def test_raw_links_keep_inner_markdown_and_destination_spaces(self):
+        self.assertEqual(from_html('[*強調*](docs/a b.md "題") と ![**図**](a b.png)'),
+                         '[*強調*](docs/a b.md "題") と ![**図**](a b.png)')
+        self.assertEqual(from_html('[a](b(c)*後ろ*)'), r'[a](b(c)\*後ろ\*)')
+        self.assertEqual(from_html('[](b) と [a]()'), r'\[](b) と \[a]()')
+
+    def test_raw_links_do_not_cross_newlines(self):
+        for source in ('[a\nb](c)', '[a](b\nc)', '[a](b "題\n名")', '[a&#10;b](c)'):
+            with self.subTest(source=source):
+                self.assertTrue(from_html(source).startswith(r'\['))
+        self.assertEqual(from_html('[a](b)\n[c](d)'), '[a](b) [c](d)')
+
+    def test_raw_links_keep_whitespace_rules(self):
+        self.assertEqual(from_html('a  \t [x](b  \t c)  \n d'), 'a [x](b c) d')
+        self.assertEqual(from_html('a&#9;b [x](c) a&nbsp;b'), 'a\tb [x](c) a&nbsp;b')
+
+    def test_raw_links_in_flow_elements(self):
+        cases = {
+            '<p>[a](b) と **c**</p>': r'[a](b) と \*\*c\*\*',
+            '<ul><li>[a](b)</li><li>![c](d)</li></ul>': '- [a](b)\n- ![c](d)',
+            '<span>[a](b)</span>': '<span>[a](b)</span>',
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                self.assertEqual(from_html(source), expected)
+        table = helpers.regions('<table><tr><th>[a](b)</th><td>![c](d)</td></tr></table>\n')[0]
+        self.assertEqual(helpers.texts(table), [['[a](b)', '![c](d)']])
+
+    def test_raw_links_do_not_change_markdown_chunks_or_pipe_cells(self):
+        text = r'\[a](b) と **c** と [参照][ref]'
+        table = helpers.regions('<table>\n<tr><td>\n\n' + text + '\n\n</td></tr>\n</table>\n')[0]
+        self.assertEqual(helpers.texts(table), [[text]])
+        self.assertEqual(cell_to_excel(text), text)
+
     def test_lists(self):
         # H8
         self.assertEqual(from_html("<ul><li>a<ul><li>b</li></ul></li></ul>"), "- a\n  - b")

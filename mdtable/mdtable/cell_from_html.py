@@ -6,7 +6,7 @@
   <img> は画像、<blockquote> は引用、<h1>〜 は見出し、<hr> は区切り線
 - ** などを約物に接して閉じると強調にならない位置では、元の HTML のタグのまま残す
 - 知らないインラインの要素は HTML のまま中を変換し、知らないブロックは元の HTML を行のまま入れる
-- HTML の文字は空白をまとめ、Markdown で意味を持つ文字だけをエスケープする
+- HTML の文字は空白をまとめ、リンク・画像の形を除き、Markdown で意味を持つ文字だけをエスケープする
 - Markdown の部分は、段落の中の改行の扱いだけを Excel 用にそろえ、ほかはそのまま
 """
 
@@ -21,6 +21,7 @@ from .model import normalize_text
 _WS = re.compile(r"[ \t\n\r\f]+")
 _ENTITY_LIKE = re.compile(r"&#?[A-Za-z0-9]+;")
 _LANGUAGE_CLASS = re.compile(r"(?:^|\s)(?:language|lang)-(\S+)")
+_SPACED_LINK = re.compile(r'!?\[(.+?)\]\((.+?)( ".+?")?\)')
 _PLACEHOLDER_BASE = 0xE000
 
 BLOCK_TAGS = frozenset([
@@ -105,11 +106,20 @@ def _paragraph_flags(nodes):
     return tilde, dollar
 
 
-def escape_text(text, tilde=False, dollar=False):
+def escape_text(text, tilde=False, dollar=False, links=()):
     """HTML の文字（実体参照を戻したもの）を、Markdown で同じに見えるようにエスケープする。"""
     out = []
     n = len(text)
+    matches = iter(links)
+    link = next(matches, None)
+    preserved_end = 0
     for i, ch in enumerate(text):
+        if link is not None and i == link.start():
+            out.append(text[i:link.end()])
+            preserved_end = link.end()
+            link = next(matches, None)
+        if i < preserved_end:
+            continue
         nxt = text[i + 1] if i + 1 < n else ""
         prev = text[i - 1] if i > 0 else ""
         if ch == "\\":
@@ -191,26 +201,38 @@ def _link_destination(href):
     return dest
 
 
-def _render_inline(nodes, context, flags, depth=0):
+def _render_text(source, flags, spaced_links):
+    text = html.unescape(_WS.sub(" ", source))
+    links = ()
+    if spaced_links:
+        # 空白をまとめた後も、元の改行をまたぐ形には合わないようにする。
+        # 位置をそろえ、実体参照から戻った空白の扱いも変えない。
+        match_text = html.unescape(_WS.sub(
+            lambda m: "\n" if "\n" in m.group(0) else " ", source))
+        links = _SPACED_LINK.finditer(match_text)
+    return escape_text(text, *flags, links=links)
+
+
+def _render_inline(nodes, context, flags, depth=0, spaced_links=True):
     out = []
     for node in _merge_adjacent(nodes):
         if isinstance(node, Text):
-            out.append(escape_text(html.unescape(_WS.sub(" ", node.text)), *flags))
+            out.append(_render_text(node.text, flags, spaced_links))
         elif isinstance(node, Raw):
             out.append(node.text)
         elif isinstance(node, Markdown):
             out.append(node.text)
         elif isinstance(node, Element):
-            out.append(_render_inline_element(node, context, flags, depth))
+            out.append(_render_inline_element(node, context, flags, depth, spaced_links))
     return "".join(out)
 
 
-def _render_inline_element(element, context, flags, depth):
+def _render_inline_element(element, context, flags, depth, spaced_links):
     tag = element.tag
     if tag == "br":
         return "\n"
     if tag in EMPHASIS and not element.attributes:
-        inner = _render_inline(element.children, context, flags, depth + 1)
+        inner = _render_inline(element.children, context, flags, depth + 1, spaced_links)
         if not inner.strip(" "):
             return inner
         return context.placeholder(inner, EMPHASIS[tag], element.start_text, "</%s>" % tag, depth)
@@ -225,7 +247,7 @@ def _render_inline_element(element, context, flags, depth):
         names = {a.name for a in element.attributes}
         href = element.attribute("href")
         if href is not None and names <= {"href", "title"}:
-            text = _render_inline(element.children, context, flags, depth + 1)
+            text = _render_inline(element.children, context, flags, depth + 1, False)
             title = element.attribute("title")
             if (text == escape_text(href) and title is None
                     and re.match(r"[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*$", href)):
@@ -235,7 +257,7 @@ def _render_inline_element(element, context, flags, depth):
             if title is not None:
                 return '[%s](%s "%s")' % (text, dest, title.replace("\\", "\\\\").replace('"', '\\"'))
             return "[%s](%s)" % (text, dest)
-        return element.start_text + _render_inline(element.children, context, flags, depth + 1) + \
+        return element.start_text + _render_inline(element.children, context, flags, depth + 1, False) + \
             ("</a>" if element.closed else "")
     if tag == "img":
         names = {a.name for a in element.attributes}
@@ -253,7 +275,8 @@ def _render_inline_element(element, context, flags, depth):
         return context.raw(element)
     if tag in ("img", "wbr"):
         return element.start_text
-    inner = _render_inline(element.children, context, flags, depth + 1)
+    inner = _render_inline(element.children, context, flags, depth + 1,
+                           spaced_links and tag not in ("kbd", "script", "style"))
     return element.start_text + inner + ("</%s>" % tag if element.closed else "")
 
 

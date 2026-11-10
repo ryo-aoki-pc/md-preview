@@ -14,7 +14,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
-from helpers import ROOT, run_cli
+from helpers import ROOT, regions, run_cli
 
 import openpyxl
 
@@ -132,6 +132,29 @@ class CliTest(unittest.TestCase):
         self.assertEqual(out, "")
         self.assertIn("もう Markdown の表", err)
         self.assertIn("Markdown は変わりません", err)
+
+    def test_convert_raw_html_links_to_pipe_and_back(self):
+        source = ('<table>\n<tr><th>見出し</th></tr>\n<tr><td>'
+                  '[リンク](https://example.com "題") と ![図](https://example.com/a.png)'
+                  ' と **太字** と [相対](docs/usage.md)</td></tr>\n</table>\n')
+        expected = ('[リンク](https://example.com "題") と ![図](https://example.com/a.png)'
+                    ' と \\*\\*太字\\*\\* と [相対](docs/usage.md)')
+        with open(self.md, "w", encoding="utf-8", newline="") as handle:
+            handle.write(source)
+        model = regions(source)[0].parsed.model
+        self.assertEqual(model.anchors()[(1, 0)].text, expected)
+        for target in ("pipe", "html"):
+            with self.subTest(target=target):
+                code, out, err = run_cli("convert", self.md, "--table", "1", "--to", target)
+                self.assertEqual(code, 0, err)
+                self.assertEqual(out, "")
+                with open(self.md, encoding="utf-8", newline="") as handle:
+                    current = handle.read()
+                table = regions(current)[0]
+                self.assertEqual(table.kind, target)
+                self.assertTrue(table.parsed.model.same_content(model))
+                if target == "pipe":
+                    self.assertEqual(current, '| 見出し |\n| --- |\n| ' + expected + ' |\n')
 
     def test_convert_failure_does_not_change_any_table(self):
         document = ("<table><tr><th>a</th></tr></table>\n\n"

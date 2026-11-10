@@ -653,6 +653,27 @@ class ExportImportTest(unittest.TestCase):
         self.assertEqual(report.errors, [])
         self.assertIn("| lazygit | `scoop install lazygit`<ul><li>確認する</li></ul> |", read(self.md))
 
+    def test_edit_other_cell_preserves_raw_html_link_row(self):
+        link = ('[リンク](https://example.com/a?x=1&amp;y=2 "題")'
+                ' と ![図](https://example.com/a.png) と **太字**')
+        unchanged_row = "  <tr><td>  " + link + "  </td><td>そのまま</td></tr>\r\n"
+        original = ('<table>\r\n<tr><th>説明</th><th>値</th></tr>\r\n'
+                    + unchanged_row + '<tr><td>別の行</td><td>変更前</td></tr>\r\n</table>\r\n')
+        write(self.md, original)
+        report = self.export()
+        self.assertEqual(report.errors, [])
+        book = openpyxl.load_workbook(self.xlsx)
+        self.assertEqual(book[self.sheet(1)]["A2"].value,
+                         '[リンク](https://example.com/a?x=1&y=2 "題")'
+                         ' と ![図](https://example.com/a.png) と \\*\\*太字\\*\\*')
+        book.close()
+        edit_sheet(self.xlsx, self.sheet(1), {"B3": "変更後"})
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(read(self.md), original.replace('変更前', '変更後'))
+        with open(self.md, "rb") as handle:
+            self.assertIn(unchanged_row.encode("utf-8"), handle.read())
+
     def test_numbers_and_dates(self):
         # W4: 標準の書式の数値は文字にして警告、日付は止める（--force で書き戻す）
         self.export()
