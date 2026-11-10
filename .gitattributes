@@ -3,6 +3,7 @@
 *.gz binary
 # ほかの作者のライセンスの原文は、1 バイトも変えずに置く (改行の変換も空白の検査もしない)
 engine/licenses/** -text -whitespace
+licenses/** -text -whitespace
 # GitLab が返した HTML は、1 バイトも変えずに置く
 test/fixtures/*.gitlab.html -text -whitespace
 # 見本の入力は、行末の空白 (ハードな改行) などの記法そのものを含む

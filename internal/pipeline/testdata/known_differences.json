@@ -1,0 +1,323 @@
+[
+  {
+    "fixture": "basics",
+    "kind": "attributes",
+    "path": [
+      18,
+      2
+    ],
+    "oraclePath": [
+      18,
+      2
+    ],
+    "reason": "24 行の外部画像のリンク: AssetProxy の署名・設定を持たないため、元の URL を使う",
+    "values": {
+      "href": {
+        "local": "https://example.com/b.png",
+        "oracle": "https://user-content.gitlab-static.net/55889327826d97cec59dd5441ea2b66e2dc49364/68747470733a2f2f6578616d706c652e636f6d2f622e706e67"
+      },
+      "data-canonical-src": {
+        "local": null,
+        "oracle": "https://example.com/b.png"
+      }
+    }
+  },
+  {
+    "fixture": "basics",
+    "kind": "attributes",
+    "path": [
+      18,
+      2,
+      0
+    ],
+    "oraclePath": [
+      18,
+      2,
+      0
+    ],
+    "reason": "24 行の外部画像: AssetProxy の署名・設定を持たない",
+    "values": {
+      "src": {
+        "local": "https://example.com/b.png",
+        "oracle": "https://user-content.gitlab-static.net/55889327826d97cec59dd5441ea2b66e2dc49364/68747470733a2f2f6578616d706c652e636f6d2f622e706e67"
+      },
+      "data-canonical-src": {
+        "local": null,
+        "oracle": "https://example.com/b.png"
+      }
+    }
+  },
+  {
+    "fixture": "media",
+    "kind": "attributes",
+    "path": [
+      18,
+      0,
+      0
+    ],
+    "oraclePath": [
+      18,
+      0,
+      0
+    ],
+    "reason": "19 行の外部動画: AssetProxy の署名・設定を持たない",
+    "values": {
+      "src": {
+        "local": "https://example.com/v.mov",
+        "oracle": "https://user-content.gitlab-static.net/6d81b96e84b7de3fefa592475836757dcffa4dad/68747470733a2f2f6578616d706c652e636f6d2f762e6d6f76"
+      },
+      "data-canonical-src": {
+        "local": null,
+        "oracle": "https://example.com/v.mov"
+      }
+    }
+  },
+  {
+    "fixture": "media",
+    "kind": "attributes",
+    "path": [
+      22,
+      0
+    ],
+    "oraclePath": [
+      22,
+      0
+    ],
+    "reason": "23 行の外部画像のリンク: AssetProxy の署名・設定を持たない",
+    "values": {
+      "href": {
+        "local": "https://example.com/x.png",
+        "oracle": "https://user-content.gitlab-static.net/8ff07430de1fea0d1fda13fb2ea129a0a66bbc1a/68747470733a2f2f6578616d706c652e636f6d2f782e706e67"
+      },
+      "data-canonical-src": {
+        "local": null,
+        "oracle": "https://example.com/x.png"
+      }
+    }
+  },
+  {
+    "fixture": "media",
+    "kind": "attributes",
+    "path": [
+      22,
+      0,
+      0
+    ],
+    "oraclePath": [
+      22,
+      0,
+      0
+    ],
+    "reason": "23 行の外部画像: AssetProxy の署名・設定を持たない",
+    "values": {
+      "src": {
+        "local": "https://example.com/x.png",
+        "oracle": "https://user-content.gitlab-static.net/8ff07430de1fea0d1fda13fb2ea129a0a66bbc1a/68747470733a2f2f6578616d706c652e636f6d2f782e706e67"
+      },
+      "data-canonical-src": {
+        "local": null,
+        "oracle": "https://example.com/x.png"
+      }
+    }
+  },
+  {
+    "fixture": "math-diagrams",
+    "kind": "attributes",
+    "path": [
+      8,
+      0,
+      0
+    ],
+    "oraclePath": [
+      8,
+      0,
+      0
+    ],
+    "reason": "mermaid のコード: GitLab では AssetProxy が有効だが、手元は使わない",
+    "values": {
+      "data-proxied-urls": {
+        "local": null,
+        "oracle": "{}"
+      }
+    }
+  },
+  {
+    "fixture": "math-diagrams",
+    "kind": "attributes",
+    "path": [
+      10,
+      0,
+      0
+    ],
+    "oraclePath": [
+      10,
+      0,
+      0
+    ],
+    "reason": "mermaid のコード: GitLab では AssetProxy が有効だが、手元は使わない",
+    "values": {
+      "data-proxied-urls": {
+        "local": null,
+        "oracle": "{\"Bob:\":\"https://user-content.gitlab-static.net/47f7765dc19f53f0baa8b6ee0ce4923778334f52/426f623a\"}"
+      }
+    }
+  },
+  {
+    "fixture": "inline-glfm",
+    "kind": "attributes",
+    "path": [
+      14,
+      7
+    ],
+    "oraclePath": [
+      14,
+      7
+    ],
+    "reason": "15 行の外部 URL の wikilink: WikiLinkGollumFilter は今回の対象外",
+    "values": {
+      "class": {
+        "local": null,
+        "oracle": "gfm"
+      },
+      "data-canonical-src": {
+        "local": null,
+        "oracle": "https://example.com"
+      },
+      "data-link": {
+        "local": null,
+        "oracle": "true"
+      },
+      "data-gollum": {
+        "local": null,
+        "oracle": "true"
+      }
+    }
+  },
+  {
+    "fixture": "code",
+    "kind": "node",
+    "path": [
+      28
+    ],
+    "reason": "61 行の PlantUML: 手元の plantuml を有効にしていない場合は原文のまま",
+    "local": {
+      "type": "element",
+      "tag": "div",
+      "attrs": {
+        "class": "gl-relative markdown-code-block js-markdown-code"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "pre",
+          "attrs": {
+            "class": "code highlight js-syntax-highlight language-plantuml",
+            "data-canonical-lang": "plantuml",
+            "data-sourcepos": "61:1-63:3",
+            "v-pre": "true"
+          },
+          "children": [
+            {
+              "type": "element",
+              "tag": "code",
+              "attrs": {},
+              "children": [
+                {
+                  "type": "element",
+                  "tag": "span",
+                  "attrs": {
+                    "class": "line",
+                    "data-lang": "plantuml",
+                    "id": "LC1"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "text": "Bob -> Alice : hello"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "copy-code",
+          "attrs": {},
+          "children": []
+        },
+        {
+          "type": "element",
+          "tag": "insert-code-snippet",
+          "attrs": {},
+          "children": []
+        }
+      ]
+    },
+    "oracle": {
+      "type": "element",
+      "tag": "a",
+      "attrs": {
+        "class": "no-attachment-icon",
+        "data-diagram": "plantuml",
+        "data-diagram-src": "data:text/plain;base64,Qm9iIC0+IEFsaWNlIDogaGVsbG8=",
+        "href": "https://plantuml.gitlab-static.net/png/U9npoazIqBLJSCp9J4vLi5B8ICt9oGS0F7S6Am00",
+        "rel": "nofollow noreferrer noopener",
+        "target": "_blank"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "img",
+          "attrs": {
+            "src": "https://plantuml.gitlab-static.net/png/U9npoazIqBLJSCp9J4vLi5B8ICt9oGS0F7S6Am00"
+          },
+          "children": []
+        }
+      ]
+    }
+  },
+  {
+    "fixture": "html",
+    "kind": "oracle-only",
+    "path": [
+      22
+    ],
+    "reason": "36 行のコメント: Markdown API は非 IE なら allow_comments を有効にするが、手元は依頼どおりコメントを除く",
+    "oracle": {
+      "type": "comment",
+      "text": " コメント "
+    }
+  },
+  {
+    "fixture": "html",
+    "kind": "oracle-only",
+    "path": [
+      18
+    ],
+    "reason": "30 行の iframe: GitLab の IframeToImg と AssetProxy の設定が必要なので今回の実装対象外",
+    "oracle": {
+      "type": "element",
+      "tag": "a",
+      "attrs": {
+        "class": "no-attachment-icon",
+        "data-canonical-src": "https://example.com",
+        "href": "https://user-content.gitlab-static.net/83358f7feafaab45a479bdd987c5c9a608f676ce/68747470733a2f2f6578616d706c652e636f6d",
+        "rel": "nofollow noreferrer noopener",
+        "target": "_blank"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "img",
+          "attrs": {
+            "data-canonical-src": "https://example.com",
+            "src": "https://user-content.gitlab-static.net/83358f7feafaab45a479bdd987c5c9a608f676ce/68747470733a2f2f6578616d706c652e636f6d"
+          },
+          "children": []
+        }
+      ]
+    }
+  }
+]

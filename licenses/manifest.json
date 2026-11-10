@@ -1,0 +1,319 @@
+[
+  {
+    "name": "md-preview",
+    "version": "0.2.0-dev",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "Go",
+    "version": "1.27.3",
+    "license": "BSD-3-Clause",
+    "files": [
+      "licenses/go/go/LICENSE",
+      "licenses/go/go/PATENTS"
+    ]
+  },
+  {
+    "name": "github.com/alecthomas/chroma/v2",
+    "version": "v2.27.0",
+    "license": "MIT",
+    "files": [
+      "licenses/go/github.com/alecthomas/chroma/v2/COPYING"
+    ]
+  },
+  {
+    "name": "github.com/dlclark/regexp2/v2",
+    "version": "v2.2.1",
+    "license": "MIT",
+    "files": [
+      "licenses/go/github.com/dlclark/regexp2/v2/LICENSE"
+    ]
+  },
+  {
+    "name": "github.com/tetratelabs/wazero",
+    "version": "v1.12.0",
+    "license": "Apache-2.0",
+    "files": [
+      "licenses/go/github.com/tetratelabs/wazero/LICENSE",
+      "licenses/go/github.com/tetratelabs/wazero/NOTICE"
+    ]
+  },
+  {
+    "name": "golang.org/x/net",
+    "version": "v0.62.0",
+    "license": "BSD-3-Clause",
+    "files": [
+      "licenses/go/golang.org/x/net/LICENSE",
+      "licenses/go/golang.org/x/net/PATENTS"
+    ]
+  },
+  {
+    "name": "golang.org/x/sys",
+    "version": "v0.49.0",
+    "license": "BSD-3-Clause",
+    "files": [
+      "licenses/go/golang.org/x/sys/LICENSE",
+      "licenses/go/golang.org/x/sys/PATENTS"
+    ]
+  },
+  {
+    "name": "gitlab-glfm-markdown",
+    "version": "0.0.45",
+    "license": "MIT",
+    "files": [
+      "engine/licenses/gitlab-glfm-markdown.txt"
+    ]
+  },
+  {
+    "name": "aho-corasick",
+    "version": "1.1.3",
+    "license": "Unlicense OR MIT",
+    "files": [
+      "engine/licenses/aho-corasick-1.1.3/COPYING",
+      "engine/licenses/aho-corasick-1.1.3/LICENSE-MIT",
+      "engine/licenses/aho-corasick-1.1.3/UNLICENSE"
+    ]
+  },
+  {
+    "name": "caseless",
+    "version": "0.2.2",
+    "license": "MIT",
+    "files": [
+      "engine/licenses/caseless-0.2.2/LICENSE"
+    ]
+  },
+  {
+    "name": "comrak",
+    "version": "0.56.0",
+    "license": "BSD-2-Clause AND MIT",
+    "files": [
+      "engine/licenses/comrak-0.56.0/COPYING"
+    ]
+  },
+  {
+    "name": "emojis",
+    "version": "0.9.0",
+    "license": "(Apache-2.0 OR MIT) AND Unicode-3.0",
+    "files": [
+      "engine/licenses/emojis-0.9.0/LICENSE-APACHE",
+      "engine/licenses/emojis-0.9.0/LICENSE-MIT",
+      "engine/licenses/emojis-0.9.0/LICENSE-UNICODE"
+    ]
+  },
+  {
+    "name": "fearless_simd",
+    "version": "1.0.0",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/fearless_simd-1.0.0/LICENSE-APACHE",
+      "engine/licenses/fearless_simd-1.0.0/LICENSE-MIT"
+    ]
+  },
+  {
+    "name": "finl_unicode",
+    "version": "1.4.0",
+    "license": "(Apache-2.0 OR MIT) AND Unicode-3.0",
+    "files": [
+      "engine/licenses/finl_unicode-1.4.0/LICENSE-APACHE",
+      "engine/licenses/finl_unicode-1.4.0/LICENSE-MIT",
+      "engine/licenses/finl_unicode-1.4.0/LICENSE-UNICODE"
+    ]
+  },
+  {
+    "name": "itoa",
+    "version": "1.0.15",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/itoa-1.0.15/LICENSE-APACHE",
+      "engine/licenses/itoa-1.0.15/LICENSE-MIT"
+    ]
+  },
+  {
+    "name": "memchr",
+    "version": "2.7.5",
+    "license": "Unlicense OR MIT",
+    "files": [
+      "engine/licenses/memchr-2.7.5/COPYING",
+      "engine/licenses/memchr-2.7.5/LICENSE-MIT",
+      "engine/licenses/memchr-2.7.5/UNLICENSE"
+    ]
+  },
+  {
+    "name": "memchr-n",
+    "version": "0.1.9",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/memchr-n-0.1.9/LICENSE-APACHE",
+      "engine/licenses/memchr-n-0.1.9/LICENSE-MIT"
+    ]
+  },
+  {
+    "name": "phf",
+    "version": "0.13.1",
+    "license": "MIT",
+    "files": [
+      "engine/licenses/phf-0.13.1/LICENSE"
+    ]
+  },
+  {
+    "name": "phf",
+    "version": "0.14.0",
+    "license": "MIT",
+    "files": [
+      "engine/licenses/phf-0.14.0/LICENSE"
+    ]
+  },
+  {
+    "name": "phf_shared",
+    "version": "0.13.1",
+    "license": "MIT",
+    "files": [
+      "engine/licenses/phf_shared-0.13.1/LICENSE"
+    ]
+  },
+  {
+    "name": "phf_shared",
+    "version": "0.14.0",
+    "license": "MIT",
+    "files": [
+      "engine/licenses/phf_shared-0.14.0/LICENSE"
+    ]
+  },
+  {
+    "name": "regex",
+    "version": "1.11.1",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/regex-1.11.1/LICENSE-APACHE",
+      "engine/licenses/regex-1.11.1/LICENSE-MIT"
+    ]
+  },
+  {
+    "name": "regex-automata",
+    "version": "0.4.9",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/regex-automata-0.4.9/LICENSE-APACHE",
+      "engine/licenses/regex-automata-0.4.9/LICENSE-MIT"
+    ]
+  },
+  {
+    "name": "regex-syntax",
+    "version": "0.8.5",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/regex-syntax-0.8.5/LICENSE-APACHE",
+      "engine/licenses/regex-syntax-0.8.5/LICENSE-MIT"
+    ]
+  },
+  {
+    "name": "rustc-hash",
+    "version": "2.1.2",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/rustc-hash-2.1.2/LICENSE-APACHE",
+      "engine/licenses/rustc-hash-2.1.2/LICENSE-MIT"
+    ]
+  },
+  {
+    "name": "ryu",
+    "version": "1.0.20",
+    "license": "Apache-2.0 OR BSL-1.0",
+    "files": [
+      "engine/licenses/ryu-1.0.20/LICENSE-APACHE",
+      "engine/licenses/ryu-1.0.20/LICENSE-BOOST"
+    ]
+  },
+  {
+    "name": "serde",
+    "version": "1.0.219",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/serde-1.0.219/LICENSE-APACHE",
+      "engine/licenses/serde-1.0.219/LICENSE-MIT"
+    ]
+  },
+  {
+    "name": "serde_json",
+    "version": "1.0.140",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/serde_json-1.0.140/LICENSE-APACHE",
+      "engine/licenses/serde_json-1.0.140/LICENSE-MIT"
+    ]
+  },
+  {
+    "name": "siphasher",
+    "version": "1.0.1",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/siphasher-1.0.1/COPYING"
+    ]
+  },
+  {
+    "name": "smallvec",
+    "version": "1.15.2",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/smallvec-1.15.2/LICENSE-APACHE",
+      "engine/licenses/smallvec-1.15.2/LICENSE-MIT"
+    ]
+  },
+  {
+    "name": "tinyvec",
+    "version": "1.9.0",
+    "license": "Zlib OR Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/tinyvec-1.9.0/LICENSE-APACHE.md",
+      "engine/licenses/tinyvec-1.9.0/LICENSE-MIT.md",
+      "engine/licenses/tinyvec-1.9.0/LICENSE-ZLIB.md"
+    ]
+  },
+  {
+    "name": "tinyvec_macros",
+    "version": "0.1.1",
+    "license": "Zlib OR Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/tinyvec_macros-0.1.1/LICENSE-APACHE.md",
+      "engine/licenses/tinyvec_macros-0.1.1/LICENSE-MIT.md",
+      "engine/licenses/tinyvec_macros-0.1.1/LICENSE-ZLIB.md"
+    ]
+  },
+  {
+    "name": "typed-arena",
+    "version": "2.0.2",
+    "license": "MIT",
+    "files": [
+      "engine/licenses/typed-arena-2.0.2/LICENSE"
+    ]
+  },
+  {
+    "name": "unicode-normalization",
+    "version": "0.1.24",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      "engine/licenses/unicode-normalization-0.1.24/COPYRIGHT",
+      "engine/licenses/unicode-normalization-0.1.24/LICENSE-APACHE",
+      "engine/licenses/unicode-normalization-0.1.24/LICENSE-MIT"
+    ]
+  },
+  {
+    "name": "katex",
+    "version": "0.19.1",
+    "license": "MIT",
+    "files": [
+      "page/lib/katex/LICENSE"
+    ]
+  },
+  {
+    "name": "mermaid",
+    "version": "12.3.0",
+    "license": "MIT",
+    "files": [
+      "page/lib/mermaid/LICENSE"
+    ]
+  }
+]

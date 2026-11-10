@@ -1,6 +1,6 @@
 module github.com/ryo-aoki-pc/md-preview
 
-go 1.27
+go 1.27.3
 
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0
