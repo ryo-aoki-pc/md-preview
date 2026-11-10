@@ -672,7 +672,7 @@ def _patch(region, model, warnings):
 
 
 def _row_signature(cells, row):
-    return tuple((c.col, c.rowspan, c.colspan, c.header, c.text) for c in cells if c.row == row)
+    return tuple((c.col, c.rowspan, c.colspan, c.header, c.align, c.text) for c in cells if c.row == row)
 
 
 def _sections_for(model, table):

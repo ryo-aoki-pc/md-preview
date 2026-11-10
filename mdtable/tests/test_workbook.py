@@ -15,7 +15,7 @@ import helpers
 import openpyxl
 
 from mdtable import sync, workbook
-from mdtable.model import normalize_text
+from mdtable.model import Cell, TableModel, normalize_text, sheet_form
 
 
 class TempDir(object):
@@ -111,6 +111,16 @@ SAMPLE = """# 文書
 
 
 class NormalizeTest(unittest.TestCase):
+    def test_sheet_form_copies_cells_and_fills_holes(self):
+        model = TableModel("html", 2, 2, [Cell(0, 0, "a", colspan=2), Cell(1, 0, "b")], {(1, 1)})
+        sheet = sheet_form(model)
+        self.assertIsNone(sheet.kind)
+        self.assertEqual((sheet.rows, sheet.cols), (2, 2))
+        self.assertEqual(sheet.anchors()[(1, 1)].text, "")
+        sheet.cells[0].text = "x"
+        self.assertEqual(model.cells[0].text, "a")
+        self.assertEqual(model.holes, {(1, 1)})
+
     def test_normalize(self):
         self.assertEqual(normalize_text("a\r\nb\rc  \n\n"), "a\nb\nc")
         self.assertEqual(normalize_text("\n\n  - a"), "  - a")
@@ -408,6 +418,258 @@ class ExportImportTest(unittest.TestCase):
         edit_sheet(self.xlsx, self.sheet(2), {"A2": "x"})
         sync.import_workbook(self.xlsx)
         self.assertEqual(read(self.md), table + "\n" + table.replace("| 1 |", "| x |"))
+
+    def test_identical_tables_applied_twice(self):
+        # 先頭の表だけを書き出して繰り返し取り込んでも、後ろの同じ表を変えない
+        table = "| a | b |\n|---|---|\n| 1 | 2 |\n"
+        write(self.md, table + "\n" + table)
+        self.export(selectors=["1"])
+        metadata = workbook.read(self.xlsx).tables[0]
+        self.assertEqual(metadata.same, 2)
+        self.assertEqual(metadata.occurrence, 0)
+        edit_sheet(self.xlsx, self.sheet(1), {"A2": "x"})
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        after = table.replace("| 1 |", "| x |") + "\n" + table
+        self.assertEqual(read(self.md), after)
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertFalse(report.changed)
+        self.assertIn("表 1: 適用済み（変更なし）", report.messages)
+        self.assertEqual(read(self.md), after)
+
+    def test_unedited_sheet_preserves_document_edit(self):
+        original = "| h |\n|---|\n| 元 |\n\n| k |\n|---|\n| 1 |\n"
+        for force in (False, True):
+            with self.subTest(force=force):
+                write(self.md, original)
+                self.export()
+                edit_sheet(self.xlsx, self.sheet(2), {"A2": "2"})
+                edited = original.replace("元", "文書側の編集")
+                write(self.md, edited)
+                report = sync.import_workbook(self.xlsx, force=force)
+                self.assertEqual(report.errors, [])
+                self.assertIn("表 1: 変更なし", report.messages)
+                self.assertEqual(read(self.md), edited.replace("| 1 |", "| 2 |"))
+
+    def test_old_metadata_without_same(self):
+        table = "| a | b |\n|---|---|\n| 1 | 2 |\n"
+        write(self.md, table + "\n" + table)
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        book[workbook.META_SHEET].delete_cols(9)
+        book[self.sheet(2)]["A2"] = "x"
+        book.save(self.xlsx)
+        self.assertIsNone(workbook.read(self.xlsx).tables[0].same)
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        after = table + "\n" + table.replace("| 1 |", "| x |")
+        self.assertEqual(read(self.md), after)
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertFalse(report.changed)
+        self.assertEqual(read(self.md), after)
+
+    def test_old_metadata_applied_twice(self):
+        # same の列が無いブックでも、取り込み直しで後ろの同じ表を変えない
+        table = "| a | b |\n|---|---|\n| 1 | 2 |\n"
+        write(self.md, table + "\n" + table)
+        self.export(selectors=["1"])
+        book = openpyxl.load_workbook(self.xlsx)
+        book[workbook.META_SHEET].delete_cols(9)
+        book[self.sheet(1)]["A2"] = "x"
+        book.save(self.xlsx)
+        after = table.replace("| 1 |", "| x |") + "\n" + table
+        for _ in range(2):
+            report = sync.import_workbook(self.xlsx)
+            self.assertEqual(report.errors, [])
+            self.assertEqual(read(self.md), after)
+        self.assertIn("表 1: 適用済み（変更なし）", report.messages)
+
+    def test_swapped_tables_in_document(self):
+        # 文書の中で表を入れ替えた後でも、ブックで変えた表は元の本文で探して更新する
+        first = "| a |\n|---|\n| 1 |\n"
+        second = "| b |\n|---|\n| 2 |\n"
+        write(self.md, first + "\n" + second)
+        self.export()
+        # 表 1 を、表 2 と同じ中身にする
+        edit_sheet(self.xlsx, self.sheet(1), {"A1": "b", "A2": "2"})
+        write(self.md, second + "\n" + first)
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertIn("表 2: 変更なし", report.messages)
+        self.assertEqual(read(self.md), second + "\n" + second)
+
+    def test_identical_table_count_conflict_and_force(self):
+        table = "| h |\n|---|\n| 1 |\n"
+        for current_count in (1, 3):
+            with self.subTest(current_count=current_count):
+                write(self.md, table + "\n" + table)
+                self.export(selectors=["1"])
+                edit_sheet(self.xlsx, self.sheet(1), {"A2": "x"})
+                current = "\n".join([table] * current_count)
+                write(self.md, current)
+                report = sync.import_workbook(self.xlsx)
+                self.assertFalse(report.changed)
+                self.assertEqual(read(self.md), current)
+                self.assertEqual(report.errors, [
+                    "表 1: 衝突: 同じ内容の表の数が、書き出したとき（2 個）と違う（今は %d 個）ので、どの表か決められない（同じ番号の表をブックの内容で上書きするなら --force）"
+                    % current_count])
+                report = sync.import_workbook(self.xlsx, force=True)
+                self.assertEqual(report.errors, [])
+                self.assertTrue(report.warnings)
+                self.assertEqual(read(self.md), current.replace("| 1 |", "| x |", 1))
+
+    def test_unedited_html_with_holes(self):
+        # セルの無い位置が、表の最後にある表と、途中（1 行目の右）にある表
+        for original in ("<table>\n<tr><td>a</td><td>b</td></tr>\n<tr><td>c</td></tr>\n</table>\n",
+                         "<table>\n<tr><td>c</td></tr>\n<tr><td>a</td><td>b</td></tr>\n</table>\n"):
+            write(self.md, original)
+            self.export()
+            self.assertEqual(workbook.read(self.xlsx).tables[0].fingerprint,
+                             workbook.read(self.xlsx).tables[0].model.fingerprint())
+            report = sync.import_workbook(self.xlsx)
+            self.assertEqual(report.errors, [])
+            self.assertIn("表 1: 変更なし", report.messages)
+            self.assertFalse(report.changed)
+            for force in (False, True):
+                with self.subTest(original=original, force=force):
+                    edited = original.replace("<td>c</td>", "<td>文書側の編集</td>")
+                    write(self.md, edited)
+                    report = sync.import_workbook(self.xlsx, force=force)
+                    self.assertEqual(report.errors, [])
+                    self.assertIn("表 1: 変更なし", report.messages)
+                    self.assertEqual(read(self.md), edited)
+
+    def test_html_alignment_with_added_row(self):
+        write(self.md, "<table>\n<tr><td>a</td></tr>\n</table>\n")
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        sheet = book[self.sheet(1)]
+        sheet["A1"].alignment = openpyxl.styles.Alignment(wrap_text=True, vertical="top", horizontal="right")
+        sheet["A2"] = "b"
+        book.save(self.xlsx)
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertTrue(report.changed)
+        self.assertIn('<td align="right">a</td>', read(self.md))
+        model = helpers.regions(read(self.md))[0].parsed.model
+        self.assertEqual((model.rows, model.cols), (2, 1))
+        self.assertEqual(model.anchors()[(0, 0)].align, "right")
+
+    def test_html_header_with_added_column(self):
+        write(self.md, "<table>\n<tr><td>a</td></tr>\n</table>\n")
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        sheet = book[self.sheet(1)]
+        sheet["A1"].font = openpyxl.styles.Font(bold=True)
+        sheet["A1"].fill = openpyxl.styles.PatternFill(fill_type="solid", fgColor=workbook.HEADER_FILL)
+        sheet["B1"] = "b"
+        book.save(self.xlsx)
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertIn("<th>a</th>", read(self.md))
+        model = helpers.regions(read(self.md))[0].parsed.model
+        self.assertEqual((model.rows, model.cols), (1, 2))
+        self.assertTrue(model.anchors()[(0, 0)].header)
+
+    def test_html_verification_rejects_lost_structure(self):
+        original = "<table>\n<tr><td>a</td></tr>\n</table>\n"
+        for force in (False, True):
+            with self.subTest(force=force):
+                write(self.md, original)
+                self.export()
+                book = openpyxl.load_workbook(self.xlsx)
+                book[self.sheet(1)]["A1"] = "x"
+                book[self.sheet(1)]["A1"].alignment = openpyxl.styles.Alignment(horizontal="right")
+                book.save(self.xlsx)
+                # 配置を落とした出力でも収束はするため、ブックとの構造の比較で止める
+                render = sync._render
+
+                def lose_alignment(region, model, warnings):
+                    lines, converted = render(region, model, warnings)
+                    return [line.replace(' align="right"', "") for line in lines], converted
+
+                with mock.patch.object(sync, "_render", side_effect=lose_alignment):
+                    report = sync.import_workbook(self.xlsx, force=force)
+                self.assertEqual(report.errors, [
+                    "表 1: 書き戻した表の形・見出し・配置が、ブックの内容と違う"])
+                self.assertIn("書き戻した結果の確認に失敗したので書き戻していません", report.messages)
+                self.assertFalse(report.changed)
+                self.assertEqual(read(self.md), original)
+
+    def test_edit_header_only_pipe(self):
+        for prefix, continuation in (("", ""), ("- ", "  ")):
+            with self.subTest(prefix=prefix):
+                write(self.md, prefix + "| a | b |\n" + continuation + "|---|---|\n")
+                self.export()
+                edit_sheet(self.xlsx, self.sheet(1), {"A1": "x"})
+                report = sync.import_workbook(self.xlsx)
+                self.assertEqual(report.errors, [])
+                self.assertEqual(read(self.md), prefix + "| x | b |\n" + continuation + "|---|---|\n")
+
+    def test_delete_all_pipe_body_rows(self):
+        for prefix, continuation in (("", ""), ("- ", "  ")):
+            with self.subTest(prefix=prefix):
+                write(self.md, prefix + "| a |\n" + continuation + "|---|\n"
+                      + continuation + "| 1 |\n" + continuation + "| 2 |\n")
+                self.export()
+                book = openpyxl.load_workbook(self.xlsx)
+                title = self.sheet(1)
+                book[title].delete_rows(2, 2)
+                # Excel は行を消すと名前の定義も直す（openpyxl は直さないので合わせる）
+                book.defined_names["mdtable_1"].attr_text = "'%s'!$A$1:$A$1" % title
+                book.save(self.xlsx)
+                report = sync.import_workbook(self.xlsx)
+                self.assertEqual(report.errors, [])
+                self.assertEqual(read(self.md), prefix + "| a |\n" + continuation + "|---|\n")
+
+    def test_mixed_line_endings_inside_table(self):
+        original = b"| h |\r\n|---|\n| a |\r\n| b |\n"
+        with open(self.md, "wb") as handle:
+            handle.write(original)
+        self.export()
+        edit_sheet(self.xlsx, self.sheet(1), {"A2": "aa"})
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        with open(self.md, "rb") as handle:
+            self.assertEqual(handle.read(), b"| h |\r\n|---|\n| aa |\r\n| b |\n")
+
+    def test_delete_last_row_with_mixed_line_endings(self):
+        # 最後に残る行は変えていない行なので、消した行の改行コードに変えない
+        with open(self.md, "wb") as handle:
+            handle.write(b"| h |\r\n|---|\n| a |\n| b |\r\n")
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        title = self.sheet(1)
+        book[title].delete_rows(3, 1)
+        book.defined_names["mdtable_1"].attr_text = "'%s'!$A$1:$A$2" % title
+        book.save(self.xlsx)
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        with open(self.md, "rb") as handle:
+            self.assertEqual(handle.read(), b"| h |\r\n|---|\n| a |\n")
+
+    def test_delete_last_row_without_final_newline(self):
+        write(self.md, "| h |\n|---|\n| a |\n| b |")
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        title = self.sheet(1)
+        book[title].delete_rows(3, 1)
+        book.defined_names["mdtable_1"].attr_text = "'%s'!$A$1:$A$2" % title
+        book.save(self.xlsx)
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(read(self.md), "| h |\n|---|\n| a |")
+
+    def test_append_row_without_final_newline(self):
+        original = "| h |\r\n|---|\n| a |"
+        write(self.md, original)
+        self.export()
+        edit_sheet(self.xlsx, self.sheet(1), {"A3": "b"})
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(read(self.md), "| h |\r\n|---|\n| a |\r\n| b |")
 
     def test_conversion_then_reimport(self):
         # C5: パイプ表を HTML の表にした後、同じブックをもう一度取り込んでも変わらない

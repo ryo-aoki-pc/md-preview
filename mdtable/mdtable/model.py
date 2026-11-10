@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+from copy import copy
 
 ALIGNMENTS = (None, "left", "center", "right", "justify")
 
@@ -67,6 +68,13 @@ class TableModel(object):
 
     def same_content(self, other):
         return self.signature() == other.signature()
+
+
+def sheet_form(model):
+    """書き出したシートを読み直したときと同じ、空のセルを補ったモデル。"""
+    cells = [copy(cell) for cell in model.cells]
+    cells.extend(Cell(row, col, "") for row, col in model.holes)
+    return TableModel(None, model.rows, model.cols, cells)
 
 
 _TRAILING_BLANK = re.compile(r"[ \t]*(?:\n[ \t]*)*$")

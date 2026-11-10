@@ -368,8 +368,8 @@ def _format_delimiter(alignments, table):
 def render(region, model, warnings):
     """新しいモデルからパイプ表の行（接頭辞を含む）を作る。書けなければ NotRepresentable。"""
     table = region.parsed
-    if model.rows < 2 or model.cols < 1:
-        raise NotRepresentable("見出し行と 1 行以上の行が要る")
+    if model.rows < 1 or model.cols < 1:
+        raise NotRepresentable("見出し行と 1 列以上の列が要る")
     for cell in model.cells:
         if cell.rowspan > 1 or cell.colspan > 1:
             raise NotRepresentable("セル結合がある")

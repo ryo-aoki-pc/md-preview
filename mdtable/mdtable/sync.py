@@ -2,6 +2,7 @@
 
 import difflib
 import os
+from copy import copy
 
 from . import __version__, blocks, html_table, pipe_table, workbook
 from .cell_syntax import NotRepresentable
@@ -30,6 +31,8 @@ def _occurrences(regions):
     counts = {}
     result = {}
     for region in regions:
+        if region.excluded is not None:
+            continue
         key = region.source_hash()
         result[region.number] = counts.get(key, 0)
         counts[key] = counts.get(key, 0) + 1
@@ -58,6 +61,11 @@ def export(md_path, xlsx_path=None, selectors=None, force=False):
         raise MdTableError("表がありません: %s" % md_path)
     chosen = select_tables(regions, selectors)
     occurrences = _occurrences(regions)
+    same = {}
+    for region in regions:
+        if region.excluded is None:
+            key = region.source_hash()
+            same[key] = same.get(key, 0) + 1
     tables = []
     excluded = []
     for region in chosen:
@@ -73,7 +81,8 @@ def export(md_path, xlsx_path=None, selectors=None, force=False):
             continue
         for warning in region.warnings:
             report.warnings.append("表 %d: %s" % (region.number, warning))
-        tables.append(workbook.ExportTable(region, region.parsed.model, occurrences[region.number]))
+        tables.append(workbook.ExportTable(region, region.parsed.model, occurrences[region.number],
+                                           same[region.source_hash()]))
     if not tables:
         raise MdTableError("書き出せる表がありません")
     xlsx_path = os.path.abspath(xlsx_path or default_output(md_path))
@@ -89,7 +98,8 @@ def export(md_path, xlsx_path=None, selectors=None, force=False):
 
 def _normalized_sheet_model(sheet_model, region):
     """シートのモデルを、元の表の種類に合わせて比べられる形にする。"""
-    model = TableModel(region.kind, sheet_model.rows, sheet_model.cols, list(sheet_model.cells))
+    model = TableModel(region.kind, sheet_model.rows, sheet_model.cols,
+                       [copy(cell) for cell in sheet_model.cells])
     export_model = region.parsed.model
     if region.kind == "pipe":
         for cell in model.cells:
@@ -135,13 +145,6 @@ def _already_applied(sheet_model, region, md):
     return lines == md.lines[region.start:region.end + 1]
 
 
-def _locate(table, regions, by_hash):
-    candidates = by_hash.get(table.source_hash, [])
-    if table.occurrence < len(candidates):
-        return candidates[table.occurrence]
-    return None
-
-
 def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False):
     report = Report()
     data = workbook.read(xlsx_path, force=force)
@@ -162,6 +165,8 @@ def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False):
         if region.excluded is None:
             by_hash.setdefault(region.source_hash(), []).append(region)
 
+    # ブックの表の元の本文。同じ番号の今の表がこのどれかなら、文書の中で表を入れ替えたとみる
+    known_hashes = set(table.source_hash for table in data.tables)
     replacements = []
     for table in data.tables:
         label = "表 %d" % table.number
@@ -172,10 +177,28 @@ def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False):
             report.warnings.append("%s: %s" % (label, warning))
         for error in table.errors:
             report.errors.append("%s: %s" % (label, error))
-        region = _locate(table, regions, by_hash)
+        sheet_model = TableModel(None, table.model.rows, table.model.cols,
+                                 [copy(cell) for cell in table.model.cells])
+        if table.kind == "pipe":
+            for cell in sheet_model.cells:
+                cell.header = cell.row == 0
+        if table.fingerprint and sheet_model.fingerprint() == table.fingerprint:
+            report.messages.append("%s: 変更なし" % label)
+            continue
+        positional = regions[table.number - 1] if 0 < table.number <= len(regions) else None
+        if positional is not None and positional.excluded is not None:
+            positional = None
+        if (positional is not None and positional.source_hash() != table.source_hash
+                and positional.source_hash() not in known_hashes
+                and _already_applied(table.model, positional, md)):
+            report.messages.append("%s: 適用済み（変更なし）" % label)
+            continue
+        candidates = by_hash.get(table.source_hash, [])
+        count_matches = table.same is None or len(candidates) == table.same
+        region = candidates[table.occurrence] \
+            if count_matches and 0 <= table.occurrence < len(candidates) else None
         if region is None:
-            positional = regions[table.number - 1] if 0 < table.number <= len(regions) else None
-            if positional is not None and positional.excluded is None:
+            if positional is not None:
                 if _already_applied(table.model, positional, md):
                     report.messages.append("%s: 適用済み（変更なし）" % label)
                     continue
@@ -183,7 +206,11 @@ def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False):
                     region = positional
                     report.warnings.append("%s: 書き出した後に Markdown の表が変わっていたが、--force でブックの内容で上書きする" % label)
             if region is None:
-                report.errors.append("%s: 衝突: 書き出した後に Markdown の表が変わっている（ブックの内容で上書きするなら --force）" % label)
+                if not count_matches:
+                    report.errors.append("%s: 衝突: 同じ内容の表の数が、書き出したとき（%d 個）と違う（今は %d 個）ので、どの表か決められない（同じ番号の表をブックの内容で上書きするなら --force）"
+                                         % (label, table.same, len(candidates)))
+                else:
+                    report.errors.append("%s: 衝突: 書き出した後に Markdown の表が変わっている（ブックの内容で上書きするなら --force）" % label)
                 continue
         model = _normalized_sheet_model(table.model, region)
         if model.rows == 0 or not model.cells:
@@ -204,7 +231,7 @@ def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False):
         if lines == original:
             report.messages.append("%s（%s）: 変更なし" % (label, _range_text(region)))
             continue
-        replacements.append(Replacement(region, lines))
+        replacements.append(Replacement(region, lines, model))
         if converted:
             report.messages.append("%s（%s）: %sため HTML の表に変えて更新" % (label, _range_text(region), converted))
             if region.tight_container:
@@ -212,7 +239,7 @@ def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False):
         else:
             report.messages.append("%s（%s）: 更新" % (label, _range_text(region)))
 
-    if report.errors and not force:
+    if report.errors:
         report.messages.append("問題があるので書き戻していません")
         return report
     if not replacements:
@@ -291,6 +318,14 @@ def verify(md, new_text, replacements):
         if again.location != region.location:
             problems.append("表 %d: 書き戻すと表の場所（%s）が変わる" % (region.number, region.location or "本文"))
             continue
+        if region.kind == "html" and again.kind == "html" and replacement.model is not None:
+            def structure(model):
+                return (model.rows, model.cols,
+                        [(c.row, c.col, c.rowspan, c.colspan, c.header, c.align) for c in model.cells])
+
+            if structure(again.parsed.model) != structure(replacement.model):
+                problems.append("表 %d: 書き戻した表の形・見出し・配置が、ブックの内容と違う" % region.number)
+                continue
         # 書き戻した表をもう一度書き出した内容を、元の表に書き戻しても同じ行になること（収束）
         model = _normalized_sheet_model(again.parsed.model, region)
         try:

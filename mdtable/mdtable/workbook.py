@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 import warnings
 
-from .model import Cell, TableModel, normalize_text
+from .model import Cell, TableModel, normalize_text, sheet_form
 from .textwidth import text_width, wrapped_line_count
 
 FORMAT_VERSION = 1
@@ -58,10 +58,11 @@ class WorkbookError(Exception):
 class ExportTable(object):
     """書き出す 1 つの表。"""
 
-    def __init__(self, region, model, occurrence):
+    def __init__(self, region, model, occurrence, same):
         self.region = region
         self.model = model
         self.occurrence = occurrence
+        self.same = same
         self.sheet_name = None
 
 
@@ -77,6 +78,7 @@ class SheetTable(object):
         self.fingerprint = None
         self.sheet_title = None
         self.occurrence = 0
+        self.same = None
         self.model = None
         self.missing = None      # シートが見つからない理由
         self.errors = []         # 取り込みを止める問題
@@ -403,13 +405,13 @@ def _write_meta(ws, md_path, xlsx_path, tables, tool_version):
         ["markdown", md_path, rel.replace("\\", "/") if rel else ""],
         ["exported", datetime.datetime.now().replace(microsecond=0).isoformat()],
         [],
-        ["number", "kind", "start", "end", "source_sha256", "fingerprint", "sheet", "occurrence"],
+        ["number", "kind", "start", "end", "source_sha256", "fingerprint", "sheet", "occurrence", "same"],
     ]
     for table in tables:
         region = table.region
         rows.append([region.number, region.kind, region.start + 1, region.end + 1,
-                     region.source_hash(), table.model.fingerprint(), table.sheet_name,
-                     table.occurrence])
+                     region.source_hash(), sheet_form(table.model).fingerprint(), table.sheet_name,
+                     table.occurrence, table.same])
     for r, values in enumerate(rows, 1):
         for c, value in enumerate(values, 1):
             cell = ws.cell(row=r, column=c, value=value)
@@ -637,6 +639,7 @@ def _read_meta(ws, data):
         table.fingerprint = values[5]
         table.sheet_title = values[6]
         table.occurrence = int(values[7]) if len(values) > 7 and values[7] is not None else 0
+        table.same = int(values[8]) if len(values) > 8 and values[8] is not None else None
         data.tables.append(table)
 
 

@@ -82,6 +82,24 @@ class CliTest(unittest.TestCase):
                 self.assertIn("エラー:", err)
                 self.assertNotIn("Traceback", err)
 
+    def test_force_does_not_write_when_table_cannot_be_rendered(self):
+        original = "<table>\n<tr><td>a</td><td>b</td></tr>\n</table>\n\n| x |\n|---|\n| 1 |\n"
+        with open(self.md, "w", encoding="utf-8", newline="") as handle:
+            handle.write(original)
+        code, out, err = run_cli("export", self.md)
+        self.assertEqual(code, 0, err)
+        book = openpyxl.load_workbook(self.xlsx)
+        book[book.sheetnames[1]]["A1"] = "<td>入れ子"
+        book[book.sheetnames[2]]["A2"] = "2"
+        book.save(self.xlsx)
+        code, out, err = run_cli("import", self.xlsx, "--force")
+        self.assertEqual(code, 1, err)
+        self.assertIn("エラー: 表 1: 書き戻せない:", err)
+        self.assertIn("問題があるので書き戻していません", err)
+        self.assertNotIn("Traceback", err)
+        with open(self.md, encoding="utf-8", newline="") as handle:
+            self.assertEqual(handle.read(), original)
+
     def test_usage_error(self):
         code, out, err = run_cli("export")
         self.assertEqual(code, 2)

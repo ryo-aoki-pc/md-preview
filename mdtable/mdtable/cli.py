@@ -73,7 +73,7 @@ def cmd_import(args):
     if args.dry_run and report.diff:
         sys.stdout.write(report.diff)
     _print_report(report)
-    if report.errors and not args.force:
+    if report.errors:
         return 1
     if not report.changed:
         _err("Markdown は変わりません")

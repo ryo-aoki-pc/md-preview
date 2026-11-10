@@ -1,5 +1,6 @@
 """Markdown の文書を読み書きし、表の位置（パイプ表と HTML の表）を見つけて置き換える。"""
 
+import difflib
 import os
 import re
 import shutil
@@ -240,9 +241,10 @@ def select_tables(regions, selectors):
 class Replacement(object):
     """表の範囲を置き換える新しい行（接頭辞を含む完全な行）。"""
 
-    def __init__(self, region, lines):
+    def __init__(self, region, lines, model=None):
         self.region = region
         self.lines = lines
+        self.model = model
 
 
 def apply_replacements(md, replacements):
@@ -255,7 +257,17 @@ def apply_replacements(md, replacements):
         first_ending = endings[start] or md.default_ending()
         last_ending = endings[end]
         new_lines = replacement.lines
-        new_endings = [first_ending] * (len(new_lines) - 1) + [last_ending]
+        new_endings = [first_ending] * len(new_lines)
+        kept = set()
+        matcher = difflib.SequenceMatcher(None, lines[start:end + 1], new_lines, autojunk=False)
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                for old, new in zip(range(i1, i2), range(j1, j2)):
+                    new_endings[new] = endings[start + old] or first_ending
+                    kept.add(new)
+        # 最後の行は、文書の最後に改行が無ければ無いまま。変えた行か足した行なら、元の最後の行の改行コード
+        if new_endings and (not last_ending or len(new_lines) - 1 not in kept):
+            new_endings[-1] = last_ending
         lines[start:end + 1] = new_lines
         endings[start:end + 1] = new_endings
     return "".join(line + ending for line, ending in zip(lines, endings))
