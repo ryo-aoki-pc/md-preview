@@ -139,6 +139,8 @@ go test -race ./...
 gofmt -l .
 ```
 
+ルートを受け取る関数（`resolve.Resolve`・`documents.ListMarkdown`・`session.FileContext`・`watch.IncludePath` など）は、ルートが実パスであることを前提にする。試験で一時フォルダーをルートにするときは、`resolve.RealPath(t.TempDir())` で実パスにしてから渡す（Windows の一時フォルダーのパスには、8.3 形式の短い名前が入ることがある）。
+
 `-race` には C のコンパイラーが要る。Go 版の試験は描画の見本、GitLab のオプション、異常終了・取り消しからの復帰、メモリー上限、同時呼び出し、埋め込んだ資産の大きさと sha256、コマンドの出力を確かめる。Node.js 版の試験も引き続き残す。
 
 `internal/plantuml/` の試験は `go test` 自身の実行ファイルを偽のコマンドとして使い、本物の PlantUML・Java を起こさない。`internal/assets/` の試験は一時の保存先と 127.0.0.1 の偽のレジストリを使う。本物の保存先には触れず、公開レジストリへの試験用の要求も手元へ置き換える。`GOFLAGS=-mod=readonly`・`GOPROXY=off` と、作業ツリー内の `GOCACHE` で実行する。

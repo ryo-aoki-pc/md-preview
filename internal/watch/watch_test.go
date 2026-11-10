@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
 )
 
 func until(t *testing.T, predicate func() bool) {
@@ -103,7 +105,11 @@ func TestSameSizeSameTime(t *testing.T) {
 	}
 }
 func TestIncludePath(t *testing.T) {
-	root := t.TempDir()
+	// ルートは実パスで渡す決まり。一時フォルダーのパスには、8.3 形式の短い名前が入ることがある (Windows)。
+	root, e := resolve.RealPath(t.TempDir())
+	if e != nil {
+		t.Fatal(e)
+	}
 	for _, name := range []string{"../bad.md", ".git/a.md", "a\\b.md"} {
 		if p := IncludePath(root, name); p != "" {
 			t.Fatalf("拒否漏れ: %s", p)

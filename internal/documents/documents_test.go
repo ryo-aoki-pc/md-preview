@@ -5,10 +5,23 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
 )
 
+// realTemp は、一時フォルダーを実パスで返す。ルートは実パスで渡す決まりで、一時フォルダーのパスには
+// 8.3 形式の短い名前が入ることがある (Windows)。
+func realTemp(t *testing.T) string {
+	t.Helper()
+	root, e := resolve.RealPath(t.TempDir())
+	if e != nil {
+		t.Fatal(e)
+	}
+	return root
+}
+
 func TestList(t *testing.T) {
-	root := t.TempDir()
+	root := realTemp(t)
 	for _, name := range []string{"z.MD", "a.markdown", "b.mdown", "c.mkd", "d.MKDN", "docs/日本語.md", "docs/z.txt", ".hidden/a.md", ".file.md", "node_modules/a.md"} {
 		_ = os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755)
 		_ = os.WriteFile(filepath.Join(root, name), nil, 0644)
@@ -23,7 +36,7 @@ func TestList(t *testing.T) {
 	}
 }
 func TestLimits(t *testing.T) {
-	root := t.TempDir()
+	root := realTemp(t)
 	dir := root
 	for i := 0; i < 21; i++ {
 		dir = filepath.Join(dir, "d")
@@ -61,7 +74,7 @@ func TestUnicodeOrderAndEncoding(t *testing.T) {
 	if Encode("a:+!*.md") != "a%3A%2B!*.md" {
 		t.Fatal(Encode("a:+!*.md"))
 	}
-	root := t.TempDir()
+	root := realTemp(t)
 	for _, name := range []string{"\ue000.md", "😀.md"} {
 		if e := os.WriteFile(filepath.Join(root, name), nil, 0644); e != nil {
 			t.Fatal(e)

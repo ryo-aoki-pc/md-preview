@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
 	"os"
 	"path/filepath"
 	"strings"
@@ -414,7 +415,11 @@ func TestIncludeCapPauseAndDiagrams(t *testing.T) {
 	}
 }
 func TestFileContext(t *testing.T) {
-	root := t.TempDir()
+	// ルートは実パスで渡す決まり。一時フォルダーのパスには、8.3 形式の短い名前が入ることがある (Windows)。
+	root, e := resolve.RealPath(t.TempDir())
+	if e != nil {
+		t.Fatal(e)
+	}
 	for name, body := range map[string][]byte{"text.md": []byte("\ufeff本文"), "binary.md": {0, 1}, "invalid.md": {255}, "percent%25.md": []byte("文字通り")} {
 		_ = os.WriteFile(filepath.Join(root, name), body, 0644)
 	}
