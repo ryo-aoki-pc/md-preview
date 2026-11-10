@@ -60,7 +60,7 @@ test('front matter の encoding・前置空白・異なる終端・終端なし�
 });
 test('CR を除き、空の文書・未知の context・型の違う入力を扱う',()=>{
   assert.deepEqual(renderDocument('# 題\r\n\r\n本文'),renderDocument('# 題\n\n本文'));
-  assert.deepEqual(renderDocument('',{unknown:true}),{html:'',headings:[]});
+  assert.deepEqual(renderDocument('',{unknown:true}),{html:'',headings:[],includes:[],notices:[]});
   assert.deepEqual(renderDocument('本文',{unknown:true}),renderDocument('本文'));
   assert.throws(()=>renderDocument(null),TypeError);
 });

@@ -242,3 +242,34 @@ test('入れ子が深すぎる文書は、途中の HTML を返さず、分か�
   // ふつうの深さ (数百段) は描く
   assert.match(renderDocument('>'.repeat(200) + ' x\n').html, /^<blockquote /);
 });
+
+test('readInclude と exists を渡しても、既存の悪意のある入力を安全に描く', () => {
+  const context = { file: 'docs/main.md', dir: 'docs/', readInclude: () => null, exists: () => false };
+  for (const payload of payloads) {
+    for (const text of [payload, '段落 ' + payload + ' 続き', '> ' + payload, '- ' + payload, '| a |\n|---|\n| ' + payload.replaceAll('\n', ' ') + ' |', '<div>\n\n' + payload + '\n\n</div>']) {
+      const { html } = renderDocument(text + '\n', context);
+      assert.deepEqual(problems(html), [], '入力: ' + JSON.stringify(text) + '\n出力: ' + html);
+    }
+  }
+});
+
+test('取り込んだ本文に悪意のある入力があっても、同じ消毒を通す', async () => {
+  const { toHtml } = await import('hast-util-to-html');
+  for (const payload of payloads) {
+    for (const text of [payload, '段落 ' + payload + ' 続き', '> ' + payload, '- ' + payload, '| a |\n|---|\n| ' + payload.replaceAll('\n', ' ') + ' |', '<div>\n\n' + payload + '\n\n</div>']) {
+      const result = renderDocument('::include{file=payload.md}\n', { file: 'docs/main.md', dir: 'docs/', readInclude: () => text, exists: () => false });
+      assert.equal(result.includes[0].ok, true);
+      assert.deepEqual(problems(result.html), [], '取り込んだ入力: ' + JSON.stringify(text) + '\n出力: ' + result.html);
+      const again = toHtml(fromHtml(result.html, { fragment: true }));
+      assert.deepEqual(problems(again), [], '読み直した出力: ' + again);
+    }
+  }
+});
+
+test('include の指定名が悪意のある入力でも、失敗文に実行できる経路を作らない', () => {
+  for (const payload of payloads) {
+    const filename = payload.replaceAll('\n', ' ');
+    const { html } = renderDocument('::include{file=' + filename + '}\n', { readInclude: () => null, exists: () => false });
+    assert.deepEqual(problems(html), [], '指定名: ' + JSON.stringify(filename) + '\n出力: ' + html);
+  }
+});
