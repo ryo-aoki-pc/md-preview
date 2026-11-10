@@ -68,7 +68,7 @@ func TestGolden(t *testing.T) {
 				t.Fatal(err)
 			}
 			if html != item.HTML {
-				t.Fatalf("Node.js 版と出力が異なる\n取得: %q\n期待: %q", html, item.HTML)
+				t.Fatalf("見本と出力が異なる\n取得: %q\n期待: %q", html, item.HTML)
 			}
 		})
 	}
@@ -475,7 +475,7 @@ func TestClose(t *testing.T) {
 	if err := e.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	// 空の入力はエンジンを使わないので、閉じた後も空を返す (Node.js 版と同じく、エンジンを呼ぶ前に返す)。
+	// 空の入力はエンジンを使わないので、閉じた後も空を返す (エンジンを呼ぶ前に返す)。
 	if html, err := e.Render(context.Background(), "", nil); err != nil || html != "" {
 		t.Fatalf("Close 後の空の入力: html=%q, err=%v", html, err)
 	}

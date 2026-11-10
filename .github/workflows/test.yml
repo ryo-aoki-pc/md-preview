@@ -1,4 +1,4 @@
-name: Go 版の検証
+name: 検証
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test:
-    name: Go 版の検証（${{ matrix.os }}）
+    name: 検証（${{ matrix.os }}）
     strategy:
       fail-fast: false
       matrix:

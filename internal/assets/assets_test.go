@@ -235,7 +235,7 @@ func TestManifestRetainsOriginalLockOrder(t *testing.T) {
 	}
 	order := lockFileOrder(data)
 	if len(order) < 2 || order[0] != "application_dark-a3de088d254f447173abe48a05ec6b7ac075668b58b5be1aa26c5012bb0f8395.css" || order[1] != "application-79f356d98146549c21e5657de00ff91a957f995329d1725db0bb2a7251d2b59a.css" {
-		t.Fatalf("Node.js 版の再検査とファイルの順序が異なります: %v", order)
+		t.Fatalf("固定情報とファイルの順序が異なります: %v", order)
 	}
 }
 

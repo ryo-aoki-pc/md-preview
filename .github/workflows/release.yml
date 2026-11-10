@@ -1,4 +1,4 @@
-name: Go 版の配布
+name: 配布
 
 on:
   push:
@@ -60,7 +60,7 @@ jobs:
           cd dist
           sha256sum mdpreview-windows-amd64.exe mdpreview-linux-amd64 mdpreview-linux-arm64 THIRD-PARTY-LICENSES.txt > SHA256SUMS
           cat > release-notes.md <<'NOTES'
-          Go 版の mdpreview を単体の実行ファイルで配布します。
+          mdpreview を、単体の実行ファイルで配布します。
 
           | ファイル | OS | CPU |
           | --- | --- | --- |

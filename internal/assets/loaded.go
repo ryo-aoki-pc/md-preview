@@ -95,7 +95,7 @@ func DefaultDirectoryFor(env func(string) string, goos, home string) string {
 		return windowsJoin(base, "md-preview-assets")
 	}
 	if goos == "darwin" {
-		// 今の Node.js 版と同じく、macOS の既定の場所を保つ。
+		// macOS では Application Support の下に置く。
 		return path.Join(home, "Library", "Application Support", "md-preview-assets")
 	}
 	base := env("XDG_DATA_HOME")

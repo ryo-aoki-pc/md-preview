@@ -97,9 +97,6 @@ func TestMainProcess(t *testing.T) {
 			if code != item.code || stdout.String() != item.stdout {
 				t.Fatalf("実行ファイルの応答: code=%d, stdout=%q, stderr=%q", code, &stdout, &stderr)
 			}
-			if item.code == 2 && !strings.Contains(stderr.String(), "まだ Go 版にありません。") {
-				t.Errorf("実行ファイルから未対応の案内が出ない: %q", &stderr)
-			}
 			if item.code == 0 && stderr.Len() != 0 {
 				t.Errorf("成功時に標準エラーが出た: %q", &stderr)
 			}

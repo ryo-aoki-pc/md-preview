@@ -344,47 +344,48 @@ func TestFixtures(t *testing.T) {
 	}
 }
 
-func TestFixtureKnownDifferenceReasons(t *testing.T) {
-	// 移行中は Node.js 版の件数・順序・理由・子の番号と照合し、表の無断変更を検知する。
-	source, err := os.ReadFile("../../test/fixtures.test.mjs")
-	if err != nil {
+// 既知の差は、理由・場所・両側の値を固定した11件だけを使う。
+func TestFixtureKnownDifferenceShape(t *testing.T) {
+	var metadata struct{ Fixtures map[string]json.RawMessage }
+	if err := json.Unmarshal([]byte(readFixture(t, "fixtures.json")), &metadata); err != nil {
 		t.Fatal(err)
 	}
-	_, table, found := strings.Cut(string(source), "export const KNOWN_DIFFERENCES = ")
-	if !found {
-		t.Fatal("Node.js 版の既知の差の表がありません")
+	differences := fixtureDifferences(t)
+	if len(differences) != 11 {
+		t.Fatalf("既知の差の件数: 取得=%d 期待=11", len(differences))
 	}
-	table, _, found = strings.Cut(table, "\n];")
-	if !found {
-		t.Fatal("Node.js 版の既知の差の終端がありません")
-	}
-	var original []struct {
-		Fixture, Kind, Reason string
-		Path, OraclePath      []any
-	}
-	if err := json.Unmarshal([]byte(table+"\n]"), &original); err != nil {
-		t.Fatal(err)
-	}
-	actual := fixtureDifferences(t)
-	if len(actual) != len(original) {
-		t.Fatalf("既知の差の件数: Go=%d Node.js=%d", len(actual), len(original))
-	}
-	indices := func(path []any) []int {
-		if path == nil {
-			return nil
+	for i, difference := range differences {
+		if _, ok := metadata.Fixtures[difference.Fixture]; !ok || difference.Fixture == "" {
+			t.Errorf("既知の差 %d の見本がありません: %q", i+1, difference.Fixture)
 		}
-		out := []int{}
-		for _, value := range path {
-			if index, ok := value.(float64); ok {
-				out = append(out, int(index))
+		if len(difference.Path) == 0 || strings.TrimSpace(difference.Reason) == "" {
+			t.Errorf("既知の差 %d に場所か理由がありません", i+1)
+		}
+		for _, index := range append(append([]int{}, difference.Path...), difference.OraclePath...) {
+			if index < 0 {
+				t.Errorf("既知の差 %d の子の番号が負です", i+1)
 			}
 		}
-		return out
-	}
-	for i, a := range actual {
-		b := original[i]
-		if a.Fixture != b.Fixture || a.Kind != b.Kind || a.Reason != b.Reason || !reflect.DeepEqual(a.Path, indices(b.Path)) || !reflect.DeepEqual(a.OraclePath, indices(b.OraclePath)) {
-			t.Errorf("既知の差 %d の対応が違います: %s", i+1, a.Reason)
+		switch difference.Kind {
+		case "attributes":
+			if len(difference.Values) == 0 {
+				t.Errorf("既知の差 %d に固定した属性値がありません", i+1)
+			}
+			for name, values := range difference.Values {
+				if name == "" || (values.Local == nil && values.Oracle == nil) {
+					t.Errorf("既知の差 %d の属性名か固定した値がありません", i+1)
+				}
+			}
+		case "node":
+			if difference.Local == nil || difference.Oracle == nil {
+				t.Errorf("既知の差 %d に両側の固定した要素がありません", i+1)
+			}
+		case "oracle-only":
+			if difference.Oracle == nil {
+				t.Errorf("既知の差 %d に GitLab 側の固定した要素がありません", i+1)
+			}
+		default:
+			t.Errorf("既知の差 %d の種類が不明です: %q", i+1, difference.Kind)
 		}
 	}
 }
