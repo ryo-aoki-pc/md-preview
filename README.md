@@ -7,13 +7,14 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 
 ## 画面
 
-同じ Markdown（[docs/images/sample.md](docs/images/sample.md)）のプレビュー。左は同梱のスタイル、右は GitLab の公式スタイル（任意。`mdpreview install-style` で取得すると、次に起こしたプレビューから使う）。
+同じ Markdown（[docs/images/sample.md](docs/images/sample.md)）のプレビュー。左は同梱のスタイル、右は GitLab の公式スタイル（任意。`mdpreview install-style` で取得すると、次に起こしたプレビューから使う）。上の段はライト、下の段はダークの配色。
 
 | 同梱のスタイル | GitLab の公式スタイル |
 | --- | --- |
-| <img src="docs/images/preview-bundled.png" alt="同梱のスタイルで表示したプレビュー" width="380"> | <img src="docs/images/preview-official.png" alt="GitLab の公式スタイルで表示したプレビュー" width="380"> |
+| <img src="docs/images/preview-bundled.png" alt="同梱のスタイルで表示したプレビュー（ライトの配色）" width="380"> | <img src="docs/images/preview-official.png" alt="GitLab の公式スタイルで表示したプレビュー（ライトの配色）" width="380"> |
+| <img src="docs/images/preview-bundled-dark.png" alt="同梱のスタイルで表示したプレビュー（ダークの配色）" width="380"> | <img src="docs/images/preview-official-dark.png" alt="GitLab の公式スタイルで表示したプレビュー（ダークの配色）" width="380"> |
 
-どちらも Windows 11 の Edge で、ライトの配色で撮った。日本語の字形は、OS に入っているフォントで変わる。
+どれも Windows 11 の Edge で撮った。「配色」は既定の「システム」のままで、ライトとダークは、ブラウザの配色の設定を切り替えて撮った。日本語の字形は、OS に入っているフォントで変わる。
 
 ## できること
 
