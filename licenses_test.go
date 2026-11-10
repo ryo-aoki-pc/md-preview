@@ -91,8 +91,7 @@ func TestLicenseGoModules(t *testing.T) {
 		}
 	}
 	// go.mod の直接・間接の require を両方読み、依存を増やした際の同梱漏れを検知する。
-	requirement := regexp.MustCompile(`(?m)^\s*([^\s()]+)\s+(v[^\s]+)(?:\s+//[^\n]*)?$`)
-	modules := requirement.FindAllStringSubmatch(string(data), -1)
+	modules := goModRequirements(string(data))
 	if len(modules) == 0 {
 		t.Fatal("go.mod のモジュールがありません")
 	}
@@ -104,6 +103,33 @@ func TestLicenseGoModules(t *testing.T) {
 	}
 	if len(versions) > 0 {
 		t.Errorf("go.mod に無いモジュール: %v", versions)
+	}
+}
+
+// goModRequirements は、go.mod の require を、かっこでまとめた形と 1 行の形の両方から読む
+// (モジュールが 1 つだけのまとまりは、1 行の「require <モジュール> <版>」になる)。
+func goModRequirements(data string) [][]string {
+	requirement := regexp.MustCompile(`(?m)^\s*(?:require\s+)?([^\s()]+)\s+(v[^\s]+)(?:\s+//[^\n]*)?$`)
+	return requirement.FindAllStringSubmatch(data, -1)
+}
+
+func TestGoModRequirements(t *testing.T) {
+	data := "module example.com/app\n\ngo 1.27.3\n\ntoolchain go1.27.3\n\n" +
+		"require (\n\texample.com/a v1.2.3\n\texample.com/b/v2 v2.0.0 // indirect\n)\n\n" +
+		"require example.com/c v0.1.0\n\nrequire example.com/d v0.0.0-20260101000000-abcdef012345 // indirect\n\n" +
+		"replace example.com/x v1.0.0 => example.com/y v1.0.1\n"
+	got := map[string]string{}
+	for _, module := range goModRequirements(data) {
+		got[module[1]] = module[2]
+	}
+	want := map[string]string{"example.com/a": "v1.2.3", "example.com/b/v2": "v2.0.0", "example.com/c": "v0.1.0", "example.com/d": "v0.0.0-20260101000000-abcdef012345"}
+	if len(got) != len(want) {
+		t.Fatalf("読んだモジュール: %v", got)
+	}
+	for name, version := range want {
+		if got[name] != version {
+			t.Errorf("%s: %s (期待 %s)", name, got[name], version)
+		}
 	}
 }
 
