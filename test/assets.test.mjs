@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
@@ -59,6 +59,24 @@ test('公式資産も resolve の実パス検査で外へのリンクを拒む',
   assert.equal(loadAssets(f.directory, f.lockPath), null);
 });
 
+test('版のフォルダーそのものがリンクなら使わない', (t) => {
+  const f = assetFixture(t);
+  f.save();
+  assert.ok(loadAssets(f.directory, f.lockPath));
+  const moved = join(f.directory, 'moved');
+  renameSync(f.bundle, moved);
+  try {
+    symlinkSync(moved, f.bundle, 'junction');
+  } catch (e) {
+    if (e.code === 'EPERM') {
+      t.skip('フォルダーへのリンクを作る権限がない');
+      return;
+    }
+    throw e;
+  }
+  assert.equal(loadAssets(f.directory, f.lockPath), null);
+});
+
 test('公式資産の配信は許可リスト・MIME・sandbox・キャッシュを保つ', async (t) => {
   const f = assetFixture(t);
   f.save();
@@ -106,6 +124,13 @@ test('公式スタイルの知らせは、何か導入されているのに使�
     assert.equal(value.assets, null);
     assert.equal(value.notice, '');
   }
+  // OS が置くファイルや、取得の途中の作業用フォルダーしか無いときも、知らせない
+  const stray = join(f.directory, 'stray');
+  mkdirSync(join(stray, '.stage-1.2.3-0123456789ab-x'), { recursive: true });
+  mkdirSync(join(stray, '.lock-1.2.3-0123456789ab'));
+  writeFileSync(join(stray, 'desktop.ini'), '');
+  writeFileSync(join(stray, '1.2.3-0123456789ab'), '版の名前のファイル (フォルダーではない)');
+  assert.equal((await config({ assetsDir: stray })).notice, '');
   const location = { assetsDir: f.directory, assetsLockPath: f.lockPath };
   const broken = await config(location);
   assert.equal(broken.assets, null);

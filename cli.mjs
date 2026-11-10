@@ -158,7 +158,8 @@ export async function main(argv = process.argv.slice(2), io = {}) {
         await install({ dataDir: options.dir, lockPath: io.assetsLockPath, signal: controller.signal, log: report });
         return 0;
       } catch (error) {
-        report('公式スタイルの導入に失敗しました: ' + String(error?.message || error).split(/\r?\n/)[0]);
+        if (controller.signal.aborted) report('公式スタイルの導入を中断しました');
+        else report('公式スタイルの導入に失敗しました: ' + String(error?.message || error).split(/\r?\n/)[0]);
         return 1;
       } finally {
         signals.off('SIGINT', stop);

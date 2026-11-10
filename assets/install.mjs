@@ -502,7 +502,7 @@ export async function install({
   archivePath,
   log = () => {},
 }) {
-  if (!dataDir) fail('--data-dir が必要です。');
+  if (!dataDir) fail('保存先が必要です。');
   const info = parseLock(await readFile(lockPath));
   await mkdir(resolve(dataDir), { recursive: true });
   const base = await realpath(resolve(dataDir));
