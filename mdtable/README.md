@@ -12,6 +12,7 @@ GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して
 | --- | --- | --- |
 | 導入・更新 | [mdtable を導入・更新する](docs/install.md#mdtable-を導入更新する) | [Windows 11 で mdtable を導入・更新する](docs/install.md#windows-11-で-mdtable-を導入更新する) |
 | 使い方 | [mdtable で Markdown の表を Excel と往復する](docs/usage.md#mdtable-で-markdown-の表を-excel-と往復する) | [Windows 11 の mdtable で Markdown の表を Excel と往復する](docs/usage.md#windows-11-の-mdtable-で-markdown-の表を-excel-と往復する) |
+| 表の種類を変える | [mdtable で表の種類を変える](docs/usage.md#mdtable-で表の種類を変える) | [Windows 11 の mdtable で表の種類を変える](docs/usage.md#windows-11-の-mdtable-で表の種類を変える) |
 | Excel で編集するときの注意 | [mdtable のブックを Excel で編集するときの注意](docs/usage.md#mdtable-のブックを-excel-で編集するときの注意) | [Windows 11 で mdtable のブックを Excel で編集するときの注意](docs/usage.md#windows-11-で-mdtable-のブックを-excel-で編集するときの注意) |
 
 - macOS（未検証）: clone したフォルダーで `python3 scripts/setup-mdtable.py` を実行する。起動コマンドは `~/.local/bin/mdtable`
@@ -20,6 +21,7 @@ GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して
 
 - 文書の表を 1 つのブックに書き出し（表ごとに 1 シートと目次）、Excel で編集したら書き戻す。変えていない表・行・セルは 1 文字も変えない
 - 取り込む前に、差分と変えたセルの一覧を確かめられる
+- Excel を通さずに、セルの文字・見出し・配置を保って、表の種類だけを変えられる（`convert`）
 - HTML の表のセル結合（`rowspan` / `colspan`）は、Excel の結合セルになる
 - セルの中に、箇条書き・番号付きリスト・説明リスト・コードブロック（言語名を書けば GitLab でシンタックスハイライトされる）を Markdown の記法で書ける
 - 説明リスト・番号付きリスト・箇条書き・引用（アラート）・脚注の中で字下げされた表も扱える

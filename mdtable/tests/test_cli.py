@@ -107,6 +107,64 @@ class CliTest(unittest.TestCase):
             self.assertEqual(err.splitlines(),
                              ["エラー: import の --table には、ブックの表の番号を指定してください: %s" % selector])
 
+    def test_convert_dry_run_then_write_and_back(self):
+        code, out, err = run_cli("convert", self.md, "--table", "1", "--to", "html", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertIn("+<table>", out)
+        self.assertNotIn("\033", out)
+        self.assertIn("表 1（3〜5 行）: HTML の表に変える", err)
+        self.assertIn("（--dry-run なので書き戻していません）", err)
+        with open(self.md, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), DOCUMENT)
+        code, out, err = run_cli("convert", self.md, "--table", "文書", "--to", "html")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "")
+        self.assertIn("書き戻しました: " + self.md, err)
+        code, out, err = run_cli("convert", self.md, "--table", "L3", "--to", "pipe")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Markdown の表に変える", err)
+        with open(self.md, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), DOCUMENT.replace("|---|---|", "| --- | --- |"))
+
+    def test_convert_already_same_kind(self):
+        code, out, err = run_cli("convert", self.md, "--table", "1", "--to", "pipe")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "")
+        self.assertIn("もう Markdown の表", err)
+        self.assertIn("Markdown は変わりません", err)
+
+    def test_convert_failure_does_not_change_any_table(self):
+        document = ("<table><tr><th>a</th></tr></table>\n\n"
+                    "<table><tr><td>b</td></tr></table>\n")
+        with open(self.md, "w", encoding="utf-8", newline="") as handle:
+            handle.write(document)
+        for options in ([], ["--dry-run"]):
+            code, out, err = run_cli("convert", self.md, "--table", "1", "--table", "2", "--to", "pipe", *options)
+            self.assertEqual(code, 1)
+            self.assertEqual(out, "")
+            self.assertIn("表 2: Markdown の表にできない:", err)
+            self.assertIn("問題があるので書き戻していません", err)
+            self.assertNotIn("Traceback", err)
+            with open(self.md, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), document)
+
+    def test_convert_requires_table_and_target(self):
+        for options in ([], ["--to", "pipe"], ["--table", "1"], ["--table", "1", "--to", "other"]):
+            with self.subTest(options=options):
+                code, out, err = run_cli("convert", self.md, *options)
+                self.assertEqual(code, 2)
+                self.assertEqual(out, "")
+                self.assertIn("--to" if "--to" not in options else "--table" if "--table" not in options else "other", err)
+                self.assertNotIn("Traceback", err)
+
+    def test_convert_dry_run_uses_colored_diff_writer(self):
+        with mock.patch("mdtable.cli._use_color", return_value=True), \
+                redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
+            code = cli.main(["convert", self.md, "--table", "1", "--to", "html", "--dry-run"])
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertIn("\033[32m+<table>", out.getvalue())
+        self.assertIn("--dry-run なので書き戻していません", err.getvalue())
+
     def test_export_import(self):
         code, out, err = run_cli("export", self.md)
         self.assertEqual(code, 0, err)

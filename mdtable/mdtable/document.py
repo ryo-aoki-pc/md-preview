@@ -251,10 +251,11 @@ def select_tables(regions, selectors):
 class Replacement(object):
     """表の範囲を置き換える新しい行（接頭辞を含む完全な行）。"""
 
-    def __init__(self, region, lines, model=None):
+    def __init__(self, region, lines, model=None, target_kind=None):
         self.region = region
         self.lines = lines
         self.model = model
+        self.target_kind = target_kind  # 明示的に種類を変えるときだけ、変えた先の種類
 
 
 def apply_replacements(md, replacements):

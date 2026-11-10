@@ -310,6 +310,62 @@ def _leaf_signature(doc, skip_ranges, shift):
     return result
 
 
+def convert(md_path, selectors, target, dry_run=False):
+    """セルの中身を保ったまま、選んだ表の種類だけを変える。"""
+    if not selectors:
+        raise MdTableError("変える表を --table で指定してください")
+    if target not in ("html", "pipe"):
+        raise MdTableError("変える先の種類は html か pipe を指定してください")
+    report = Report()
+    md = MarkdownFile.load(md_path)
+    report.output = os.path.abspath(md_path)
+    regions = find_tables(md)
+    chosen = select_tables(regions, selectors)
+    replacements = []
+    kind_name = "HTML" if target == "html" else "Markdown"
+    for region in chosen:
+        label = "表 %d" % region.number
+        if region.excluded is not None:
+            report.errors.append("%s: 対象外なので変えられない（%s）" % (label, region.excluded))
+            continue
+        if region.kind == target:
+            report.messages.append("%s（%s）: もう %s の表" % (label, _range_text(region), kind_name))
+            continue
+        warnings = []
+        try:
+            if target == "html":
+                lines = html_table.render_from_pipe(region, region.parsed.model, warnings)
+            else:
+                lines = pipe_table.render_new(region, region.parsed.model, warnings)
+        except NotRepresentable as error:
+            reason = str(error)
+            if error.row is not None and error.col is not None:
+                reason = "%d 行 %d 列: %s" % (error.row, error.col, reason)
+            report.errors.append("%s: %s の表にできない: %s" % (label, kind_name, reason))
+            continue
+        # 見出しより多いセルがある行など、表を読んだときの警告（種類を変えると、その分は消える）
+        for warning in list(region.warnings) + warnings:
+            report.warnings.append("%s: %s" % (label, warning))
+        if target == "html" and region.tight_container:
+            report.warnings.append("%s: 詰めたリストの中で HTML の表にしたので、GitLab では項目の間隔が広がる" % label)
+        replacements.append(Replacement(region, lines, region.parsed.model, target_kind=target))
+        report.messages.append("%s（%s）: %s の表に変える" % (label, _range_text(region), kind_name))
+    if not report.errors and replacements:
+        new_text = apply_replacements(md, replacements)
+        report.errors.extend(verify(md, new_text, replacements))
+    if report.errors:
+        report.messages.append("問題があるので書き戻していません")
+        return report
+    if not replacements:
+        return report
+    report.diff = "".join(difflib.unified_diff(
+        md.text().splitlines(True), new_text.splitlines(True), fromfile=md_path, tofile=md_path))
+    report.changed = True
+    if not dry_run:
+        write_text_atomic(md_path, new_text, bom=md.bom)
+    return report
+
+
 def verify(md, new_text, replacements):
     """書き戻した文書を読み直し、表と前後の解釈が崩れていないか確かめる。"""
     problems = []
@@ -341,10 +397,11 @@ def verify(md, new_text, replacements):
     new_regions = find_tables(new_md)
     for replacement, (start, end) in zip(ordered, new_ranges):
         region = replacement.region
-        # HTML の表にしたときに後ろへ足した空行は、表の範囲に入らない
+        # 種類を変えたときに後ろへ足した空行は、表の範囲に入らない
         found = [r for r in new_regions if r.start == start and r.end <= end
                  and all(not new_md.lines[i].strip(" \t>") for i in range(r.end + 1, end + 1))]
-        if not found:
+        if not found or (replacement.target_kind is not None
+                         and (len(found) != 1 or found[0].kind != replacement.target_kind)):
             problems.append("表 %d: 書き戻した表を読み直せない" % region.number)
             continue
         again = found[0]
@@ -353,6 +410,15 @@ def verify(md, new_text, replacements):
             continue
         if again.location != region.location:
             problems.append("表 %d: 書き戻すと表の場所（%s）が変わる" % (region.number, region.location or "本文"))
+            continue
+        if replacement.target_kind is not None:
+            if not again.parsed.model.same_content(replacement.model):
+                # どのセルがどう変わるかを 2 個まで出す（連続した空白が 1 つにまとまる、など）。
+                # セルが同じなら、行・列の数の違いを出す
+                changes = compare_models(replacement.model, again.parsed.model)
+                details = [detail.strip() for detail in changes.details(limit=2)]
+                problems.append("表 %d: 種類を変えると、表の中身が変わる%s"
+                                % (region.number, "（%s）" % "、".join(details) if details else changes.summary()))
             continue
         if region.kind == "html" and again.kind == "html" and replacement.model is not None:
             def structure(model):

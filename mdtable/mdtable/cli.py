@@ -15,7 +15,7 @@ import time
 
 from . import __version__
 from .document import MarkdownError
-from .sync import MdTableError, default_output, export, import_workbook, list_tables
+from .sync import MdTableError, convert, default_output, export, import_workbook, list_tables
 from .workbook import WorkbookError
 
 USER_ERRORS = (MarkdownError, MdTableError, WorkbookError, OSError)
@@ -161,6 +161,22 @@ def cmd_import(args):
             tables.append(int(text))
     report = import_workbook(args.workbook, args.md, args.dry_run, args.force,
                              args.keep_kind, args.strict_text, tables=tables)
+    if args.dry_run and report.diff:
+        _write_diff(report.diff)
+    _print_report(report)
+    if report.errors:
+        return 1
+    if not report.changed:
+        _err("Markdown は変わりません")
+    elif args.dry_run:
+        _err("（--dry-run なので書き戻していません）")
+    else:
+        _err("書き戻しました: %s" % report.output)
+    return 0
+
+
+def cmd_convert(args):
+    report = convert(args.markdown, args.table, args.to, args.dry_run)
     if args.dry_run and report.diff:
         _write_diff(report.diff)
     _print_report(report)
@@ -405,6 +421,14 @@ def build_parser():
     p.add_argument("--keep-kind", action="store_true", help="パイプ表を HTML の表に変える必要があれば止める")
     p.add_argument("--strict-text", action="store_true", help="数値・真偽値・数式・エラー値のセルがあれば止める")
     p.set_defaults(func=cmd_import)
+
+    p = sub.add_parser("convert", help="表の中身を保ったまま、表の種類を変える")
+    p.add_argument("markdown", help="Markdown のファイル")
+    p.add_argument("--table", action="append", required=True, metavar="番号|L行|見出し",
+                   help="変える表（番号・L行番号・直前の見出しの文字。複数指定できる）")
+    p.add_argument("--to", choices=("html", "pipe"), required=True, help="変える先の表の種類")
+    p.add_argument("--dry-run", action="store_true", help="書き戻さずに差分を出す")
+    p.set_defaults(func=cmd_convert)
 
     p = sub.add_parser("edit", help="Excel で開いて編集し、閉じたら書き戻す（Windows）")
     p.add_argument("markdown", help="Markdown のファイル")

@@ -365,6 +365,101 @@ def _format_delimiter(alignments, table):
     return _join_cells(parts, table.leading_pipe, table.trailing_pipe)
 
 
+_TABLE_TAGS = frozenset(["table", "caption", "colgroup", "col", "thead", "tbody", "tfoot", "tr", "td", "th"])
+
+
+def _check_conversion_attributes(token, row=None, col=None):
+    """パイプ表にすると失われる HTML の属性が無いことを確かめる。"""
+    if token is None:
+        return
+    # 配置として読むのはセルの属性だけ。<table> や <tr> の align は、パイプ表にすると消える
+    is_cell = token.name in ("td", "th")
+    for attribute in token.attributes:
+        if is_cell and attribute.name == "align":
+            if (attribute.value or "").strip().lower() == "justify":
+                raise NotRepresentable("justify の配置がある", row, col)
+            continue
+        if is_cell and attribute.name == "style":
+            match = re.fullmatch(r"\s*text-align\s*:\s*(left|center|right|justify)\s*;?\s*",
+                                 attribute.value or "", re.I)
+            if match:
+                if match.group(1).lower() == "justify":
+                    raise NotRepresentable("justify の配置がある", row, col)
+                continue
+        if is_cell and attribute.name in ("rowspan", "colspan") and (attribute.value or "").strip() == "1":
+            continue
+        raise NotRepresentable("<%s> にパイプ表では残せない属性（%s）がある"
+                               % (token.name, attribute.name), row, col)
+
+
+def render_new(region, model, warnings):
+    """HTML の表から、文字・見出し・配置を変えずにパイプ表の行を作る。"""
+    if model.rows < 1 or model.cols < 1:
+        raise NotRepresentable("見出し行と 1 列以上の列が要る")
+    for cell in model.cells:
+        if cell.rowspan > 1 or cell.colspan > 1:
+            raise NotRepresentable("セル結合がある", cell.row + 1, cell.col + 1)
+    if model.holes:
+        row, col = min(model.holes)
+        raise NotRepresentable("セルの無い位置がある", row + 1, col + 1)
+    for cell in model.cells:
+        if cell.header != (cell.row == 0):
+            raise NotRepresentable("1 行目はすべて見出しセル、2 行目以降は見出しでないセルにする必要がある",
+                                   cell.row + 1, cell.col + 1)
+    alignments = []
+    for col in range(model.cols):
+        column = [cell for cell in model.cells if cell.col == col]
+        align = column[0].align
+        for cell in column:
+            if cell.align == "justify":
+                raise NotRepresentable("justify の配置がある", cell.row + 1, col + 1)
+            if cell.align != align:
+                raise NotRepresentable("列の中でセルの配置が違う", cell.row + 1, col + 1)
+        alignments.append(align)
+    table = region.parsed
+    if table.caption is not None:
+        raise NotRepresentable("<caption> がある")
+    if table.colgroups:
+        raise NotRepresentable("<colgroup> または <col> がある")
+    if any(section.tag == "tfoot" for section in table.sections):
+        raise NotRepresentable("<tfoot> がある")
+    # パイプ表の見出しは 1 行だけ。<thead> の 2 行目より後ろは、本文の行になってしまう
+    if any(section.tag == "thead" and len(section.rows) > 1 for section in table.sections):
+        raise NotRepresentable("<thead> に 2 行以上ある")
+    if table.interstitial:
+        raise NotRepresentable("表の構造の間にコメントなどがある")
+    if region.head or region.tail:
+        raise NotRepresentable("<table> の前か </table> の後に同じ行の文字がある")
+    _check_conversion_attributes(table.table_token)
+    for section in table.sections:
+        _check_conversion_attributes(section.token)
+    for row in table.rows:
+        _check_conversion_attributes(row.token, row.index + 1, 1)
+    for cell in table.cells:
+        _check_conversion_attributes(cell.start_token, cell.row + 1, cell.col + 1)
+
+    grid = [[""] * model.cols for _ in range(model.rows)]
+    for cell in model.cells:
+        # セルの中の入れ子の表は、パイプ表のセルには書かない（コードの中の文字は除く）
+        if any(token.kind == "html" and token.tag in _TABLE_TAGS for token in inline.tokenize(cell.text)):
+            raise NotRepresentable("セルの中に入れ子の表（<table> など）がある", cell.row + 1, cell.col + 1)
+        try:
+            grid[cell.row][cell.col] = to_pipe_cell(cell.text)
+        except NotRepresentable as error:
+            raise NotRepresentable(str(error), cell.row + 1, cell.col + 1) from error
+    formatting = PipeTable()
+    formatting.delimiter_spaced = True
+    out = []
+    for row, cells in enumerate(grid):
+        prefix = region.first_prefix if row == 0 else region.cont_prefix
+        out.append(prefix + _format_row(cells, formatting))
+        if row == 0:
+            out.append(region.cont_prefix + _format_delimiter(alignments, formatting))
+    if region.next_nonblank:
+        out.append(region.blank_prefix)
+    return out
+
+
 def render(region, model, warnings):
     """新しいモデルからパイプ表の行（接頭辞を含む）を作る。書けなければ NotRepresentable。"""
     table = region.parsed
