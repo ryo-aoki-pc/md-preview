@@ -45,7 +45,11 @@ Go の単一実行ファイルへの移行中。Go 版が Node.js 版と同じ�
 - `internal/pagefiles/` — 埋め込みページの設定と、固定情報の大きさ・sha256 を照合するライブラリの読み取り
 - `internal/server/` — 127.0.0.1 の HTTP と SSE。要求は `net/http.ReadRequest` で解析し、パス整理・接続再利用・Expect の自動応答を使わない
 - `internal/stdio/`・`internal/cli/` — Neovim との版1の取り決め、コマンドの引数、ブラウザ起動と終了処理。PlantUML と公式スタイルは外から渡す関数で接続する
-- `internal/pipeline/api.go` — 描画の流れ（消毒・フィルター・配色・取り込み・知らせ）の型と入口（`Renderer.Render`）。ほかのパッケージは、この形で使う。中身を移すまで、`stub.go` が仮の実装を持つ
+- `internal/pipeline/` — 描画の流れ（消毒・フィルター・配色・取り込み・知らせ）。`api.go` の型と入口（`Renderer.Render`）をほかのパッケージが使う。処理と状態は文書ごとに持ち、取り消しと深さの上限を確認する
+- `internal/htmltree/`・`internal/sanitize/`・`internal/filters/` — HTML の木の操作と GitLab の許可リスト、消毒前後のフィルター
+- `internal/highlight/` — Chroma の字句と Rouge 系の短いクラス、行ごとの包み。使う言語だけ遅延して準備する
+- `internal/include/`・`internal/paths/`・`internal/notices/` — include の展開と行の対応、相対パス、完成した木を変えない知らせの収集
+- `internal/plantumlsource/` — 図の原文の SHA-256 と標準入力の開始・終了の補完
 - `internal/pipeline/testdata/golden/pipeline.jsonl.gz` — Node.js 版（`80784dd`）の `renderDocument` の入力と出力 2,715 件（Node.js 版の試験が通した入力と、公開の文書）。Go 版の出力を、HTML は木で、ほかは JSON で比べる見本。手で書き換えない
 
 - `engine/` — 描画エンジンの Rust の crate。`src/glfm.rs`・`src/formatter.rs` は gem の写し、`src/lib.rs` は WebAssembly から呼ぶ入口（Ruby の橋渡しの代わり）。`gitlab/glfm_markdown.rb` は GitLab がこの gem に渡すオプションのソースの写し（試験が `lib/engine.mjs` の値と比べる）、`glfm_markdown.wasm` はビルドした成果物、`engine.lock.json` は GitLab・gem・comrak・コンテナのイメージ・`.wasm` の固定値、`licenses/` は `.wasm` に入る crate のライセンスの原文、`build.sh` は作り直す手順
@@ -123,6 +127,9 @@ GITLAB_TOKEN=<read_api のトークン> node tools/make-fixtures.mjs <名前>   
 ## テスト
 
 Go の部分は次のコマンドで確かめる。Go のソースを直したら `gofmt -w <ファイル>` で整形し、`gofmt -l .` の出力が空であることを確認する。
+
+描画エンジンが出す HTML の属性の並びは、呼び出しの履歴で変わる。並びに頼る処理・試験を書かない。
+描画の見本は、HTML を木で、見出し・取り込み・知らせ・図を JSON で比較する。配色の字句の span だけを除き、行の span と包み・文字は比較する。`<plaintext>` の後ろにエンジンの属性順が文字として出る2入力だけは、入力の SHA-256 で限定し、文字内の開始タグの属性順をそろえる（不要になった例外は試験で知らせる）。見本そのものは変えない。
 
 ```sh
 go vet ./...

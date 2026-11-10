@@ -157,7 +157,9 @@ func TestMainProcess(t *testing.T) {
 			if strings.HasPrefix(line, "data: ") {
 				var d map[string]any
 				if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &d) == nil && d["rev"] == float64(7) {
-					if d["markdown"] != "原文の本文" || d["error"] != "文書を描画できませんでした。原文を表示します。" {
+					// 本物の描画エンジンと描画の流れを通った HTML が届く
+					html, _ := d["html"].(string)
+					if _, failed := d["error"]; failed || !strings.Contains(html, "原文の本文</p>") || !strings.Contains(html, `data-sourcepos="1:1-1:15"`) {
 						t.Fatal(d)
 					}
 					rendered = true
@@ -166,7 +168,7 @@ func TestMainProcess(t *testing.T) {
 			}
 		}
 		if !rendered {
-			t.Fatal("仮の描画の誤りが届かない")
+			t.Fatal("描画の結果が届かない")
 		}
 		_ = input.Close()
 		if e = command.Wait(); e != nil {
