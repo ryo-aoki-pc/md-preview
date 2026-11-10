@@ -193,7 +193,7 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
   });
 
   await t.test('相対画像とルートからのリンクを token 内へ戻す', async (t) => {
-    const fixture = await fixturePage(t, browser, payload('<p><img id="relative" src="画像.svg"></p><a id="local" href="/readme.md">文書</a><a id="fragment" href="#heading">見出し</a><a id="external" href="https://example.invalid/">外部</a>'), (root) => {
+    const fixture = await fixturePage(t, browser, payload('<p><img id="relative" src="画像.svg"></p><a id="local" href="/readme.md">文書</a><a id="fragment" href="#heading">見出し</a><a id="external" href="https://example.invalid/">外部</a><a id="query" href="?list">クエリだけ</a><a id="self" href="試験.md#heading">今の文書の見出し</a><a id="self-root" href="/docs/%E8%A9%A6%E9%A8%93.md">今の文書</a>'), (root) => {
       mkdirSync(join(root, 'docs'), { recursive: true });
       writeFileSync(join(root, 'docs', '画像.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1"/></svg>');
     });
@@ -203,6 +203,12 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
     assert.equal(await page.locator('#local').getAttribute('href'), new URL('?doc=readme.md', server.url).href);
     assert.equal(await page.locator('#fragment').getAttribute('href'), '#heading');
     assert.equal(await page.locator('#external').getAttribute('href'), 'https://example.invalid/');
+    // クエリだけのリンクは、ファイルへのリンクとして書き換えない
+    assert.equal(await page.locator('#query').getAttribute('href'), '?list');
+    // 今の文書そのものへのリンクは、ページ内の移動にする (?doc= へ移らない)
+    assert.equal(await page.locator('#self').getAttribute('href'), '#heading');
+    assert.equal(await page.locator('#self-root').getAttribute('href'), '#');
+    assert.equal(await page.locator('#self').getAttribute('target'), null);
   });
 
   await t.test('終了通知を単体アプリの言葉で表示する', async (t) => {

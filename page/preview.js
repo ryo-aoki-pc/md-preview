@@ -441,7 +441,8 @@
   const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
   function isRelative(value) {
-    return !!value && !SCHEME.test(value) && !value.startsWith('//') && !value.startsWith('#');
+    // ? で始まるリンク (クエリだけ) は、ファイルへの相対パスではないので書き換えない。
+    return !!value && !SCHEME.test(value) && !value.startsWith('//') && !value.startsWith('#') && !value.startsWith('?');
   }
 
   function localReference(value, dir) {
@@ -487,7 +488,9 @@
           continue;
         }
         if (/\.(?:md|markdown|mdown|mkd|mkdn)$/i.test(local.name)) {
-          anchor.href = documentUrl(local.name, local.hash);
+          // 今の文書そのものへのリンク (ファイル名付きの見出しへのリンク) は、ページ内の移動にする。
+          // ?doc= に移ると、編集中の文書のスクロールの同期が外れる。
+          anchor.href = local.name === message.file ? local.hash || '#' : documentUrl(local.name, local.hash);
           anchor.removeAttribute('target');
           anchor.removeAttribute('rel');
           continue;

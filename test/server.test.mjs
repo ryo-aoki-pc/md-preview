@@ -29,6 +29,10 @@ test('HTTP は token・Host・取得元・メソッドを検査する', async (t
   const redirect = await get(server, '', { path: '/' + server.token });
   assert.equal(redirect.status, 301);
   assert.equal(redirect.headers.location, '/' + server.token + '/');
+  // クエリは保ったまま送る
+  const listRedirect = await get(server, '', { path: '/' + server.token + '?list' });
+  assert.equal(listRedirect.status, 301);
+  assert.equal(listRedirect.headers.location, '/' + server.token + '/?list');
   for (const host of ['example.invalid', 'localhost', `evil.invalid:${server.port}`, `127.0.0.1:${server.port + 1}`]) {
     assert.equal((await get(server, '', { headers: { Host: host } })).status, 403);
   }
