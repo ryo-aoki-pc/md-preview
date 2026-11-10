@@ -3,3 +3,6 @@ node_modules/
 .claude/
 .stfolder/
 engine/target/
+/mdpreview
+/mdpreview.exe
+/dist/

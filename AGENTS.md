@@ -28,6 +28,17 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 
 ## 構成
 
+Go の単一実行ファイルへの移行中。Go 版が Node.js 版と同じ確かめを通るまで、`cli.mjs`・`lib/`・`test/`・`scripts/` などの Node.js 版を残す。
+
+- `go.mod`・`go.sum` — Go のモジュールと依存の固定値
+- `engine/engine.go` — 埋め込んだ `.wasm` を wazero で動かす Go の描画エンジン。出力は消毒していない。取り消し・異常終了後とメモリー上限超過時に実体を作り直す
+- `engine/testdata/golden.json` — Node.js 版が作った描画結果の見本。Go 版の出力とバイト単位で比べる
+- `page/embed.go` — ページと `page/lib/` の資産の埋め込み。Go のソースは含めない
+- `cmd/mdpreview/` — Go 版のコマンド。現段階は `--version` と `--help` だけ
+- `internal/version/` — 既定の版と、ビルド時に差し替える変数
+- `internal/pipeline/api.go` — 描画の流れ（消毒・フィルター・配色・取り込み・知らせ）の型と入口（`Renderer.Render`）。ほかのパッケージは、この形で使う。中身を移すまで、`stub.go` が仮の実装を持つ
+- `internal/pipeline/testdata/golden/pipeline.jsonl.gz` — Node.js 版（`80784dd`）の `renderDocument` の入力と出力 2,715 件（Node.js 版の試験が通した入力と、公開の文書）。Go 版の出力を、HTML は木で、ほかは JSON で比べる見本。手で書き換えない
+
 - `engine/` — 描画エンジンの Rust の crate。`src/glfm.rs`・`src/formatter.rs` は gem の写し、`src/lib.rs` は WebAssembly から呼ぶ入口（Ruby の橋渡しの代わり）。`gitlab/glfm_markdown.rb` は GitLab がこの gem に渡すオプションのソースの写し（試験が `lib/engine.mjs` の値と比べる）、`glfm_markdown.wasm` はビルドした成果物、`engine.lock.json` は GitLab・gem・comrak・コンテナのイメージ・`.wasm` の固定値、`licenses/` は `.wasm` に入る crate のライセンスの原文、`build.sh` は作り直す手順
 - `lib/engine.mjs` — `.wasm` を読み、Markdown を GitLab の整形器の HTML にする（`renderMarkdown`）。オプションは GitLab の `OPTIONS` と同じ値（`GITLAB_OPTIONS`）
 - `lib/pipeline.mjs` — front matter・CR・include を処理し、GitLab の順で消毒・フィルターを通す同期の `renderDocument`。HTML・見出し・取り込みの記録・表示の差の通知を返す
@@ -101,6 +112,17 @@ GITLAB_TOKEN=<read_api のトークン> node tools/make-fixtures.mjs <名前>   
 - `npm test` で比べる。合わない所は実装を直す。GitLab のデータや設定が要って直せない所だけを、`test/fixtures.test.mjs` の「既知の差」の表に、場所と理由を書いて入れる
 
 ## テスト
+
+Go の部分は次のコマンドで確かめる。Go のソースを直したら `gofmt -w <ファイル>` で整形し、`gofmt -l .` の出力が空であることを確認する。
+
+```sh
+go vet ./...
+go test ./...
+go test -race ./...
+gofmt -l .
+```
+
+`-race` には C のコンパイラーが要る。Go 版の試験は描画の見本、GitLab のオプション、異常終了・取り消しからの復帰、メモリー上限、同時呼び出し、埋め込んだ資産の大きさと sha256、コマンドの出力を確かめる。Node.js 版の試験も引き続き残す。
 
 ```sh
 npm test
