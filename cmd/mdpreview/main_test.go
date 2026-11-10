@@ -21,6 +21,7 @@ import (
 )
 
 func TestRun(t *testing.T) {
+	isolateEnvironment(t)
 	cases := []struct {
 		name    string
 		args    []string
@@ -32,7 +33,7 @@ func TestRun(t *testing.T) {
 		{"使い方", []string{"--help"}, 0, help, ""},
 		{"引数なし", nil, 2, "", "Markdown ファイルまたはフォルダーを指定してください"},
 		{"未知の引数", []string{"--unknown"}, 2, "", "不明なオプションです"},
-		{"未対応のコマンド", []string{"render", "file.md"}, 2, "", "まだ Go 版にありません。"},
+		{"書き出す文書が無い", []string{"render", "--no-plantuml", "file.md"}, 1, "", "指定したファイルを読めません"},
 		{"無いファイル", []string{"file.md"}, 2, "", "指定したファイルを読めません"},
 		{"余分な引数", []string{"--version", "file.md"}, 2, "", "単独で指定してください"},
 	}
@@ -46,7 +47,7 @@ func TestRun(t *testing.T) {
 			if item.code == 0 && stderr.Len() != 0 {
 				t.Errorf("成功時に標準エラーが出た: %q", &stderr)
 			}
-			if item.code == 2 && !strings.Contains(stderr.String(), item.message) {
+			if item.code != 0 && !strings.Contains(stderr.String(), item.message) {
 				t.Errorf("誤りの案内がない: %q", &stderr)
 			}
 		})
@@ -70,6 +71,7 @@ func TestMainProcess(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("コマンドをビルドできない: %v\n%s", err, output)
 	}
+	isolateEnvironment(t)
 	for _, item := range []struct {
 		arg    string
 		code   int

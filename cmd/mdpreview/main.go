@@ -9,8 +9,10 @@ import (
 	"syscall"
 
 	"github.com/ryo-aoki-pc/md-preview/engine"
+	"github.com/ryo-aoki-pc/md-preview/internal/assets"
 	"github.com/ryo-aoki-pc/md-preview/internal/cli"
 	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-preview/internal/plantuml"
 	"github.com/ryo-aoki-pc/md-preview/internal/server"
 )
 
@@ -25,20 +27,27 @@ func run(args []string, stdout, stderr io.Writer) int {
 // 使い方や版を表示するだけの起動では、描画エンジンを作らない。
 type commandRenderer struct {
 	mu       sync.Mutex
+	init     sync.Once
+	initErr  error
 	engine   *engine.Engine
 	renderer *pipeline.Renderer
 }
 
-func (r *commandRenderer) Render(ctx context.Context, text string, c pipeline.Context) (pipeline.Result, error) {
+func (r *commandRenderer) prepare(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.engine == nil {
-		e, err := engine.New(ctx)
-		if err != nil {
-			return pipeline.Result{}, err
+	r.init.Do(func() {
+		// 文書の描画期限が始まる前に、起動ごとに一度だけ準備する。
+		r.engine, r.initErr = engine.New(ctx)
+		if r.initErr == nil {
+			r.renderer = pipeline.New(r.engine)
 		}
-		r.engine = e
-		r.renderer = pipeline.New(e)
+	})
+	return r.initErr
+}
+func (r *commandRenderer) Render(ctx context.Context, text string, c pipeline.Context) (pipeline.Result, error) {
+	if err := r.prepare(ctx); err != nil {
+		return pipeline.Result{}, err
 	}
 	return r.renderer.Render(ctx, text, c)
 }
@@ -50,10 +59,21 @@ func (r *commandRenderer) close() {
 	}
 }
 
-// 担当パッケージの統合時に、この 2 つの関数を実物へ差し替える。
 func dependencies() (cli.Dependencies, func()) {
 	r := &commandRenderer{}
-	return cli.Dependencies{Renderer: r, CreateDiagram: func(context.Context) (server.DiagramRenderer, error) { return nil, nil }, LoadAssets: func(string) (server.OfficialAssets, string) { return nil, "" }}, r.close
+	return cli.Dependencies{Renderer: r, InitializeRenderer: r.prepare, CreateDiagram: func(context.Context) (server.DiagramRenderer, error) {
+		command, ok := plantuml.Find(nil, "")
+		if !ok {
+			return nil, nil
+		}
+		return plantuml.New(plantuml.Options{Command: command}), nil
+	}, LoadAssets: func(dir string) (server.OfficialAssets, string) {
+		loaded := assets.Load(dir)
+		if loaded == nil {
+			return nil, assets.Notice(nil, dir)
+		}
+		return loaded, assets.Notice(loaded, dir)
+	}, DefaultAssetsDirectory: assets.DefaultDirectory}, r.close
 }
 
 func main() {

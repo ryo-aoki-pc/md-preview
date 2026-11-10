@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -18,6 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"github.com/ryo-aoki-pc/md-preview/internal/plantumlsource"
 )
 
 var (
@@ -82,23 +83,6 @@ func New(options Options) *Renderer {
 	return r
 }
 
-func sourceID(source string) string {
-	hash := sha256.Sum256([]byte(source))
-	return hex.EncodeToString(hash[:])
-}
-
-// 先頭の空行と字下げを保ち、PlantUML のサーバーと同じ条件で開始・終了を補う。
-func sourceInput(source string) string {
-	terminated := source
-	if !strings.HasSuffix(source, "\n") && !strings.HasSuffix(source, "\r") {
-		terminated += "\n"
-	}
-	if strings.HasPrefix(source, "@start") {
-		return terminated
-	}
-	return "@startuml\n" + terminated + "@enduml\n"
-}
-
 // Render は、検証した SVG、または原文と端末のパスを含まない日本語 1 行の誤りを返す。
 func (r *Renderer) Render(ctx context.Context, source string) ([]byte, error) {
 	r.mu.Lock()
@@ -110,7 +94,7 @@ func (r *Renderer) Render(ctx context.Context, source string) ([]byte, error) {
 		r.mu.Unlock()
 		return nil, errCanceled
 	}
-	id := sourceID(source)
+	id := plantumlsource.ID(source)
 	for _, entry := range r.cache {
 		if entry.id == id {
 			svg := bytes.Clone(entry.svg)
@@ -264,7 +248,7 @@ func (r *Renderer) execute(parent context.Context, source string) ([]byte, error
 	}
 	cmd.Dir = os.TempDir()
 	cmd.Env = plantumlEnvironment(os.Environ(), runtime.GOOS)
-	cmd.Stdin = strings.NewReader(sourceInput(source))
+	cmd.Stdin = strings.NewReader(plantumlsource.Input(source))
 	out := &limitedOutput{max: r.options.MaxSVGBytes, cancel: cancel}
 	cmd.Stdout = out
 	cmd.Stderr = io.Discard

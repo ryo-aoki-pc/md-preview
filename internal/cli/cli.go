@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ryo-aoki-pc/md-preview/internal/assets"
+	exporthtml "github.com/ryo-aoki-pc/md-preview/internal/export"
 	"github.com/ryo-aoki-pc/md-preview/internal/fileopen"
 	"github.com/ryo-aoki-pc/md-preview/internal/pagefiles"
 	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
@@ -24,6 +26,7 @@ import (
 
 type Dependencies struct {
 	Renderer               session.Renderer
+	InitializeRenderer     func(context.Context) error
 	CreateDiagram          func(context.Context) (server.DiagramRenderer, error)
 	LoadAssets             func(string) (server.OfficialAssets, string)
 	DefaultAssetsDirectory func() string
@@ -31,6 +34,8 @@ type Dependencies struct {
 	OnStart                func(*App) error
 	Render                 func(context.Context, Options, io.Writer, io.Writer) int
 	InstallStyle           func(context.Context, Options, io.Writer, io.Writer) int
+	// StyleInstallOptions は試験・組み込み用。コマンドの引数では取得元を変えない。
+	StyleInstallOptions assets.InstallOptions
 }
 type IO struct {
 	Stdin          io.Reader
@@ -77,16 +82,6 @@ func DefaultAssetsDirectory() string {
 	return filepath.Join(base, "md-preview-assets")
 }
 
-// RenderPending と InstallStylePending は統合担当が本体へ差し替える入口。
-func RenderPending(_ context.Context, _ Options, _ io.Writer, stderr io.Writer) int {
-	fmt.Fprintln(stderr, "mdpreview: render は、まだ Go 版にありません。")
-	return 2
-}
-func InstallStylePending(_ context.Context, _ Options, _ io.Writer, stderr io.Writer) int {
-	fmt.Fprintln(stderr, "mdpreview: install-style は、まだ Go 版にありません。")
-	return 2
-}
-
 func Run(ctx context.Context, args []string, streams IO, deps Dependencies) int {
 	if streams.Stdin == nil {
 		streams.Stdin = os.Stdin
@@ -117,6 +112,16 @@ func Run(ctx context.Context, args []string, streams IO, deps Dependencies) int 
 		}
 		return 0
 	}
+	if o.Command != "install-style" && deps.InitializeRenderer != nil {
+		if e = deps.InitializeRenderer(ctx); e != nil {
+			if o.Command == "render" {
+				report("文書を描画できません")
+				return 1
+			}
+			report("ファイルまたはサーバーを開けません")
+			return 2
+		}
+	}
 	var plantuml server.DiagramRenderer
 	if o.Plantuml && o.Command != "install-style" && deps.CreateDiagram != nil {
 		plantuml, e = deps.CreateDiagram(ctx)
@@ -131,14 +136,53 @@ func Run(ctx context.Context, args []string, streams IO, deps Dependencies) int 
 	if o.Command == "render" {
 		fn := deps.Render
 		if fn == nil {
-			fn = RenderPending
+			fn = func(ctx context.Context, o Options, stdout, stderr io.Writer) int {
+				result, err := exporthtml.Export(ctx, exporthtml.Options{File: o.File, Root: o.Root, Output: o.Output, Theme: o.Theme, Width: o.Width, Renderer: deps.Renderer, Plantuml: plantuml})
+				if err != nil {
+					report(err.Error())
+					return 1
+				}
+				if o.Output == "" {
+					if _, err := io.WriteString(stdout, result.HTML); err != nil {
+						report("HTML を書き込めません")
+						return 1
+					}
+				}
+				labels := map[string]string{"reference": "参照", "diagram": "図", "suggestion": "提案", "include": "取り込み", "emoji": "絵文字", "missing": "見つからないメディア", "more": "省略した知らせ"}
+				for _, warning := range result.Warnings {
+					report(warning)
+				}
+				for _, notice := range result.Notices {
+					label := labels[notice.Kind]
+					if label == "" {
+						label = "表示の違い"
+					}
+					report(fmt.Sprintf("%s: %d 件", label, notice.Count))
+				}
+				return 0
+			}
 		}
 		return fn(ctx, o, streams.Stdout, streams.Stderr)
 	}
 	if o.Command == "install-style" {
 		fn := deps.InstallStyle
 		if fn == nil {
-			fn = InstallStylePending
+			fn = func(ctx context.Context, o Options, stdout, stderr io.Writer) int {
+				if o.Check {
+					var code int
+					var message string
+					if deps.StyleInstallOptions.LockBytes == nil {
+						code, message = assets.Check(o.Dir)
+					} else {
+						code, message = assets.CheckWithLock(o.Dir, deps.StyleInstallOptions.LockBytes)
+					}
+					report(message)
+					return code
+				}
+				options := deps.StyleInstallOptions
+				options.Dir, options.Stdout, options.Stderr = o.Dir, stdout, stderr
+				return assets.Install(ctx, options)
+			}
 		}
 		return fn(ctx, o, streams.Stdout, streams.Stderr)
 	}
