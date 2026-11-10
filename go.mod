@@ -1,0 +1,7 @@
+module github.com/ryo-aoki-pc/md-preview
+
+go 1.27
+
+require github.com/tetratelabs/wazero v1.12.0
+
+require golang.org/x/sys v0.49.0 // indirect
