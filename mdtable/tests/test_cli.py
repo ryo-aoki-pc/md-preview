@@ -2,6 +2,7 @@
 
 import builtins
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -44,6 +45,68 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("表 1\t3〜5 行\tMarkdown\t2 行 × 2 列", out)
 
+    def test_list_json(self):
+        code, out, err = run_cli("list", self.md, "--json")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(err, "")
+        self.assertIn('"heading": "文書"', out)
+        self.assertTrue(out.endswith("\n"))
+        self.assertEqual(json.loads(out), {
+            "version": 1, "markdown": os.path.abspath(self.md), "tables": [{
+                "number": 1, "start_line": 3, "end_line": 5, "kind": "pipe", "rows": 2, "cols": 2,
+                "excluded": None, "location": "", "heading": "文書", "heading_line": 1,
+            }],
+        })
+
+    def test_list_json_excluded_and_without_heading(self):
+        document = ("| a |\n|---|\n\n"
+                    "<table><tr><td><pre>\na\n\nb\n</pre></td></tr></table>\n")
+        with open(self.md, "w", encoding="utf-8", newline="") as handle:
+            handle.write(document)
+        code, out, err = run_cli("list", self.md, "--json")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(err, "")
+        tables = json.loads(out)["tables"]
+        self.assertEqual(len(tables), 2)
+        self.assertEqual((tables[0]["heading"], tables[0]["heading_line"]), ("", None))
+        self.assertEqual(tables[1]["kind"], "html")
+        self.assertEqual((tables[1]["rows"], tables[1]["cols"]), (None, None))
+        self.assertTrue(tables[1]["excluded"])
+
+    def test_list_json_without_tables(self):
+        with open(self.md, "w", encoding="utf-8", newline="") as handle:
+            handle.write("# 文書\n\n本文\n")
+        code, out, err = run_cli("list", self.md, "--json")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(err, "")
+        self.assertEqual(json.loads(out), {"version": 1, "markdown": self.md, "tables": []})
+        code, out, err = run_cli("list", self.md)
+        self.assertEqual((code, out, err.splitlines()), (0, "", ["表がありません"]))
+
+    def test_export_with_heading_and_import_with_number(self):
+        document = DOCUMENT + "\n# 別の表\n\n| a |\n|---|\n| 1 |\n"
+        with open(self.md, "w", encoding="utf-8", newline="") as handle:
+            handle.write(document)
+        code, out, err = run_cli("export", self.md, "--table", " 文書 ", "--table", "別の表")
+        self.assertEqual(code, 0, err)
+        book = openpyxl.load_workbook(self.xlsx)
+        book[book.sheetnames[1]]["A2"] = "lazygit2"
+        book[book.sheetnames[2]]["A2"] = "2"
+        book.save(self.xlsx)
+        code, out, err = run_cli("import", self.xlsx, "--table", "2")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("表 1", err)
+        with open(self.md, encoding="utf-8", newline="") as handle:
+            self.assertEqual(handle.read(), document.replace("| 1 |", "| 2 |"))
+
+    def test_import_rejects_heading_or_line_selector(self):
+        for selector in ("文書", "L3", "1.0"):
+            code, out, err = run_cli("import", self.xlsx, "--table", selector)
+            self.assertEqual(code, 1)
+            self.assertEqual(out, "")
+            self.assertEqual(err.splitlines(),
+                             ["エラー: import の --table には、ブックの表の番号を指定してください: %s" % selector])
+
     def test_export_import(self):
         code, out, err = run_cli("export", self.md)
         self.assertEqual(code, 0, err)
@@ -63,6 +126,9 @@ class CliTest(unittest.TestCase):
         code, out, err = run_cli("import", self.xlsx, "--dry-run")
         self.assertEqual(code, 0, err)
         self.assertIn("+| lazygit | `scoop install lazygit`<ul><li>確認する</li></ul> |", out)
+        self.assertNotIn("\033", out)
+        self.assertIn("更新（セル 1 個を変更）", err)
+        self.assertIn("  B2: 「`scoop install lazygit`」→「`scoop install lazygit`⏎- 確認する」", err)
         with open(self.md, encoding="utf-8") as handle:
             self.assertEqual(handle.read(), DOCUMENT)
 
@@ -131,6 +197,7 @@ class CliTest(unittest.TestCase):
         code, out, err = run_cli("import", self.xlsx)
         self.assertEqual(code, 0, err)
         self.assertIn("コードブロックはパイプ表のセルに書けないため HTML の表に変えて更新", err)
+        self.assertIn("HTML の表に変えて更新（セル 1 個を変更）", err)
         with open(self.md, encoding="utf-8") as handle:
             updated = handle.read()
         self.assertIn("<table>", updated)
@@ -489,6 +556,9 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("-| lazygit |", out)
         self.assertIn("+| lazygit2 |", out)
+        self.assertNotIn("\033", out)
+        self.assertIn("更新（セル 1 個を変更）", err)
+        self.assertIn("  A2: 「lazygit」→「lazygit2」", err)
         self.assertIn("（--dry-run なので書き戻していません）", err)
         self.assertIn("ブックを残しました。取り込むときは:", err)
         xlsx = os.path.join(directory, next(name for name in os.listdir(directory) if name.endswith(".xlsx")))
@@ -723,6 +793,70 @@ class CliTest(unittest.TestCase):
             code = cli.main(["edit", self.md])
         self.assertEqual(code, 1)
         self.assertIn("Windows", stderr.getvalue())
+
+
+class DiffColorTest(unittest.TestCase):
+    def test_color_diff(self):
+        diff = "--- 元\n+++ 新\n@@ -1 +1 @@\n-削除\n+追加\n そのまま\n+末尾"
+        self.assertEqual(cli._color_diff(diff),
+                         "\033[1m--- 元\033[0m\n\033[1m+++ 新\033[0m\n"
+                         "\033[36m@@ -1 +1 @@\033[0m\n\033[31m-削除\033[0m\n"
+                         "\033[32m+追加\033[0m\n そのまま\n\033[32m+末尾\033[0m")
+        self.assertEqual(cli._color_diff("+追加\r\n"), "\033[32m+追加\033[0m\r\n")
+
+    def test_pipe_and_no_color_disable_colors(self):
+        stream = mock.Mock()
+        with mock.patch.dict(os.environ, {"NO_COLOR": ""}):
+            stream.isatty.return_value = False
+            self.assertFalse(cli._use_color(stream))
+        with mock.patch.dict(os.environ, {"NO_COLOR": "1"}):
+            stream.isatty.return_value = True
+            self.assertFalse(cli._use_color(stream))
+
+    def test_terminal_enables_colors(self):
+        stream = mock.Mock()
+        stream.isatty.return_value = True
+        with mock.patch.dict(os.environ, {"NO_COLOR": ""}), mock.patch.object(cli.os, "name", "posix"):
+            self.assertTrue(cli._use_color(stream))
+        with mock.patch.dict(os.environ, {"NO_COLOR": ""}), mock.patch.object(cli.os, "name", "nt"):
+            for enabled in (True, False):
+                with mock.patch.object(cli, "_enable_virtual_terminal", return_value=enabled):
+                    self.assertEqual(cli._use_color(stream), enabled)
+
+    def test_windows_console_mode(self):
+        import ctypes
+
+        stream = mock.Mock()
+        stream.fileno.return_value = 1
+        handle = 2 ** 33 + 7
+        for readable, writable, expected in ((True, True, True), (False, True, False), (True, False, False)):
+            with self.subTest(readable=readable, writable=writable):
+                kernel = mock.Mock()
+
+                def get_mode(console_handle, mode):
+                    self.assertEqual(console_handle, handle)
+                    mode._obj.value = 0x0001
+                    return readable
+
+                kernel.GetConsoleMode.side_effect = get_mode
+                kernel.SetConsoleMode.return_value = writable
+                runtime = mock.Mock()
+                runtime.get_osfhandle.return_value = handle
+                with mock.patch.object(ctypes, "windll", mock.Mock(kernel32=kernel), create=True), \
+                        mock.patch.dict(sys.modules, {"msvcrt": runtime}):
+                    self.assertEqual(cli._enable_virtual_terminal(stream), expected)
+                if readable:
+                    kernel.SetConsoleMode.assert_called_once_with(handle, 0x0005)
+                else:
+                    kernel.SetConsoleMode.assert_not_called()
+
+    def test_diff_color_does_not_reach_stderr(self):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr), mock.patch.object(cli, "_use_color", return_value=True):
+            cli._write_diff("+追加\n")
+            cli._err("更新")
+        self.assertEqual(stdout.getvalue(), "\033[32m+追加\033[0m\n")
+        self.assertEqual(stderr.getvalue(), "更新\n")
 
 
 if __name__ == "__main__":

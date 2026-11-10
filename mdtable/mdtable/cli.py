@@ -2,8 +2,10 @@
 
 import argparse
 import hashlib
+import json
 import os
 import queue
+import re
 import secrets
 import shutil
 import sys
@@ -37,6 +39,61 @@ def _err(text):
     print(text, file=sys.stderr)
 
 
+def _enable_virtual_terminal(stream):
+    """Windows の端末で ANSI の色を使えるようにする。失敗したら色を付けない。"""
+    try:
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+
+        kernel = ctypes.windll.kernel32
+        kernel.GetConsoleMode.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+        kernel.GetConsoleMode.restype = wintypes.BOOL
+        kernel.SetConsoleMode.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        kernel.SetConsoleMode.restype = wintypes.BOOL
+        handle = msvcrt.get_osfhandle(stream.fileno())
+        mode = wintypes.DWORD()
+        if not kernel.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        return bool(kernel.SetConsoleMode(handle, mode.value | 0x0004))
+    except (AttributeError, ImportError, OSError, ValueError):
+        return False
+
+
+def _use_color(stream):
+    if os.environ.get("NO_COLOR"):
+        return False
+    try:
+        if not stream.isatty():
+            return False
+    except (AttributeError, OSError, ValueError):
+        return False
+    return os.name != "nt" or _enable_virtual_terminal(stream)
+
+
+def _color_diff(diff):
+    lines = []
+    for line in diff.splitlines(True):
+        color = ""
+        if line.startswith(("---", "+++")):
+            color = "\033[1m"
+        elif line.startswith("@@"):
+            color = "\033[36m"
+        elif line.startswith("+"):
+            color = "\033[32m"
+        elif line.startswith("-"):
+            color = "\033[31m"
+        if color:
+            body = line.rstrip("\r\n")
+            line = color + body + "\033[0m" + line[len(body):]
+        lines.append(line)
+    return "".join(lines)
+
+
+def _write_diff(diff):
+    sys.stdout.write(_color_diff(diff) if _use_color(sys.stdout) else diff)
+
+
 def _print_report(report):
     for message in report.messages:
         _err(message)
@@ -48,6 +105,25 @@ def _print_report(report):
 
 def cmd_list(args):
     regions = list_tables(args.markdown)
+    if args.json:
+        tables = []
+        for region in regions:
+            model = region.parsed.model if region.excluded is None else None
+            tables.append({
+                "number": region.number,
+                "start_line": region.start + 1,
+                "end_line": region.end + 1,
+                "kind": region.kind,
+                "rows": model.rows if model is not None else None,
+                "cols": model.cols if model is not None else None,
+                "excluded": region.excluded,
+                "location": region.location,
+                "heading": region.heading,
+                "heading_line": region.heading_line + 1 if region.heading_line is not None else None,
+            })
+        print(json.dumps({"version": 1, "markdown": os.path.abspath(args.markdown), "tables": tables},
+                         ensure_ascii=False))
+        return 0
     if not regions:
         _err("表がありません")
         return 0
@@ -75,10 +151,18 @@ def cmd_export(args):
 
 
 def cmd_import(args):
+    tables = None
+    if args.table is not None:
+        tables = []
+        for selector in args.table:
+            text = selector.strip()
+            if not re.match(r"^\d+$", text):
+                raise MdTableError("import の --table には、ブックの表の番号を指定してください: %s" % selector)
+            tables.append(int(text))
     report = import_workbook(args.workbook, args.md, args.dry_run, args.force,
-                             args.keep_kind, args.strict_text)
+                             args.keep_kind, args.strict_text, tables=tables)
     if args.dry_run and report.diff:
-        sys.stdout.write(report.diff)
+        _write_diff(report.diff)
     _print_report(report)
     if report.errors:
         return 1
@@ -254,7 +338,7 @@ def cmd_edit(args):
                     raise
                 time.sleep(1)
         if args.dry_run and report.diff:
-            sys.stdout.write(report.diff)
+            _write_diff(report.diff)
         _print_report(report)
         if report.errors:
             _err("ブックを残しました。直してから次で取り込めます:")
@@ -300,19 +384,21 @@ def build_parser():
 
     p = sub.add_parser("list", help="文書の表の一覧を出す")
     p.add_argument("markdown", help="Markdown のファイル")
+    p.add_argument("--json", action="store_true", help="表の一覧を JSON で出す")
     p.set_defaults(func=cmd_list)
 
     p = sub.add_parser("export", help="表を Excel のブックに書き出す")
     p.add_argument("markdown", help="Markdown のファイル")
     p.add_argument("-o", "--output", help="書き出すブック（既定は <名前>.tables.xlsx）")
-    p.add_argument("--table", action="append", metavar="番号|L行",
-                   help="書き出す表（番号か、その行を含む表の L行番号。複数指定できる）")
+    p.add_argument("--table", action="append", metavar="番号|L行|見出し",
+                   help="書き出す表（番号・L行番号・直前の見出しの文字。複数指定できる）")
     p.add_argument("--force", action="store_true", help="既にあるブックを上書きする")
     p.set_defaults(func=cmd_export)
 
     p = sub.add_parser("import", help="ブックの内容で Markdown の表を書き戻す")
     p.add_argument("workbook", help="export で書き出したブック")
     p.add_argument("--md", help="書き戻す Markdown（既定はブックに記録したもの）")
+    p.add_argument("--table", action="append", metavar="番号", help="取り込むブックの表の番号（複数指定できる）")
     p.add_argument("--dry-run", action="store_true", help="書き戻さずに差分を出す")
     p.add_argument("--force", action="store_true",
                    help="衝突や、Excel が日付・数値に変えたセルがあっても書き戻す")
@@ -322,7 +408,7 @@ def build_parser():
 
     p = sub.add_parser("edit", help="Excel で開いて編集し、閉じたら書き戻す（Windows）")
     p.add_argument("markdown", help="Markdown のファイル")
-    p.add_argument("--table", action="append", metavar="番号|L行", help="編集する表")
+    p.add_argument("--table", action="append", metavar="番号|L行|見出し", help="編集する表（番号・L行番号・直前の見出しの文字）")
     p.add_argument("--dry-run", action="store_true", help="書き戻さずに差分を出す")
     p.add_argument("--keep-kind", action="store_true", help="パイプ表を HTML の表に変える必要があれば止める")
     p.add_argument("--strict-text", action="store_true", help="数値・真偽値・数式・エラー値のセルがあれば止める")

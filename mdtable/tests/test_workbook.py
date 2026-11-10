@@ -191,6 +191,134 @@ class ExportImportTest(unittest.TestCase):
         book = openpyxl.load_workbook(self.xlsx)
         return [t for t in book.sheetnames if t.startswith("表%d" % number)][0]
 
+    def test_import_selected_tables_only(self):
+        original = "| h |\n|---|\n| a |\n\n| h2 |\n|---|\n| b |\n\n| h3 |\n|---|\n| c |\n"
+        write(self.md, original)
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        book[self.sheet(1)]["A2"] = "aa"
+        book[self.sheet(2)]["A2"] = "bb"
+        book[self.sheet(3)]["A2"] = "cc"
+        book.save(self.xlsx)
+        report = sync.import_workbook(self.xlsx, tables=[1, 3, 1])
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.warnings, [])
+        self.assertEqual(read(self.md), original.replace("| a |", "| aa |").replace("| c |", "| cc |"))
+        self.assertEqual(len(report.messages), 2)
+        self.assertFalse(any(message.startswith("表 2") for message in report.messages))
+
+    def test_unselected_sheet_errors_and_warnings_are_ignored(self):
+        original = "| h |\n|---|\n| a |\n\n| h2 |\n|---|\n| b |\n"
+        write(self.md, original)
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        book[self.sheet(1)]["A2"] = "aa"
+        other = book[self.sheet(2)]
+        other["A2"] = datetime.date(2026, 11, 10)
+        other["A2"].number_format = "yyyy-mm-dd"
+        other["A1"].comment = openpyxl.comments.Comment("試験", "試験")
+        book.save(self.xlsx)
+        self.assertTrue(sync.import_workbook(self.xlsx, dry_run=True).errors)
+        report = sync.import_workbook(self.xlsx, tables=[1])
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.warnings, [])
+        self.assertEqual(read(self.md), original.replace("| a |", "| aa |"))
+
+    def test_unselected_missing_sheet_is_ignored(self):
+        original = "| h |\n|---|\n| a |\n\n| h2 |\n|---|\n| b |\n"
+        write(self.md, original)
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        book[self.sheet(1)]["A2"] = "aa"
+        del book[self.sheet(2)]
+        book.save(self.xlsx)
+        report = sync.import_workbook(self.xlsx, tables=[1])
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.warnings, [])
+        self.assertEqual(read(self.md), original.replace("| a |", "| aa |"))
+
+    def test_selected_import_still_reports_unrelated_sheets(self):
+        # 表を絞って取り込むときも、足したシートの警告は出し、選んでいない表のシートは警告しない
+        original = "| h |\n|---|\n| a |\n\n| h2 |\n|---|\n| b |\n"
+        write(self.md, original)
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        book[self.sheet(1)]["A2"] = "aa"
+        book.create_sheet("メモ")
+        book.save(self.xlsx)
+        data = workbook.read(self.xlsx, tables=[1])
+        self.assertEqual([table.number for table in data.tables], [1])
+        self.assertEqual(len(data.source_hashes), 2)
+        self.assertEqual(data.warnings, ["シート「メモ」はどの表とも対応しないので読まない"])
+
+    def test_selected_import_of_swapped_tables(self):
+        # 表を絞って取り込むときも、文書の中で表を入れ替えたことを、ブックの全部の表の元の本文で見分ける
+        first = "| a |\n|---|\n| 1 |\n"
+        second = "| b |\n|---|\n| 2 |\n"
+        write(self.md, first + "\n" + second)
+        self.export()
+        edit_sheet(self.xlsx, self.sheet(1), {"A1": "b", "A2": "2"})
+        write(self.md, second + "\n" + first)
+        report = sync.import_workbook(self.xlsx, tables=[1])
+        self.assertEqual(report.errors, [])
+        self.assertEqual(read(self.md), second + "\n" + second)
+
+    def test_import_missing_number_lists_exported_numbers(self):
+        original = "| h |\n|---|\n| a |\n\n| h2 |\n|---|\n| b |\n\n| h3 |\n|---|\n| c |\n"
+        write(self.md, original)
+        self.export(selectors=["1", "3"])
+        with self.assertRaises(workbook.WorkbookError) as raised:
+            sync.import_workbook(self.xlsx, tables=[5])
+        self.assertEqual(str(raised.exception), "ブックに表 5 はありません（ブックの表: 1, 3）")
+        self.assertEqual(read(self.md), original)
+
+    def test_dry_run_summary_and_cells_follow_each_table(self):
+        original = "| h |\n|---|\n| a |\n\n| h2 |\n|---|\n| b |\n"
+        write(self.md, original)
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        book[self.sheet(1)]["A2"] = "aa"
+        book[self.sheet(2)]["A2"] = "bb"
+        book.save(self.xlsx)
+        report = sync.import_workbook(self.xlsx, dry_run=True)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.messages, ["表 1（1〜3 行）: 更新（セル 1 個を変更）", "  A2: 「a」→「aa」",
+                                           "表 2（5〜7 行）: 更新（セル 1 個を変更）", "  A2: 「b」→「bb」"])
+        self.assertEqual(read(self.md), original)
+        applied = sync.import_workbook(self.xlsx)
+        self.assertEqual(applied.errors, [])
+        self.assertEqual(applied.messages, [report.messages[0], report.messages[2]])
+
+    def test_summary_counts_inserted_row_only(self):
+        original = "| h |\n|---|\n| a |\n| b |\n"
+        write(self.md, original)
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        sheet = book[self.sheet(1)]
+        sheet.insert_rows(3)
+        sheet["A3"] = "追加"
+        book.save(self.xlsx)
+        report = sync.import_workbook(self.xlsx, dry_run=True)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.messages, ["表 1（1〜4 行）: 更新（1 行を追加）"])
+        self.assertEqual(read(self.md), original)
+
+    def test_dry_run_cell_limit_per_table(self):
+        original = "| h |\n|---|\n" + "| a |\n" * 25
+        write(self.md, original + "\n" + original)
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        for number in (1, 2):
+            sheet = book[self.sheet(number)]
+            for row in range(2, 27):
+                sheet.cell(row, 1, "b")
+        book.save(self.xlsx)
+        report = sync.import_workbook(self.xlsx, dry_run=True)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(len(report.messages), 44)
+        self.assertEqual(report.messages[21], "  ほか 5 個")
+        self.assertEqual(report.messages[43], "  ほか 5 個")
+
     def test_no_edit_round_trip(self):
         self.export()
         report = sync.import_workbook(self.xlsx)

@@ -17,6 +17,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `mdtable/html_table.py`・`htmltok.py`・`cell_from_html.py` — HTML の表の範囲・字句解析・格子・セルの変換・差し替えと作り直し
 - `mdtable/cell_syntax.py` — Excel のセルの Markdown をパイプ表のセル・HTML の表のセルにする（とその逆）
 - `mdtable/workbook.py` — ブックの書き出しと読み込み。`mdtable/sync.py` — 書き出し・取り込みの手順と、書き戻した結果の確かめ
+- `mdtable/changes.py` — 元の表と書き戻すモデルの突き合わせ、変更の要約とセルの一覧
 - `mdtable/model.py` — 表のモデル（Excel と Markdown の間で受け渡す形）と、セルの文字の正規化。`mdtable/textwidth.py` — 文字の表示幅
 - `mdtable/cli.py` — コマンド（list / export / import / edit）。`mdtable/__main__.py` は `python -m mdtable`、`mdtable/__init__.py` は版（`__version__`）
 - `scripts/setup-mdtable.py` — リポジトリ外の仮想環境への導入。`pyproject.toml` — パッケージの定義（`readme = "README.md"` なので、README はパッケージの説明にもなる）

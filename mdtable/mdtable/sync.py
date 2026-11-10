@@ -6,6 +6,7 @@ from copy import copy
 
 from . import __version__, blocks, html_table, pipe_table, workbook
 from .cell_syntax import NotRepresentable
+from .changes import compare_models
 from .document import (MarkdownError, MarkdownFile, Replacement, apply_replacements,
                        find_tables, select_tables, write_text_atomic)
 from .model import TableModel
@@ -158,9 +159,10 @@ def _trailing_empty(model):
     return model.rows - row_end, model.cols - col_end
 
 
-def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False, keep_kind=False, strict_text=False):
+def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False, keep_kind=False, strict_text=False,
+                    tables=None):
     report = Report()
-    data = workbook.read(xlsx_path, force=force, strict=strict_text)
+    data = workbook.read(xlsx_path, force=force, strict=strict_text, tables=tables)
     report.warnings.extend(data.warnings)
     if md_path is None:
         md_path = data.markdown_path
@@ -179,7 +181,7 @@ def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False, keep_ki
             by_hash.setdefault(region.source_hash(), []).append(region)
 
     # ブックの表の元の本文。同じ番号の今の表がこのどれかなら、文書の中で表を入れ替えたとみる
-    known_hashes = set(table.source_hash for table in data.tables)
+    known_hashes = data.source_hashes
     replacements = []
     for table in data.tables:
         label = "表 %d" % table.number
@@ -261,12 +263,17 @@ def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False, keep_ki
                     "%s: 末尾の %d %sが空になっている（%sごと消すなら、Excel で%sを削除する）"
                     % (label, count - previous, unit, unit, unit))
         replacements.append(Replacement(region, lines, model))
+        changes = compare_models(old_model, model)
+        summary = changes.summary()
         if converted:
-            report.messages.append("%s（%s）: %sため HTML の表に変えて更新" % (label, _range_text(region), converted))
+            report.messages.append("%s（%s）: %sため HTML の表に変えて更新%s"
+                                   % (label, _range_text(region), converted, summary))
             if region.tight_container:
                 report.warnings.append("%s: 詰めたリストの中で HTML の表にしたので、GitLab では項目の間隔が広がる" % label)
         else:
-            report.messages.append("%s（%s）: 更新" % (label, _range_text(region)))
+            report.messages.append("%s（%s）: 更新%s" % (label, _range_text(region), summary))
+        if dry_run:
+            report.messages.extend(changes.details())
 
     if report.errors:
         report.messages.append("問題があるので書き戻していません")

@@ -71,6 +71,7 @@ class TableRegion(object):
         self.tail = ""            # 最後の行で、表より後にある文字（HTML の表）
         self.location = ""
         self.heading = ""
+        self.heading_line = None  # 直前の見出しの最初の行（0 起点）
         self.excluded = None      # 対象外の理由
         self.warnings = []
         self.node = None          # blocks の表の節（パイプ表）
@@ -202,8 +203,9 @@ def find_tables(md):
         offset = infos[following].offset_after(region.container) \
             if following < len(md.lines) and region.container is not None else None
         region.next_nonblank = offset is not None and md.lines[following][offset:].strip() != ""
-        before = [text for start, end, text in headings if end < region.start]
-        region.heading = before[-1] if before else ""
+        before = [(start, text) for start, end, text in headings if end < region.start]
+        if before:
+            region.heading_line, region.heading = before[-1]
         if region.excluded is None:
             if region.kind == "pipe":
                 pipe_table.analyze(md, region)
@@ -213,24 +215,32 @@ def find_tables(md):
 
 
 def select_tables(regions, selectors):
-    """--table の指定（番号か L行番号）に合う表。指定が無ければすべて。"""
+    """--table の指定（番号・L行番号・直前の見出し）に合う表。指定が無ければすべて。"""
     if not selectors:
         return list(regions)
     chosen = []
     for selector in selectors:
         text = selector.strip()
+        found = []
+        missing = None
         if re.match(r"^[Ll]\d+$", text):
             line = int(text[1:]) - 1
             found = [r for r in regions if r.start <= line <= r.end]
-            if not found:
-                raise MarkdownError("%d 行目を含む表がありません" % (line + 1))
+            missing = "%d 行目を含む表がありません" % (line + 1)
         elif re.match(r"^\d+$", text):
             number = int(text)
             found = [r for r in regions if r.number == number]
+            missing = "表 %d はありません（表は %d 個）" % (number, len(regions))
+        if not found:
+            # 番号・行番号に当たる表が無ければ、見出しが「2026」や「L12」のこともあるので、見出しの文字として探す
+            found = [r for r in regions if r.heading_line is not None and r.heading.strip() == text]
             if not found:
-                raise MarkdownError("表 %d はありません（表は %d 個）" % (number, len(regions)))
-        else:
-            raise MarkdownError("--table には表の番号か L行番号 を指定してください: %s" % selector)
+                raise MarkdownError(
+                    missing or "直前の見出しが「%s」の表がありません（--table は番号・L行番号・直前の見出しの文字）" % text)
+            heading_lines = sorted({r.heading_line for r in found})
+            if len(heading_lines) > 1:
+                lines = "・".join("%d 行目" % (line + 1) for line in heading_lines)
+                raise MarkdownError("見出し「%s」が複数あります（%s）。番号か L行番号 で選んでください" % (text, lines))
         for region in found:
             if region not in chosen:
                 chosen.append(region)

@@ -94,6 +94,7 @@ class WorkbookData(object):
         self.format_version = None
         self.tool_version = None
         self.tables = []
+        self.source_hashes = set()   # ブックの全部の表の元の本文（取り込む表を絞っても全部）
         self.warnings = []
 
 
@@ -707,7 +708,7 @@ def _read_meta(ws, data):
         data.tables.append(table)
 
 
-def read(path, force=False, strict=False):
+def read(path, force=False, strict=False, tables=None):
     """ブックを読む。"""
     if not os.path.splitext(path)[1].lower() in (".xlsx", ".xlsm"):
         raise WorkbookError("Excel のブック（.xlsx）を指定してください: %s" % path)
@@ -727,6 +728,13 @@ def read(path, force=False, strict=False):
         raise WorkbookError("md-table-excel で書き出したブックではありません（管理用シートが無い）")
     data = WorkbookData()
     _read_meta(workbook[META_SHEET], data)
+    if tables is not None:
+        numbers = [table.number for table in data.tables]
+        for number in tables:
+            if number not in numbers:
+                raise WorkbookError("ブックに表 %d はありません（ブックの表: %s）"
+                                    % (number, ", ".join(str(n) for n in numbers)))
+    data.source_hashes = set(table.source_hash for table in data.tables)
     known_titles = set()
     for table in data.tables:
         name = NAME_PREFIX + str(table.number)
@@ -750,7 +758,11 @@ def read(path, force=False, strict=False):
             continue
         known_titles.add(sheet.title)
         table.sheet_title = sheet.title
-        table.model = _read_table_sheet(sheet, start, table, force, strict)
+        if tables is None or table.number in tables:
+            # 選んでいない表のシートは、対応だけを確かめて中身は読まない（その警告やエラーで止めない）
+            table.model = _read_table_sheet(sheet, start, table, force, strict)
+    if tables is not None:
+        data.tables = [table for table in data.tables if table.number in tables]
     for title in workbook.sheetnames:
         if title not in known_titles and title not in (INDEX_SHEET, META_SHEET):
             data.warnings.append("シート「%s」はどの表とも対応しないので読まない" % title)
