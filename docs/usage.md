@@ -109,6 +109,7 @@
 1. 書き出したファイルを確かめる。
 
    ```bash
+   printf '\n\033[7m 確認 \033[0m\n'
    ls -l -- "$preview_dir/preview.html"
    ```
 
@@ -119,7 +120,17 @@
 
    - Ctrl+O を押し、この項の手順 2 で確かめたファイルを開く
    - 本文に「書き出しの確認」と「本文です。」が出ればよい
-   - 試験用のフォルダーは、確認が終わって不要になったら消してよい
+
+1. 試験用のフォルダーを消す。
+
+   ```bash
+   # この項の手順 1 で作った試験用のフォルダーを消す
+   [ -n "${preview_dir:-}" ] && rm -r -- "$preview_dir"
+   unset preview_dir
+   ```
+
+   - 何も出なければよい
+   - この項の手順 1 と同じ端末で行う（別の端末では、消すフォルダーが分からない）
 
 <details id="mdpreview-で-markdown-を-html-に書き出す-の補足と注意点">
   <summary>mdpreview で Markdown を HTML に書き出す の補足と注意点</summary>
@@ -127,7 +138,7 @@
 **[mdpreview で Markdown を HTML に書き出す](#mdpreview-で-markdown-を-html-に書き出す)の手順 1**
 
 - 自分の文書を使う形は `mdpreview render -o preview.html README.md`。`-o` を省くと標準出力に HTML を書く。書き出し先のフォルダーは先に用意する
-- 知らせがあれば、標準エラーに種類ごとの件数を出す。例は `mdpreview: 参照: 2 件`、`mdpreview: 見つからないメディア: 1 件`。ほかの種類の名前は「図」「提案」「取り込み」「絵文字」
+- 知らせがあれば、標準エラーに種類ごとの件数を出す。例は `mdpreview: 参照: 2 件`、`mdpreview: 見つからないメディア: 1 件`。ほかの種類の名前は「図」「提案」「取り込み」「絵文字」と、件数が多くて省いた分の「省略した知らせ」
 - `--theme system|light|dark` で配色、`--width fluid|fixed` で本文幅を選ぶ。既定は `system`（OS に従う）と `fluid`（全幅）
 - `system` の暗い配色は画面だけに使い、印刷は明るい配色にする
 - `--root <フォルダー>` でルートを指定できる。省略したときのルートの決め方はプレビューと同じ
@@ -136,7 +147,7 @@
 - 入力の Markdown と同じファイルは、書き出し先にできない
 - 別の Markdown へのリンクもファイルへのリンクとして残る。リンク先の HTML をまとめて作る機能はない
 - 公式スタイルを導入していても、書き出しには同梱のスタイルを使う。必要な KaTeX・mermaid と数式のフォントを埋め込む。数式も図も無ければスクリプトを入れない
-- mermaid の図があると、ライブラリを埋め込むため HTML が大きくなる。数式 2 つと図 1 つを含む文書を Windows 11 で書き出した例では約 6.2 MB
+- mermaid の図があると、ライブラリを埋め込むため HTML が大きくなる。数式と図を含む文書を書き出した例では約 6.2 MB
 
 **[mdpreview で Markdown を HTML に書き出す](#mdpreview-で-markdown-を-html-に書き出す)の手順 3**
 
@@ -239,9 +250,9 @@
 1. 試験用の Markdown を作り、HTML に書き出す。
 
    ```powershell
+   # 試験用の Markdown を HTML に書き出す
+   $previewDirectory = Join-Path ([IO.Path]::GetTempPath()) ("md-preview-" + [guid]::NewGuid())
    & {
-     # 試験用の Markdown を HTML に書き出す
-     $previewDirectory = Join-Path ([IO.Path]::GetTempPath()) ("md-preview-" + [guid]::NewGuid())
      New-Item -ItemType Directory -Path $previewDirectory -ErrorAction Stop | Out-Null
      Set-Content -LiteralPath "$previewDirectory\preview.md" -Value "# 書き出しの確認`n`n本文です。" -Encoding utf8 -ErrorAction Stop
      mdpreview render -o "$previewDirectory\preview.html" "$previewDirectory\preview.md"
@@ -259,7 +270,16 @@
 
    - Ctrl+O を押し、この項の手順 2 で確かめたファイルを開く
    - 本文に「書き出しの確認」と「本文です。」が出ればよい
-   - 試験用のフォルダーは、確認が終わって不要になったら消してよい
+
+1. 試験用のフォルダーを消す。
+
+   ```powershell
+   # この項の手順 2 で作った試験用のフォルダーを消す
+   if ($previewDirectory) { Remove-Item -LiteralPath $previewDirectory -Recurse; $previewDirectory = $null }
+   ```
+
+   - 何も出なければよい
+   - この項の手順 2 と同じ PowerShell 7 の窓で行う（別の窓では、消すフォルダーが分からない）
 
 <details id="windows-11-の-mdpreview-で-markdown-を-html-に書き出す-の補足と注意点">
   <summary>Windows 11 の mdpreview で Markdown を HTML に書き出す の補足と注意点</summary>
@@ -271,7 +291,7 @@
 **[Windows 11 の mdpreview で Markdown を HTML に書き出す](#windows-11-の-mdpreview-で-markdown-を-html-に書き出す)の手順 2**
 
 - 自分の文書を使う形は `mdpreview render -o preview.html README.md`。`-o` を省くと標準出力に HTML を書く。書き出し先のフォルダーは先に用意する
-- 知らせがあれば、標準エラーに種類ごとの件数を出す。例は `mdpreview: 参照: 2 件`、`mdpreview: 見つからないメディア: 1 件`。ほかの種類の名前は「図」「提案」「取り込み」「絵文字」
+- 知らせがあれば、標準エラーに種類ごとの件数を出す。例は `mdpreview: 参照: 2 件`、`mdpreview: 見つからないメディア: 1 件`。ほかの種類の名前は「図」「提案」「取り込み」「絵文字」と、件数が多くて省いた分の「省略した知らせ」
 - `--theme system|light|dark` で配色、`--width fluid|fixed` で本文幅を選ぶ。既定は `system`（OS に従う）と `fluid`（全幅）
 - `system` の暗い配色は画面だけに使い、印刷は明るい配色にする
 - `--root <フォルダー>` でルートを指定できる。省略したときのルートの決め方はプレビューと同じ
@@ -280,7 +300,7 @@
 - 入力の Markdown と同じファイルは、書き出し先にできない
 - 別の Markdown へのリンクもファイルへのリンクとして残る。リンク先の HTML をまとめて作る機能はない
 - 公式スタイルを導入していても、書き出しには同梱のスタイルを使う。必要な KaTeX・mermaid と数式のフォントを埋め込む。数式も図も無ければスクリプトを入れない
-- mermaid の図があると、ライブラリを埋め込むため HTML が大きくなる。数式 2 つと図 1 つを含む文書を書き出した例では約 6.2 MB
+- mermaid の図があると、ライブラリを埋め込むため HTML が大きくなる。数式と図を含む文書を書き出した例では約 6.2 MB
 
 **[Windows 11 の mdpreview で Markdown を HTML に書き出す](#windows-11-の-mdpreview-で-markdown-を-html-に書き出す)の手順 3**
 
