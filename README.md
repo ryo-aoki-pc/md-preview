@@ -11,7 +11,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - 本文の相対リンクから別の Markdown へ移り、ブラウザの戻る・進むで行き来する。「一覧」でルート内の文書を選び、「見出し」で見出しの一覧を左に出し入れする
 - 「GitLab との違い」で、参照・図・提案・取り込み・絵文字・メディアの知らせを読み、本文の該当する行へ移る
 - `::include{file=…}` でルート内のファイルを取り込む。取り込むファイルの変更・削除・作成に合わせて描き直す
-- 数式（KaTeX）と図（mermaid）を、同梱のライブラリで描く
+- 数式（KaTeX）と図（mermaid）を、同梱のライブラリで描く。PlantUML の図は、`plantuml` コマンドが入っていれば、手元のそのコマンドで描く
 - Markdown を HTML に書き出す。スタイルと、文書に必要な数式・図のライブラリを埋め込み、サーバーを起こさずにブラウザで開ける形にする
 - ブラウザから印刷する。印刷用の表示では操作欄・見出し欄・知らせを隠す
 - 配色（システム・ライト・ダーク）と本文幅（全幅・固定幅）を切り替える。任意で GitLab の公式スタイルとフォントを取得し、プレビューに使う
@@ -27,6 +27,8 @@ Node.js 22 以上（npm を含む）と git が要る。ソースを clone し�
 | Windows 11 | [Windows 11 で md-preview を導入・更新する](docs/install.md#windows-11-で-md-preview-を導入更新する) |
 
 公式スタイルは任意。[AlmaLinux 10 の取得手順](docs/install.md#md-preview-の公式スタイルを取得する)・[Windows 11 の取得手順](docs/install.md#windows-11-で-md-preview-の公式スタイルを取得する)に従う。未導入なら同梱のスタイルで表示する。
+
+PlantUML の図も任意。Windows 11 は [Windows 11 で PlantUML を入れる](docs/install.md#windows-11-で-plantuml-を入れる)に従う。AlmaLinux 10 の導入の手順はまだ無い（`plantuml` コマンドが PATH にあれば使う）。`plantuml` コマンドが無ければ、図は原文のコードブロックで表示する。
 
 ## 使い方
 
@@ -50,7 +52,7 @@ mdpreview --help
 - 利用者が `mdpreview install-style` を実行したとき、公式の CSS・フォント・ライセンスを取得する。`--check` は取得しない
 - 開発用の `tools/make-fixtures.mjs` を実行したとき、合成の Markdown だけを gitlab.com に送り、描画の見本を取得する。アプリからは呼ばれない
 
-これ以外は外へ通信しない。プレビューの表示と HTML への書き出しでは、公式スタイルやライブラリを取得しない。
+これ以外は外へ通信しない。プレビューの表示と HTML への書き出しでは、公式スタイルやライブラリを取得しない。PlantUML の図は手元の `plantuml` コマンドで描き、図の中から URL を読む記法は止めている。
 
 ## 描画エンジン
 
