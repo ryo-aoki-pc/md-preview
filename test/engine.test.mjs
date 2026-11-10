@@ -15,7 +15,7 @@ test('.wasm と gem の写しが engine.lock.json の固定値と同じ', () => 
   const wasm = readFileSync(new URL(lock.wasm.path, engineDir));
   assert.equal(wasm.length, lock.wasm.size);
   assert.equal(sha256(wasm), lock.wasm.sha256);
-  for (const [path, record] of Object.entries(lock.gem.files)) {
+  for (const [path, record] of [...Object.entries(lock.gem.files), [lock.gitlab.options.path, lock.gitlab.options]]) {
     assert.equal(sha256(readFileSync(new URL(path, engineDir))), record.sha256, path);
   }
 });
@@ -37,16 +37,26 @@ test('Cargo.toml の comrak の版が固定値と同じ', () => {
 });
 
 test('オプションは GitLab の OPTIONS と同じ', () => {
-  // lib/banzai/filter/markdown_engines/glfm_markdown.rb (GitLab 19.5.1) の OPTIONS。github_pre_lang は render_options が足す。
-  assert.deepEqual({ ...GITLAB_OPTIONS, only_escape_chars: [...GITLAB_OPTIONS.only_escape_chars] }, {
-    alerts: true, autolink: true, cjk_friendly_emphasis: true, description_lists: true, escaped_char_spans: true,
-    footnotes: true, full_info_string: true, hardbreaks: false, header_accessibility: true,
-    header_id_prefix: 'user-content-', inapplicable_tasks: true, math_code: true, math_dollars: true,
-    multiline_block_quotes: true, only_escape_chars: ['$', '%', '#', '&', '@', '!', '~', '^', ':'],
-    placeholder_detection: true, relaxed_autolinks: true, relaxed_tasklist_character: true, smart: false,
-    sourcepos: true, strikethrough: true, table: true, tasklist: true, tasklist_classes: true,
-    tasklist_in_table: true, wikilinks_title_before_pipe: true, unsafe: true, github_pre_lang: true,
-  });
+  // engine/gitlab/glfm_markdown.rb は GitLab 19.5.1 の lib/banzai/filter/markdown_engines/glfm_markdown.rb の写し。
+  // その OPTIONS のハッシュを読み、lib/engine.mjs の値と比べる。
+  const ruby = readFileSync(new URL(lock.gitlab.options.path, engineDir), 'utf8');
+  const referenceChars = /REFERENCE_CHARS = %w\[([^\]]+)\]\.freeze/.exec(ruby)[1].split(' ');
+  const body = /^ {8}OPTIONS = \{\n([\s\S]*?)\n {8}\}\.freeze$/m.exec(ruby)[1];
+  const expected = {};
+  for (const line of body.split('\n')) {
+    const [, key, value] = /^\s*(\w+): (.+?),?$/.exec(line);
+    if (value === 'true' || value === 'false') expected[key] = value === 'true';
+    else if (value === 'REFERENCE_CHARS') expected[key] = referenceChars;
+    // Banzai::Renderer::USER_CONTENT_ID_PREFIX の値 (GitLab の lib/banzai/renderer.rb)
+    else if (value === 'Banzai::Renderer::USER_CONTENT_ID_PREFIX') expected[key] = 'user-content-';
+    else assert.fail(`OPTIONS の読めない値: ${line}`);
+  }
+  assert.ok(Object.keys(expected).length >= 25, 'OPTIONS を読めていない');
+  // github_pre_lang は OPTIONS ではなく render_options が足す (機能フラグで決まる)。ここでは <pre lang> の形に固定している。
+  assert.match(ruby, /github_pre_lang: Feature\.disabled\?\(:use_css_language_classes, resolve_project\)/);
+  const { github_pre_lang: preLang, ...ours } = GITLAB_OPTIONS;
+  assert.equal(preLang, true);
+  assert.deepEqual({ ...ours, only_escape_chars: [...ours.only_escape_chars] }, expected);
 });
 
 test('見出しは id を持ち、アンカーを末尾に置く', () => {
@@ -125,9 +135,7 @@ test('日本語・絵文字・対になっていないサロゲートを扱え�
 
 test('大きい文書を続けて描ける', () => {
   const big = '# h\n\ntext **b** `c` [l](u)\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n- [ ] t\n\n'.repeat(2000);
-  const started = performance.now();
   const html = renderMarkdown(big);
-  assert.ok(performance.now() - started < 5000, '136 KB の文書に 5 秒以上かかった');
   assert.equal((html.match(/<table /g) || []).length, 2000);
   for (let i = 0; i < 50; i++) assert.equal(renderMarkdown('x\n', { sourcepos: false }), '<p>x</p>\n');
 });

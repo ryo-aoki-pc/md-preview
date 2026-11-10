@@ -8,12 +8,12 @@ Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本
 
 - 描画と表示の経路から、外へ通信しない。本文を GitLab の API に送る処理、CDN からライブラリを読む処理を足さない
 - `lib/engine.mjs` の HTML は消毒していない。消毒を通す前の HTML を、ページにもファイルにも出さない
-- `engine/src/glfm.rs`・`engine/src/formatter.rs`・`engine/licenses/gitlab-glfm-markdown.txt` は gem `gitlab-glfm-markdown` の写しで、書き換えない。GitLab の描画に合わせる直しは、gem の版を上げて取り込む
+- `engine/src/glfm.rs`・`engine/src/formatter.rs`・`engine/licenses/gitlab-glfm-markdown.txt` は gem `gitlab-glfm-markdown` の写し、`engine/gitlab/glfm_markdown.rb` は GitLab のソースの写しで、書き換えない。GitLab の描画に合わせる直しは、gem の版を上げて取り込む
 - `engine/glfm_markdown.wasm` を手で差し替えない。`engine/build.sh --update` で作り、`engine/engine.lock.json` と一緒にコミットする
 
 ## 構成
 
-- `engine/` — 描画エンジンの Rust の crate。`src/glfm.rs`・`src/formatter.rs` は gem の写し、`src/lib.rs` は WebAssembly から呼ぶ入口（Ruby の橋渡しの代わり）。`glfm_markdown.wasm` はビルドした成果物、`engine.lock.json` は GitLab・gem・comrak・コンテナのイメージ・`.wasm` の固定値、`licenses/` は `.wasm` に入る crate のライセンスの原文、`build.sh` は作り直す手順
+- `engine/` — 描画エンジンの Rust の crate。`src/glfm.rs`・`src/formatter.rs` は gem の写し、`src/lib.rs` は WebAssembly から呼ぶ入口（Ruby の橋渡しの代わり）。`gitlab/glfm_markdown.rb` は GitLab がこの gem に渡すオプションのソースの写し（試験が `lib/engine.mjs` の値と比べる）、`glfm_markdown.wasm` はビルドした成果物、`engine.lock.json` は GitLab・gem・comrak・コンテナのイメージ・`.wasm` の固定値、`licenses/` は `.wasm` に入る crate のライセンスの原文、`build.sh` は作り直す手順
 - `lib/engine.mjs` — `.wasm` を読み、Markdown を GitLab の整形器の HTML にする（`renderMarkdown`）。オプションは GitLab の `OPTIONS` と同じ値（`GITLAB_OPTIONS`）
 - `test/` — `node --test` の試験
 
@@ -22,12 +22,18 @@ Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本
 使うホストに Rust もコンテナも要らない。作り直すのは、gem の版を上げるときと、`engine/src/lib.rs`・`engine/Cargo.toml` を変えたときだけ。podman（無ければ docker）と Node.js が要る。
 
 ```sh
-engine/build.sh              # Cargo.lock のとおりにビルドし、.wasm が engine.lock.json と同じことを確かめる
-engine/build.sh --check-gem  # 写しと、Cargo.lock の重なる crate の版と checksum が、rubygems.org のソース gem と同じことを確かめる
+engine/build.sh              # Cargo.lock のとおりにビルドし、作り直した .wasm・置いてある .wasm・engine.lock.json が同じことを確かめる
+engine/build.sh --check-gem  # 写しと、Cargo.lock の重なる crate の版と checksum が、取得した gem・GitLab のソースと同じことを確かめる
 engine/build.sh --update     # .wasm・licenses/・engine.lock.json の wasm の値を書き直す
 ```
 
-GitLab の版を上げるときは、その版の `Gemfile.lock` の `gitlab-glfm-markdown` の版を調べ、ソース gem から `glfm.rs`・`formatter.rs`・`LICENSE`・`Cargo.lock` を写し、`engine/Cargo.toml` の版と comrak の版、`engine/engine.lock.json` の `gitlab`・`gem`・`comrak` を合わせてから `--update` を実行する。`lib/engine.mjs` の `GITLAB_OPTIONS` も、その版の `lib/banzai/filter/markdown_engines/glfm_markdown.rb` と比べる。
+GitLab の版を上げるときは、次の順に行う。
+
+1. その版の `Gemfile.lock` で `gitlab-glfm-markdown` の版を調べ、rubygems.org のソース gem から `glfm.rs`・`formatter.rs`・`LICENSE`・`Cargo.lock` を写す。`lib/banzai/filter/markdown_engines/glfm_markdown.rb` を `engine/gitlab/glfm_markdown.rb` に写す
+2. `engine/Cargo.toml` の版と comrak の版を合わせる
+3. `engine/engine.lock.json` の `gitlab`（版・出典・オプションの URL と sha256）、`gem`（版・URL・sha256・`files` の sha256）、`comrak` を書き換える。`build.sh` は最初に写しを `engine.lock.json` の sha256 と比べるので、ここを合わせないと止まる
+4. `engine/build.sh --check-gem`、`engine/build.sh --update` の順に実行する
+5. `lib/engine.mjs` の `GITLAB_OPTIONS` を、写した `glfm_markdown.rb` の `OPTIONS` に合わせる（`npm test` が比べる）
 
 ## テスト
 

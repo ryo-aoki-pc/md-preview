@@ -4,7 +4,8 @@
 #   engine/build.sh               Cargo.lock のとおりにビルドし、できた .wasm を engine.lock.json の sha256 と比べる
 #   engine/build.sh --update      Cargo.lock の更新を許し、.wasm・licenses/・engine.lock.json の wasm の値を書き直す
 #   engine/build.sh --check-gem   rubygems.org のソース gem を取得し、写し (src/glfm.rs・src/formatter.rs・ライセンス) と、
-#                                 Cargo.lock の重なる crate の版と checksum が gem と同じことを確かめる (ビルドはしない)
+#                                 Cargo.lock の重なる crate の版と checksum が gem と同じことを確かめる。GitLab の
+#                                 オプションの写し (gitlab/glfm_markdown.rb) も、取得したものと比べる (ビルドはしない)
 #
 # 要るもの: podman (無ければ docker) と node。イメージ・gem・.wasm の固定値は engine.lock.json にある。
 set -euo pipefail
@@ -19,17 +20,17 @@ build | --update | --check-gem) ;;
   ;;
 esac
 
-lock() { node -e 'const l=require(process.argv[1]);let v=l;for(const k of process.argv[2].split("."))v=v[k];process.stdout.write(String(v))' "$here/engine.lock.json" "$1"; }
-sha256() { node -e 'process.stdout.write(require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex"))' "$1"; }
+lock() { node --input-type=commonjs -e 'const l=require(process.argv[1]);let v=l;for(const k of process.argv[2].split("."))v=v[k];process.stdout.write(String(v))' "$here/engine.lock.json" "$1"; }
+sha256() { node --input-type=commonjs -e 'process.stdout.write(require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex"))' "$1"; }
 
 # 写しが固定値のとおりか (どのモードでも確かめる)
-node - "$here" <<'EOF'
+node --input-type=commonjs - "$here" <<'EOF'
 const { createHash } = require('crypto');
 const { readFileSync } = require('fs');
 const { join } = require('path');
 const here = process.argv[2];
 const lock = require(join(here, 'engine.lock.json'));
-for (const [path, record] of Object.entries(lock.gem.files)) {
+for (const [path, record] of [...Object.entries(lock.gem.files), [lock.gitlab.options.path, lock.gitlab.options]]) {
   const actual = createHash('sha256').update(readFileSync(join(here, path))).digest('hex');
   if (actual !== record.sha256) {
     console.error(`engine/${path} が engine.lock.json の sha256 と一致しません。`);
@@ -46,10 +47,15 @@ if [ "$mode" = "--check-gem" ]; then
     echo "取得した gem が engine.lock.json の sha256 と一致しません。" >&2
     exit 1
   fi
+  curl -fsSL -o "$work/options.rb" "$(lock gitlab.options.url)"
+  if [ "$(sha256 "$work/options.rb")" != "$(lock gitlab.options.sha256)" ]; then
+    echo "取得した GitLab のオプションのソースが engine.lock.json の sha256 と一致しません。" >&2
+    exit 1
+  fi
   tar -xf "$work/source.gem" -C "$work" data.tar.gz
   mkdir "$work/data"
   tar -xzf "$work/data.tar.gz" -C "$work/data"
-  node - "$here" "$work/data" <<'EOF'
+  node --input-type=commonjs - "$here" "$work/data" <<'EOF'
 const { readFileSync } = require('fs');
 const { join } = require('path');
 const [here, data] = process.argv.slice(2);
@@ -115,9 +121,11 @@ locked=--locked
 # shellcheck disable=SC2016 # 引用符の中の $ は、コンテナの中の sh が展開する
 MSYS_NO_PATHCONV=1 "$engine" run --rm --security-opt label=disable \
   -v "$(host "$here"):/src" -v "$(host "$out"):/out" -w /src \
-  -e CARGO_TARGET_DIR=/tmp/target -e LOCKED="$locked" \
+  -e CARGO_TARGET_DIR=/tmp/target -e LOCKED="$locked" -e RUSTC_VERSION="$(lock rustc)" \
   "$(lock image)" sh -euc '
-    rustup target add wasm32-unknown-unknown >/dev/null 2>&1
+    # イメージの中の rustc が、固定値に書いた版か
+    rustc --version | grep -qF "rustc $RUSTC_VERSION "
+    rustup target add wasm32-unknown-unknown
     cargo build --release $LOCKED --target wasm32-unknown-unknown
     cp /tmp/target/wasm32-unknown-unknown/release/glfm_markdown_wasm.wasm /out/glfm_markdown.wasm
     # .wasm に入る crate (proc-macro とビルド用の依存は入らない) と、そのライセンスの原文
@@ -152,7 +160,7 @@ if [ "$mode" = "--update" ]; then
   mkdir -p "$here/licenses"
   find "$here/licenses" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
   cp -r "$out/licenses/." "$here/licenses/"
-  node - "$here" "$actual" <<'EOF'
+  node --input-type=commonjs - "$here" "$actual" <<'EOF'
 const { readFileSync, writeFileSync, statSync } = require('fs');
 const { join } = require('path');
 const [here, sha256] = process.argv.slice(2);
@@ -163,9 +171,13 @@ lock.wasm.size = statSync(join(here, lock.wasm.path)).size;
 writeFileSync(path, JSON.stringify(lock, null, 2) + '\n');
 EOF
   echo "glfm_markdown.wasm を作り直しました (sha256 $actual)。"
-elif [ "$actual" = "$(lock wasm.sha256)" ]; then
-  echo "glfm_markdown.wasm は engine.lock.json と同じです (sha256 $actual)。"
-else
+elif [ "$actual" != "$(lock wasm.sha256)" ]; then
   echo "作り直した .wasm (sha256 $actual) が engine.lock.json と違います。" >&2
   exit 1
+elif [ "$(sha256 "$here/glfm_markdown.wasm")" != "$actual" ]; then
+  # 作り直したものが固定値と同じでも、置いてある .wasm が別物なら通さない
+  echo "engine/glfm_markdown.wasm が、作り直した .wasm (sha256 $actual) と違います。" >&2
+  exit 1
+else
+  echo "glfm_markdown.wasm は、作り直したものとも engine.lock.json とも同じです (sha256 $actual)。"
 fi

@@ -2,7 +2,12 @@
   "schema": 1,
   "gitlab": {
     "version": "19.5.1",
-    "source": "https://github.com/gitlabhq/gitlabhq/blob/v19.5.1/Gemfile.lock"
+    "source": "https://github.com/gitlabhq/gitlabhq/blob/v19.5.1/Gemfile.lock",
+    "options": {
+      "path": "gitlab/glfm_markdown.rb",
+      "url": "https://raw.githubusercontent.com/gitlabhq/gitlabhq/v19.5.1/lib/banzai/filter/markdown_engines/glfm_markdown.rb",
+      "sha256": "e672a6547ace895d98cdb30d06ceab663ece60c940049f8d68649ae31027a881"
+    }
   },
   "gem": {
     "name": "gitlab-glfm-markdown",
