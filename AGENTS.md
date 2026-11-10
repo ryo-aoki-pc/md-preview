@@ -23,7 +23,7 @@ Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本
 
 ```sh
 engine/build.sh              # Cargo.lock のとおりにビルドし、.wasm が engine.lock.json と同じことを確かめる
-engine/build.sh --check-gem  # 写しと Cargo.lock が、rubygems.org のソース gem と同じことを確かめる
+engine/build.sh --check-gem  # 写しと、Cargo.lock の重なる crate の版と checksum が、rubygems.org のソース gem と同じことを確かめる
 engine/build.sh --update     # .wasm・licenses/・engine.lock.json の wasm の値を書き直す
 ```
 

@@ -46,14 +46,15 @@ pub unsafe extern "C" fn glfm_free(ptr: *mut u8, len: usize) {
 }
 
 fn result(status: u8, body: &[u8]) -> *mut u8 {
-    let Ok(body_len) = u32::try_from(body.len()) else {
+    let (Ok(body_len), Some(total)) = (u32::try_from(body.len()), HEADER.checked_add(body.len()))
+    else {
         return result(1, "結果が大きすぎます。".as_bytes());
     };
-    let ptr = glfm_alloc(HEADER + body.len());
+    let ptr = glfm_alloc(total);
     if ptr.is_null() {
         return ptr;
     }
-    // SAFETY: ptr は HEADER + body.len() バイトの、取ったばかりの領域。
+    // SAFETY: ptr は total (HEADER + body.len()) バイトの、取ったばかりの領域。
     unsafe {
         *ptr = status;
         std::ptr::copy_nonoverlapping(body_len.to_le_bytes().as_ptr(), ptr.add(1), 4);
@@ -65,7 +66,7 @@ fn result(status: u8, body: &[u8]) -> *mut u8 {
 /// Markdown を、GitLab の整形器の HTML にする。オプションは gem の RenderOptions と同じ名前の JSON。
 ///
 /// # Safety
-/// text と options は、それぞれ text_len・options_len バイトの読める領域を指すこと。
+/// text と options は、それぞれ text_len・options_len バイトの読める領域を指すこと (ヌルは誤りとして返す)。
 #[no_mangle]
 pub unsafe extern "C" fn glfm_render(
     text: *const u8,
@@ -73,6 +74,10 @@ pub unsafe extern "C" fn glfm_render(
     options: *const u8,
     options_len: usize,
 ) -> *mut u8 {
+    // 長さが 0 でも、ヌルのポインタからスライスは作れない。
+    if text.is_null() || options.is_null() {
+        return result(1, "入力の領域がありません。".as_bytes());
+    }
     let text = std::slice::from_raw_parts(text, text_len);
     let options = std::slice::from_raw_parts(options, options_len);
     let Ok(text) = std::str::from_utf8(text) else {

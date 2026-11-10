@@ -30,7 +30,7 @@
   "rustc": "1.99.1",
   "wasm": {
     "path": "glfm_markdown.wasm",
-    "sha256": "ac55f1e0b8ceba2e317e45316941fd3adbf2ab6efd5af86de7bf595c2a12c093",
-    "size": 2030368
+    "sha256": "f18807cc740c6d10f9f28d7fd754aa018e1fd84571d09f3ae39ec12f8e0b9ac7",
+    "size": 2030522
   }
 }

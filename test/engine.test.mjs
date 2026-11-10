@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { GITLAB_OPTIONS, renderMarkdown } from '../lib/engine.mjs';
+import { createEngine, GITLAB_OPTIONS, renderMarkdown } from '../lib/engine.mjs';
 
 const engineDir = new URL('../engine/', import.meta.url);
 const lock = JSON.parse(readFileSync(new URL('engine.lock.json', engineDir), 'utf8'));
@@ -113,7 +113,7 @@ test('オプションを重ねられる', () => {
 
 test('誤りは日本語で知らせ、その後も描ける', () => {
   assert.throws(() => renderMarkdown('x', { sourcepos: 'yes' }), /^Error: オプションを読めません: /);
-  assert.throws(() => renderMarkdown(null), TypeError);
+  assert.throws(() => renderMarkdown(null), { name: 'TypeError', message: 'Markdown は文字列で渡してください。' });
   assert.equal(renderMarkdown(''), '');
   assert.equal(renderMarkdown('ok\n', { sourcepos: false }), '<p>ok</p>\n');
 });
@@ -130,4 +130,112 @@ test('大きい文書を続けて描ける', () => {
   assert.ok(performance.now() - started < 5000, '136 KB の文書に 5 秒以上かかった');
   assert.equal((html.match(/<table /g) || []).length, 2000);
   for (let i = 0; i < 50; i++) assert.equal(renderMarkdown('x\n', { sourcepos: false }), '<p>x</p>\n');
+});
+
+// ---- 入口 (engine/src/lib.rs) を、JavaScript の入口を通さずに呼ぶ ----
+
+function rawWasm() {
+  return new WebAssembly.Instance(new WebAssembly.Module(readFileSync(new URL(lock.wasm.path, engineDir))), {}).exports;
+}
+
+function readResult(wasm, pointer) {
+  const view = new DataView(wasm.memory.buffer);
+  const length = view.getUint32(pointer + 1, true);
+  const body = new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, pointer + 5, length));
+  const status = view.getUint8(pointer);
+  wasm.glfm_free(pointer, 5 + length);
+  return { status, body };
+}
+
+test('入口はヌルの領域と UTF-8 でない入力を、誤りとして返す', () => {
+  const wasm = rawWasm();
+  assert.deepEqual(readResult(wasm, wasm.glfm_render(0, 0, 0, 0)), { status: 1, body: '入力の領域がありません。' });
+  const options = new TextEncoder().encode('{}');
+  const optionsPointer = wasm.glfm_alloc(options.length);
+  new Uint8Array(wasm.memory.buffer, optionsPointer, options.length).set(options);
+  const textPointer = wasm.glfm_alloc(2);
+  new Uint8Array(wasm.memory.buffer, textPointer, 2).set([0xff, 0xfe]);
+  assert.deepEqual(readResult(wasm, wasm.glfm_render(textPointer, 2, optionsPointer, options.length)), { status: 1, body: 'Markdown が UTF-8 ではありません。' });
+  // 長さ 0 の領域 (番兵) も受け付ける
+  assert.deepEqual(readResult(wasm, wasm.glfm_render(wasm.glfm_alloc(0), 0, optionsPointer, options.length)), { status: 0, body: '' });
+  wasm.glfm_free(textPointer, 2);
+  wasm.glfm_free(optionsPointer, options.length);
+});
+
+// ---- JavaScript の入口の、誤りからの立ち直り (本物の .wasm を包んだ偽物で確かめる) ----
+
+function wrapped(overrides) {
+  const calls = { instantiate: 0, alloc: 0, free: 0 };
+  const engine = createEngine({
+    memoryLimit: overrides.memoryLimit,
+    instantiate() {
+      calls.instantiate += 1;
+      const real = rawWasm();
+      const instance = calls.instantiate;
+      return {
+        memory: overrides.memory ? overrides.memory(real.memory, instance) : real.memory,
+        glfm_alloc(length) {
+          calls.alloc += 1;
+          return overrides.alloc ? overrides.alloc(real, length, instance, calls) : real.glfm_alloc(length);
+        },
+        glfm_free(pointer, length) {
+          calls.free += 1;
+          return real.glfm_free(pointer, length);
+        },
+        glfm_render(...args) {
+          return overrides.render ? overrides.render(real, args, instance) : real.glfm_render(...args);
+        },
+      };
+    },
+  });
+  return { engine, calls };
+}
+
+test('描画の中で例外が出たら、エンジンを作り直して次を描く', () => {
+  for (const thrown of [new WebAssembly.RuntimeError('unreachable'), new RangeError('Maximum call stack size exceeded')]) {
+    const { engine, calls } = wrapped({
+      render(real, args, instance) {
+        if (instance === 1) throw thrown;
+        return real.glfm_render(...args);
+      },
+    });
+    assert.throws(() => engine('x\n'), (error) => error.message === '描画エンジンが異常終了しました。' && error.cause === thrown);
+    assert.equal(calls.free, 0, '捨てたエンジンの領域は返さない');
+    assert.equal(engine('ok\n', { sourcepos: false }), '<p>ok</p>\n');
+    assert.equal(calls.instantiate, 2);
+    assert.equal(calls.free, 3, '入力・オプション・結果を 1 回ずつ返す');
+  }
+});
+
+test('領域を取れなかったら、エンジンを作り直して次を描く', () => {
+  const { engine, calls } = wrapped({
+    alloc(real, length, instance, counts) {
+      return instance === 1 && counts.alloc === 2 ? 0 : real.glfm_alloc(length);
+    },
+  });
+  assert.throws(() => engine('x\n'), /^Error: 描画エンジンのメモリーを確保できません。$/);
+  assert.equal(calls.free, 0);
+  assert.equal(engine('ok\n', { sourcepos: false }), '<p>ok</p>\n');
+  assert.equal(calls.instantiate, 2);
+});
+
+test('オプションの誤りでは作り直さず、取った領域をすべて返す', () => {
+  const { engine, calls } = wrapped({});
+  assert.throws(() => engine('x\n', { sourcepos: 'yes' }), /^Error: オプションを読めません: /);
+  assert.equal(calls.free, 3);
+  assert.equal(engine('ok\n', { sourcepos: false }), '<p>ok</p>\n');
+  assert.equal(calls.instantiate, 1);
+  assert.equal(calls.alloc, 4);
+  assert.equal(calls.free, 6);
+});
+
+test('メモリーが上限を超えたら、次の描画の前に作り直す', () => {
+  const { engine, calls } = wrapped({ memoryLimit: 1 });
+  assert.equal(engine('a\n', { sourcepos: false }), '<p>a</p>\n');
+  assert.equal(engine('b\n', { sourcepos: false }), '<p>b</p>\n');
+  assert.equal(calls.instantiate, 2);
+  const roomy = wrapped({});
+  roomy.engine('a\n');
+  roomy.engine('b\n');
+  assert.equal(roomy.calls.instantiate, 1);
 });
