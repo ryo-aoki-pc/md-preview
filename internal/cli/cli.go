@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	mdpreview "github.com/ryo-aoki-pc/md-preview"
 	"github.com/ryo-aoki-pc/md-preview/internal/assets"
 	exporthtml "github.com/ryo-aoki-pc/md-preview/internal/export"
 	"github.com/ryo-aoki-pc/md-preview/internal/fileopen"
@@ -105,10 +106,16 @@ func Run(ctx context.Context, args []string, streams IO, deps Dependencies) int 
 		return 2
 	}
 	if o.Action != "" {
-		if o.Action == "help" {
+		switch o.Action {
+		case "help":
 			fmt.Fprint(streams.Stdout, Help)
-		} else {
+		case "version":
 			fmt.Fprintln(streams.Stdout, version.Version)
+		case "licenses":
+			if err := mdpreview.WriteLicenses(streams.Stdout); err != nil {
+				report("ライセンスを書き込めません")
+				return 1
+			}
 		}
 		return 0
 	}

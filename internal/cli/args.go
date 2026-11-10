@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const Help = "使い方: mdpreview [--port <番号>] [--root <フォルダー>] [--no-open] [--browser <実行ファイル>] [--assets-dir <保存先>] [--no-official-style] [--no-plantuml] <file.md | フォルダー>\n       mdpreview --stdio [--port <番号>] [--assets-dir <保存先>] [--no-official-style] [--no-plantuml]\n       mdpreview install-style [--dir <保存先>] [--check]\n       mdpreview render [--root <フォルダー>] [--theme system|light|dark] [--width fluid|fixed] [--no-plantuml] [-o <out.html>] <file.md>\n       mdpreview --help | --version\nPATH に plantuml があれば、PlantUML の図を手元で描きます。\n--no-plantuml を付けると、原文のコードブロックのまま表示します。\n"
+const Help = "使い方: mdpreview [--port <番号>] [--root <フォルダー>] [--no-open] [--browser <実行ファイル>] [--assets-dir <保存先>] [--no-official-style] [--no-plantuml] <file.md | フォルダー>\n       mdpreview --stdio [--port <番号>] [--assets-dir <保存先>] [--no-official-style] [--no-plantuml]\n       mdpreview install-style [--dir <保存先>] [--check]\n       mdpreview render [--root <フォルダー>] [--theme system|light|dark] [--width fluid|fixed] [--no-plantuml] [-o <out.html>] <file.md>\nPATH に plantuml があれば、PlantUML の図を手元で描きます。\n--no-plantuml を付けると、原文のコードブロックのまま表示します。\n       mdpreview --help | --version | --licenses\n"
 
 type Options struct {
 	Command, Action, File, Root, Browser, AssetsDir, Dir, Theme, Width, Output string
@@ -92,9 +92,9 @@ func ParseArgs(argv []string) (Options, error) {
 			positional = true
 			continue
 		}
-		if !positional && (arg == "--help" || arg == "--version") {
+		if !positional && (arg == "--help" || arg == "--version" || arg == "--licenses") {
 			if len(argv) != 1 {
-				return o, errors.New("--help と --version は単独で指定してください")
+				return o, errors.New("--help・--version・--licenses は単独で指定してください")
 			}
 			o.Action = arg[2:]
 			return o, nil
