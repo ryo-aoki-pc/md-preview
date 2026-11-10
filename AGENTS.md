@@ -4,6 +4,10 @@
 
 Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本文を GitLab にも CDN にも送らず、手元で HTML にする。概要は [README.md](README.md)。Neovim から使う橋渡し（`<leader>cp`）は [LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter) にある。
 
+## 導入手順の正本
+
+AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/install.md) にある。導入スクリプトは `scripts/setup.mjs` に置く。導入の操作を変えたら、README と `docs/install.md` の案内を合わせる。項の見出しを変えたら、そこへリンクしている README・ほかの手順書・LazyVimStarter などのリンクも直す。
+
 ## 守ること
 
 - 描画と表示の経路から、外へ通信しない。本文を GitLab の API に送る処理、CDN からライブラリを読む処理を足さない
@@ -41,6 +45,8 @@ Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本
 - `lib/page.mjs`・`page/` — ページ設定の埋め込みとブラウザの表示。文書の移動・一覧・見出し欄・GitLab との違いの知らせ・印刷の表示も扱う。KaTeX・mermaid は同じサーバーから読む
 - `page/lib/` — ブラウザに配る KaTeX・mermaid と原文のライセンス。`lock.json` に npm の版・integrity と各ファイルの sha256・大きさを固定する
 - `tools/update-page-libs.mjs` — 開発用。`node_modules` の原文を写し直し、`--check` で固定情報・原文との一致を検査する
+- `scripts/setup.mjs` — リポジトリ外への導入・更新と `--check`。実行時のファイルと本番の依存を一時フォルダーで確かめて入れ替え、`mdpreview` の起動役を置く。任意の公式スタイルを保存する隣の `md-preview-assets` は触らない
+- `docs/install.md` — AlmaLinux 10・Windows 11 の導入・更新の手順
 - `tools/make-fixtures.mjs` — 開発用。見本の入力を gitlab.com の Markdown API に送り、返った HTML を保存する。アプリからは呼ばれない
 - `test/` — `node --test` の試験。`test/fixtures/` は、合成の Markdown（`<名前>.md`）、GitLab の本物の出力（`<名前>.gitlab.html`）、取得した条件（`fixtures.json`）
 
@@ -90,7 +96,7 @@ GITLAB_TOKEN=<read_api のトークン> node tools/make-fixtures.mjs <名前>   
 
 ```sh
 npm test
-for f in cli.mjs lib/*.mjs lib/filters/*.mjs page/*.js test/*.mjs tools/*.mjs; do node --check "$f"; done
+for f in cli.mjs lib/*.mjs lib/filters/*.mjs page/*.js scripts/*.mjs test/*.mjs tools/*.mjs; do node --check "$f"; done
 git diff --check
 ```
 
@@ -107,6 +113,7 @@ git diff --check
 - `test/session.test.mjs`・`test/watch.test.mjs`・`test/cli.test.mjs` — 描画の集約と時間切れからの復帰、文書ごとの最新入力、32件の上限と5秒後の破棄、include の変更・削除・出現と32個の監視上限・入れ替え・解除、ファイル保存、CLI のファイル・フォルダーの起動と終了の試験
 - `test/page.test.mjs` — 本物のサーバー・KaTeX・mermaid によるブラウザ試験。文書の移動・戻ると進む・一覧・見出し欄・違いの知らせの安全な表示と行への移動・include の再描画・印刷と、外部要求の試みがないことを確認する。Playwright（`PLAYWRIGHT_MODULE` または `playwright`）と Edge / Chrome / Chromium がない場合は理由を付けて skip する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる
 - `test/stdio.test.mjs` — 実際の子プロセスで hello / ready、本文・スクロール、タブ数、休止・再開、ジャンプ、行の分割・上限、パイプと終了、別ルートへの切り替え時のファイル文書の reload を確かめる
+- `test/setup.test.mjs` — 偽の npm と手元の依存を使う、ネットワーク不要の導入試験。一時の clone と導入先を作業ツリー内に作り、コピー・ハッシュ・依存・起動役・PATH・失敗時の復元・中断後の回収・引数を確かめる。Windows では PowerShell の標準入力も確かめ、シェルが無ければ理由を付けて skip する
 - `test/helpers.mjs` — 作業ツリー内の一時ファイル、HTTP と SSE、非同期条件の試験用補助
 - Node.js 22 以上
 - 描画に関わる変更は、試験に例を足す。GitLab の出力と比べて確かめたことだけを「同じ」と書く
