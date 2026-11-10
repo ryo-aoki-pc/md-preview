@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ryo-aoki-pc/md-preview/internal/plantumlsource"
 	"io"
 	"os"
 	"os/exec"
@@ -202,11 +203,11 @@ func requireError(t *testing.T, err error, word string) {
 }
 
 func TestSource(t *testing.T) {
-	if sourceID("abc") != "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(sourceID("日本語")) || sourceID("a") == sourceID("a\n") {
+	if plantumlsource.ID("abc") != "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(plantumlsource.ID("日本語")) || plantumlsource.ID("a") == plantumlsource.ID("a\n") {
 		t.Fatal("原文の ID が一致しません")
 	}
 	for _, pair := range [][2]string{{"a", "@startuml\na\n@enduml\n"}, {"a\n", "@startuml\na\n@enduml\n"}, {"a\r", "@startuml\na\r@enduml\n"}, {"@startuml\na\n@enduml", "@startuml\na\n@enduml\n"}, {"@startmindmap\n@endmindmap\n", "@startmindmap\n@endmindmap\n"}, {"\n@startuml\na\n@enduml", "@startuml\n\n@startuml\na\n@enduml\n@enduml\n"}, {"  @startuml\n  a\n  @enduml", "@startuml\n  @startuml\n  a\n  @enduml\n@enduml\n"}} {
-		if got := sourceInput(pair[0]); got != pair[1] {
+		if got := plantumlsource.Input(pair[0]); got != pair[1] {
 			t.Errorf("標準入力: %q != %q", got, pair[1])
 		}
 	}
@@ -233,7 +234,7 @@ func TestSharedCacheAndInvocation(t *testing.T) {
 		t.Fatalf("共有とキャッシュの実行回数: %d", len(starts))
 	}
 	c := starts[0]
-	if c.Source != sourceInput("slow 日本語 <秘密の原文>") || c.Security != "SANDBOX" || c.Java != "-Dexample.test=true -DPLANTUML_SECURITY_PROFILE=UNSECURE -Djava.awt.headless=true -DPLANTUML_SECURITY_PROFILE=SANDBOX" {
+	if c.Source != plantumlsource.Input("slow 日本語 <秘密の原文>") || c.Security != "SANDBOX" || c.Java != "-Dexample.test=true -DPLANTUML_SECURITY_PROFILE=UNSECURE -Djava.awt.headless=true -DPLANTUML_SECURITY_PROFILE=SANDBOX" {
 		t.Fatalf("標準入力または安全の設定が一致しません: %+v", c)
 	}
 	if !sameTestPath(c.Cwd, os.TempDir()) {
@@ -350,7 +351,7 @@ func TestCancellationSharingQueueAndRunning(t *testing.T) {
 	until(t, func() bool {
 		f.renderer.mu.Lock()
 		defer f.renderer.mu.Unlock()
-		j := f.renderer.jobs[sourceID("slow shared")]
+		j := f.renderer.jobs[plantumlsource.ID("slow shared")]
 		return j != nil && j.waiters == 2
 	})
 	cancelA()

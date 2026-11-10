@@ -136,16 +136,18 @@ func TestDirectoryAndBrowser(t *testing.T) {
 		}
 	}
 }
-func TestHooksAndPending(t *testing.T) {
+func TestHooksAndCommands(t *testing.T) {
 	var out, errout bytes.Buffer
 	calls := 0
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	deps := Dependencies{CreateDiagram: func(context.Context) (server.DiagramRenderer, error) { calls++; return nil, nil }}
 	for _, args := range [][]string{{"render", "a.md"}, {"install-style", "--check"}} {
-		if code := Run(context.Background(), args, IO{Stdout: &out, Stderr: &errout}, deps); code != 2 {
+		if code := Run(context.Background(), args, IO{Stdout: &out, Stderr: &errout}, deps); code != 1 {
 			t.Fatal(code)
 		}
 	}
-	if calls != 1 || !strings.Contains(errout.String(), "まだ Go 版にありません。") {
+	if calls != 1 || !strings.Contains(errout.String(), "公式スタイルが未導入または破損しています") {
 		t.Fatal(calls, errout.String())
 	}
 	for platform, want := range map[string]string{"windows": "rundll32", "darwin": "open", "linux": "xdg-open"} {
