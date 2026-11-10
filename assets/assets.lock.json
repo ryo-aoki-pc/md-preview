@@ -1,0 +1,467 @@
+{
+  "schema": 1,
+  "version": "19.5.1",
+  "provenance": {
+    "repository": "https://gitlab.com/gitlab-org/gitlab-foss",
+    "tag": "v19.5.1",
+    "source": "https://github.com/gitlabhq/gitlabhq/tree/v19.5.1",
+    "asset_dockerfile": "https://github.com/gitlabhq/gitlabhq/blob/v19.5.1/Dockerfile.assets",
+    "source_imports": [
+      "app/assets/stylesheets/_application_base.scss",
+      "app/assets/stylesheets/framework.scss",
+      "app/assets/stylesheets/highlight/themes/dracula.scss"
+    ],
+    "code_theme": "GitLab公式Dracula（明暗のUIで共用）。許諾未確認のwhite/dark/Solarizedは取得しない。",
+    "dracula_scheme_license": "https://github.com/dracula/base16-dracula-scheme/blob/24e5d937828d22d21b835914ac3c577ca15736a5/LICENSE",
+    "bootstrap_source": "https://cdn.jsdelivr.net/npm/@gitlab/ui@138.3.0/src/vendor/bootstrap/scss/bootstrap.scss",
+    "bootstrap_vue_source": "https://cdn.jsdelivr.net/npm/@gitlab/ui@138.3.0/src/vendor/bootstrap-vue/src/index.scss",
+    "at_js_fork": "https://cdn.jsdelivr.net/npm/@gitlab/at.js@1.5.9/package.json",
+    "licenses_note": "資産を再配布せず各端末で固定版から取得する。CSSのurl()以外とフォントバイナリは変更しない。著作権表示・各原ライセンスを導入先に保存する。"
+  },
+  "archive": {
+    "registry": "https://registry.gitlab.com",
+    "repository": "gitlab-org/gitlab-foss/gitlab-assets-ce",
+    "index_sha256": "85cde825ef0ef5d92944a2948dd1d4d63ca2ec8bd28afac5e947e4f9733eb20a",
+    "manifest_sha256": "b43a400d824e6bcfadbd2ecb763b611f1f3172cd87c17cb0fc38ed8981d26207",
+    "sha256": "e340215f0a12dccd504fe4dd8f5e99dab51dfbb0c0a164bc5ed97a237ee950f8",
+    "size": 784499167
+  },
+  "files": {
+    "application_dark-a3de088d254f447173abe48a05ec6b7ac075668b58b5be1aa26c5012bb0f8395.css": {
+      "archive": "assets/application_dark-a3de088d254f447173abe48a05ec6b7ac075668b58b5be1aa26c5012bb0f8395.css",
+      "logical_path": "application_dark.css",
+      "sha256": "700c321b94a55c10f70be61c1191c26d8a5062d3ca54d4c3558197099522a944",
+      "size": 998096,
+      "mime": "text/css",
+      "licenses": [
+        "licenses/GitLab.txt",
+        "licenses/GitLabUI.txt",
+        "licenses/GitLabDuoUI.txt",
+        "licenses/GitLabAtJS.txt",
+        "licenses/Dropzone.txt",
+        "licenses/Pikaday.txt",
+        "licenses/Tailwind.txt",
+        "licenses/Bootstrap.txt",
+        "licenses/BootstrapVue.txt",
+        "licenses/Normalize.txt"
+      ],
+      "output_sha256": "0a6951a8ac0c6974bd694b3fc53dddb35a533f920404317850bad68a646c7728",
+      "output_size": 998136
+    },
+    "application-79f356d98146549c21e5657de00ff91a957f995329d1725db0bb2a7251d2b59a.css": {
+      "archive": "assets/application-79f356d98146549c21e5657de00ff91a957f995329d1725db0bb2a7251d2b59a.css",
+      "logical_path": "application.css",
+      "sha256": "a67fa370550b722278993e85a2fe6c596a1d9f14f9fcd50f9eda349ac612ff3c",
+      "size": 997251,
+      "mime": "text/css",
+      "licenses": [
+        "licenses/GitLab.txt",
+        "licenses/GitLabUI.txt",
+        "licenses/GitLabDuoUI.txt",
+        "licenses/GitLabAtJS.txt",
+        "licenses/Dropzone.txt",
+        "licenses/Pikaday.txt",
+        "licenses/Tailwind.txt",
+        "licenses/Bootstrap.txt",
+        "licenses/BootstrapVue.txt",
+        "licenses/Normalize.txt"
+      ],
+      "output_sha256": "aae94fc2e4afe868bf06f00e4eea2e6d0456a0e7e5768abb53c193ba8d8a1638",
+      "output_size": 997291
+    },
+    "blooms/bloom-bottom-0767bcecbbfc2dffc3ed95fe12b689d298c7e0845e609c9538b68de5ebf38c80.png": {
+      "archive": "assets/blooms/bloom-bottom-0767bcecbbfc2dffc3ed95fe12b689d298c7e0845e609c9538b68de5ebf38c80.png",
+      "logical_path": "blooms/bloom-bottom.png",
+      "sha256": "0767bcecbbfc2dffc3ed95fe12b689d298c7e0845e609c9538b68de5ebf38c80",
+      "size": 103077,
+      "mime": "image/png",
+      "licenses": [
+        "licenses/GitLab.txt"
+      ]
+    },
+    "blooms/bloom-grand-ambient-a1791dfc95bc1d5b14a11439df5ad4d69be46f89ec8e23af9fac01b7090980f4.png": {
+      "archive": "assets/blooms/bloom-grand-ambient-a1791dfc95bc1d5b14a11439df5ad4d69be46f89ec8e23af9fac01b7090980f4.png",
+      "logical_path": "blooms/bloom-grand-ambient.png",
+      "sha256": "a1791dfc95bc1d5b14a11439df5ad4d69be46f89ec8e23af9fac01b7090980f4",
+      "size": 322267,
+      "mime": "image/png",
+      "licenses": [
+        "licenses/GitLab.txt"
+      ]
+    },
+    "blooms/bloom-side-a17ad5187e2a6699d57babcd08a1eb502866d773d2d631cc01a47e47e1023b19.png": {
+      "archive": "assets/blooms/bloom-side-a17ad5187e2a6699d57babcd08a1eb502866d773d2d631cc01a47e47e1023b19.png",
+      "logical_path": "blooms/bloom-side.png",
+      "sha256": "a17ad5187e2a6699d57babcd08a1eb502866d773d2d631cc01a47e47e1023b19",
+      "size": 105922,
+      "mime": "image/png",
+      "licenses": [
+        "licenses/GitLab.txt"
+      ]
+    },
+    "fonts-deb7ad1d55ca77c0172d8538d53442af63604ff490c74acc2859db295c125bdb.css": {
+      "archive": "assets/fonts-deb7ad1d55ca77c0172d8538d53442af63604ff490c74acc2859db295c125bdb.css",
+      "logical_path": "fonts.css",
+      "sha256": "3c692be799add3012b74222f780083a877601d26d9c2933c615cd213c8746c5d",
+      "size": 961,
+      "mime": "text/css",
+      "licenses": [
+        "licenses/GitLab.txt"
+      ],
+      "output_sha256": "74a5d0a67b015a5293733db7522f3bd61659d8e9321fff2f319bb3cf3d5a95d0",
+      "output_size": 969
+    },
+    "gitlab-mono/GitLabMono-29c2152dac8739499dd0fe5cd37a486ebcc7d4798c9b6d3aeab65b3172375b05.woff2": {
+      "archive": "assets/gitlab-mono/GitLabMono-29c2152dac8739499dd0fe5cd37a486ebcc7d4798c9b6d3aeab65b3172375b05.woff2",
+      "logical_path": "gitlab-mono/GitLabMono.woff2",
+      "sha256": "29c2152dac8739499dd0fe5cd37a486ebcc7d4798c9b6d3aeab65b3172375b05",
+      "size": 78584,
+      "mime": "font/woff2",
+      "licenses": [
+        "licenses/GitLabMono.txt"
+      ]
+    },
+    "gitlab-mono/GitLabMono-Italic-af36701a2188df32a9dcea12e0424c380019698d4f76da9ad8ea2fd59432cf83.woff2": {
+      "archive": "assets/gitlab-mono/GitLabMono-Italic-af36701a2188df32a9dcea12e0424c380019698d4f76da9ad8ea2fd59432cf83.woff2",
+      "logical_path": "gitlab-mono/GitLabMono-Italic.woff2",
+      "sha256": "af36701a2188df32a9dcea12e0424c380019698d4f76da9ad8ea2fd59432cf83",
+      "size": 86836,
+      "mime": "font/woff2",
+      "licenses": [
+        "licenses/GitLabMono.txt"
+      ]
+    },
+    "gitlab-sans/GitLabSans-9892dc17af892e03de41625c0ee325117a3b8ee4ba6005f3a3eac68510030aed.woff2": {
+      "archive": "assets/gitlab-sans/GitLabSans-9892dc17af892e03de41625c0ee325117a3b8ee4ba6005f3a3eac68510030aed.woff2",
+      "logical_path": "gitlab-sans/GitLabSans.woff2",
+      "sha256": "9892dc17af892e03de41625c0ee325117a3b8ee4ba6005f3a3eac68510030aed",
+      "size": 324924,
+      "mime": "font/woff2",
+      "licenses": [
+        "licenses/GitLabSans.txt"
+      ]
+    },
+    "gitlab-sans/GitLabSans-Italic-f96f17332d67b21ada2dfba5f0c0e1d5801eab99330472057bf18edd93d4ccf7.woff2": {
+      "archive": "assets/gitlab-sans/GitLabSans-Italic-f96f17332d67b21ada2dfba5f0c0e1d5801eab99330472057bf18edd93d4ccf7.woff2",
+      "logical_path": "gitlab-sans/GitLabSans-Italic.woff2",
+      "sha256": "f96f17332d67b21ada2dfba5f0c0e1d5801eab99330472057bf18edd93d4ccf7",
+      "size": 361064,
+      "mime": "font/woff2",
+      "licenses": [
+        "licenses/GitLabSans.txt"
+      ]
+    },
+    "highlight/themes/dracula-beb276bec2c0ae7bdf817a66b4e0b13c38155a834473c5525f2e658159624767.css": {
+      "archive": "assets/highlight/themes/dracula-beb276bec2c0ae7bdf817a66b4e0b13c38155a834473c5525f2e658159624767.css",
+      "logical_path": "highlight/themes/dracula.css",
+      "sha256": "beb276bec2c0ae7bdf817a66b4e0b13c38155a834473c5525f2e658159624767",
+      "size": 31417,
+      "mime": "text/css",
+      "licenses": [
+        "licenses/GitLab.txt",
+        "licenses/GitLabUI.txt",
+        "licenses/GitLabSVGs.txt",
+        "licenses/Dracula.txt",
+        "licenses/HighlightJS.txt",
+        "licenses/Base16HighlightJS.txt"
+      ],
+      "output_sha256": "b73dc82919bcde6a71bf80137026ad13b36d27641a1774c904353b616f6e2761",
+      "output_size": 31417
+    },
+    "icon_anchor-297aa9b0225eff3d6d0da74ce042a0ed5575b92aa66b7109a5e060a795b42e36.svg": {
+      "archive": "assets/icon_anchor-297aa9b0225eff3d6d0da74ce042a0ed5575b92aa66b7109a5e060a795b42e36.svg",
+      "logical_path": "icon_anchor.svg",
+      "sha256": "297aa9b0225eff3d6d0da74ce042a0ed5575b92aa66b7109a5e060a795b42e36",
+      "size": 911,
+      "mime": "image/svg+xml",
+      "licenses": [
+        "licenses/GitLab.txt",
+        "licenses/GitLabSVGs.txt"
+      ]
+    },
+    "icons-557611e974a59dbbc29ee0980dc4bc97610b136af3a30b5c715d47d566317bc5.svg": {
+      "archive": "assets/icons-557611e974a59dbbc29ee0980dc4bc97610b136af3a30b5c715d47d566317bc5.svg",
+      "logical_path": "icons.svg",
+      "sha256": "557611e974a59dbbc29ee0980dc4bc97610b136af3a30b5c715d47d566317bc5",
+      "size": 250003,
+      "mime": "image/svg+xml",
+      "licenses": [
+        "licenses/GitLab.txt",
+        "licenses/GitLabSVGs.txt"
+      ]
+    },
+    "icons-stacked-12474d950755452a98ce98904a7cd2a9ca986cf5ec06a0492b081dc852df253e.svg": {
+      "archive": "assets/icons-stacked-12474d950755452a98ce98904a7cd2a9ca986cf5ec06a0492b081dc852df253e.svg",
+      "logical_path": "icons-stacked.svg",
+      "sha256": "12474d950755452a98ce98904a7cd2a9ca986cf5ec06a0492b081dc852df253e",
+      "size": 247069,
+      "mime": "image/svg+xml",
+      "licenses": [
+        "licenses/GitLab.txt",
+        "licenses/GitLabSVGs.txt"
+      ]
+    },
+    "illustrations/image_comment_light_cursor-c587347a929a56f8b4d78d991607598f69daef0bcc58e972cabcb72ed96663d2.svg": {
+      "archive": "assets/illustrations/image_comment_light_cursor-c587347a929a56f8b4d78d991607598f69daef0bcc58e972cabcb72ed96663d2.svg",
+      "logical_path": "illustrations/image_comment_light_cursor.svg",
+      "sha256": "c587347a929a56f8b4d78d991607598f69daef0bcc58e972cabcb72ed96663d2",
+      "size": 559,
+      "mime": "image/svg+xml",
+      "licenses": [
+        "licenses/GitLab.txt",
+        "licenses/GitLabSVGs.txt"
+      ]
+    },
+    "illustrations/image_comment_light_cursor@2x-6eb274d388a8bbdbdaeee008afc79ef9dab89fb7d5409cd08739ae08059a3ce4.svg": {
+      "archive": "assets/illustrations/image_comment_light_cursor@2x-6eb274d388a8bbdbdaeee008afc79ef9dab89fb7d5409cd08739ae08059a3ce4.svg",
+      "logical_path": "illustrations/image_comment_light_cursor@2x.svg",
+      "sha256": "6eb274d388a8bbdbdaeee008afc79ef9dab89fb7d5409cd08739ae08059a3ce4",
+      "size": 559,
+      "mime": "image/svg+xml",
+      "licenses": [
+        "licenses/GitLab.txt",
+        "licenses/GitLabSVGs.txt"
+      ]
+    },
+    "licenses/Base16HighlightJS.txt": {
+      "url": "https://raw.githubusercontent.com/highlightjs/base16-highlightjs/d2112c0febddda0fcdca75375f2174de411e2454/LICENSE",
+      "size": 1067,
+      "sha256": "9f219cb73c6f58bcdd83ef71bfa3f8d19e7f816ff20a7db498a9fb5d3df52314",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/Base16HighlightJS.txt"
+      ]
+    },
+    "licenses/Bootstrap.txt": {
+      "url": "https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/LICENSE",
+      "size": 1131,
+      "sha256": "53d2513c8df48a817d70537cc906b8e9c7bf2513328ff66847894773e615b37e",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/Bootstrap.txt"
+      ]
+    },
+    "licenses/BootstrapVue.txt": {
+      "url": "https://cdn.jsdelivr.net/npm/bootstrap-vue@2.23.1/LICENSE",
+      "size": 1086,
+      "sha256": "c869f5ee167ce9d7a489dcb94710f1078f739a4df58f2c37f1532cebc4719282",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/BootstrapVue.txt"
+      ]
+    },
+    "licenses/Dracula.txt": {
+      "url": "https://raw.githubusercontent.com/dracula/pygments/93b7cece0a3c624eb5b9d864ec4e0163387274d2/LICENSE",
+      "size": 1080,
+      "sha256": "f08d0bba7f8906ed4e7a76d7e555a883968d83eb550ae298ce893a65aee15dff",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/Dracula.txt"
+      ]
+    },
+    "licenses/Dropzone.txt": {
+      "url": "https://cdn.jsdelivr.net/npm/dropzone@4.2.0/LICENSE",
+      "size": 1151,
+      "sha256": "58dd2547c6260902c48755c47a256f6598f0bbb5646e82385e05d583ef330c2e",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/Dropzone.txt"
+      ]
+    },
+    "licenses/GitLab.txt": {
+      "url": "https://raw.githubusercontent.com/gitlabhq/gitlabhq/v19.5.1/LICENSE",
+      "size": 2001,
+      "sha256": "62dfe4bdd76e08992c09cf335b2374b3e6acd4f2b959b4971760727d9b785ab4",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/GitLab.txt"
+      ]
+    },
+    "licenses/GitLabAtJS.txt": {
+      "url": "https://raw.githubusercontent.com/ichord/At.js/d1b998cab39ebb3f27dbdbb27d281ce0955a95a2/LICENSE-MIT",
+      "size": 1063,
+      "sha256": "a03c8115375bf8a3d1098d75b67053832f54e98fb24bae93c44f2c5e93b3013d",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/GitLabAtJS.txt"
+      ]
+    },
+    "licenses/GitLabDuoUI.txt": {
+      "url": "https://cdn.jsdelivr.net/npm/@gitlab/duo-ui@16.8.0/LICENSE",
+      "size": 1046,
+      "sha256": "102af9fb8cf064f2e8ab065a99314b19aa9ae0fbe8eb623987dc207361e7fab6",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/GitLabDuoUI.txt"
+      ]
+    },
+    "licenses/GitLabMono.txt": {
+      "url": "https://cdn.jsdelivr.net/npm/@gitlab/fonts@1.3.1/gitlab-mono/OFL.txt",
+      "size": 4435,
+      "sha256": "f13878e9f42dcc86b7b0be5fccb48942141924e1c7a6c54d8ff7c0f641373dfc",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/GitLabMono.txt"
+      ]
+    },
+    "licenses/GitLabSans.txt": {
+      "url": "https://cdn.jsdelivr.net/npm/@gitlab/fonts@1.3.1/gitlab-sans/LICENSE.txt",
+      "size": 4416,
+      "sha256": "45afc67c3192c2fbb9695bf912dc684b123e5013e1fde1451a8d0aa1667125ef",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/GitLabSans.txt"
+      ]
+    },
+    "licenses/GitLabSVGs.txt": {
+      "url": "https://cdn.jsdelivr.net/npm/@gitlab/svgs@3.166.0/LICENSE",
+      "size": 1281,
+      "sha256": "c7687909a7c5393c8fdf041242489d16056619b861d70f1549e6a687f0506900",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/GitLabSVGs.txt"
+      ]
+    },
+    "licenses/GitLabUI.txt": {
+      "url": "https://cdn.jsdelivr.net/npm/@gitlab/ui@138.3.0/LICENSE",
+      "size": 1046,
+      "sha256": "3b8473e0d8fc442b6d752830a907fb238b67f795a16ad4cd2273fa3da31d61df",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/GitLabUI.txt"
+      ]
+    },
+    "licenses/HighlightJS.txt": {
+      "url": "https://cdn.jsdelivr.net/npm/highlight.js@11.12.0/LICENSE",
+      "size": 1514,
+      "sha256": "6c081431591d9df696c82dc598fe1423765b8a299b200ed00b281afd0f64c490",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/HighlightJS.txt"
+      ]
+    },
+    "licenses/Normalize.txt": {
+      "url": "https://cdn.jsdelivr.net/npm/normalize.css@8.0.1/LICENSE.md",
+      "size": 1098,
+      "sha256": "89a9a9ace8be9e79bdc962823479bf980e4a14777ebe51b37e669f658e6f25ef",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/Normalize.txt"
+      ]
+    },
+    "licenses/Pikaday.txt": {
+      "url": "https://cdn.jsdelivr.net/npm/pikaday@1.8.0/LICENSE",
+      "size": 2440,
+      "sha256": "bac76ec786e2d7ceab9c046d6c765abb57536a40f51e807bd4dc279fb4134c17",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/Pikaday.txt"
+      ]
+    },
+    "licenses/Tailwind.txt": {
+      "url": "https://cdn.jsdelivr.net/npm/tailwindcss@3.4.1/LICENSE",
+      "size": 1071,
+      "sha256": "60e0b68c0f35c078eef3a5d29419d0b03ff84ec1df9c3f9d6e39a519a5ae7985",
+      "mime": "text/plain",
+      "licenses": [
+        "licenses/Tailwind.txt"
+      ]
+    },
+    "onion_skin_sprites-5c13bf92d3d6bdf19bba75b00fee5b492a43bec51bf78a01ba158b0ad099a48b.gif": {
+      "archive": "assets/onion_skin_sprites-5c13bf92d3d6bdf19bba75b00fee5b492a43bec51bf78a01ba158b0ad099a48b.gif",
+      "logical_path": "onion_skin_sprites.gif",
+      "sha256": "5c13bf92d3d6bdf19bba75b00fee5b492a43bec51bf78a01ba158b0ad099a48b",
+      "size": 548,
+      "mime": "image/gif",
+      "licenses": [
+        "licenses/GitLab.txt"
+      ]
+    },
+    "page_bundles/tree-c7ee4210fee3e1004d99dd5eb2483d2711447051180f46718d8cd1bc741b455a.css": {
+      "archive": "assets/page_bundles/tree-c7ee4210fee3e1004d99dd5eb2483d2711447051180f46718d8cd1bc741b455a.css",
+      "logical_path": "page_bundles/tree.css",
+      "sha256": "c7ee4210fee3e1004d99dd5eb2483d2711447051180f46718d8cd1bc741b455a",
+      "size": 9270,
+      "mime": "text/css",
+      "licenses": [
+        "licenses/GitLab.txt",
+        "licenses/GitLabUI.txt",
+        "licenses/Tailwind.txt"
+      ],
+      "output_sha256": "c7ee4210fee3e1004d99dd5eb2483d2711447051180f46718d8cd1bc741b455a",
+      "output_size": 9270
+    },
+    "source-manifest.json": {
+      "archive": "assets/.sprockets-manifest-daaf182f15e5d507e32b310911916370.json",
+      "sha256": "a83956d7e3dd74abe9fe81ed6b01d8b59b2eaed69a32ed4e424c06d3d1fcd5c0",
+      "size": 411205,
+      "mime": "application/json",
+      "licenses": [
+        "licenses/GitLab.txt"
+      ]
+    },
+    "sprite_icons/document-e20dd2c4927a87c676cf2b2735dc59c3ca150c355acb7833155a51c536f83129.svg": {
+      "archive": "assets/sprite_icons/document-e20dd2c4927a87c676cf2b2735dc59c3ca150c355acb7833155a51c536f83129.svg",
+      "logical_path": "sprite_icons/document.svg",
+      "sha256": "e20dd2c4927a87c676cf2b2735dc59c3ca150c355acb7833155a51c536f83129",
+      "size": 349,
+      "mime": "image/svg+xml",
+      "licenses": [
+        "licenses/GitLab.txt",
+        "licenses/GitLabSVGs.txt"
+      ]
+    },
+    "sprite_icons/paperclip-dfd637e91726c6d7fa3c12cafd23cf02432be09816527844b5c57045b67cc3ca.svg": {
+      "archive": "assets/sprite_icons/paperclip-dfd637e91726c6d7fa3c12cafd23cf02432be09816527844b5c57045b67cc3ca.svg",
+      "logical_path": "sprite_icons/paperclip.svg",
+      "sha256": "dfd637e91726c6d7fa3c12cafd23cf02432be09816527844b5c57045b67cc3ca",
+      "size": 421,
+      "mime": "image/svg+xml",
+      "licenses": [
+        "licenses/GitLab.txt",
+        "licenses/GitLabSVGs.txt"
+      ]
+    },
+    "swipemode_sprites-522fecbb380f3edfa9b09006e88a51fbcb5c26d95dba87d2e09a363a863cd4e4.gif": {
+      "archive": "assets/swipemode_sprites-522fecbb380f3edfa9b09006e88a51fbcb5c26d95dba87d2e09a363a863cd4e4.gif",
+      "logical_path": "swipemode_sprites.gif",
+      "sha256": "522fecbb380f3edfa9b09006e88a51fbcb5c26d95dba87d2e09a363a863cd4e4",
+      "size": 505,
+      "mime": "image/gif",
+      "licenses": [
+        "licenses/GitLab.txt"
+      ]
+    },
+    "tailwind-1643fe418f6d3ad9eacf47d603d9c8150de2e6a435bbd333f32fd5f776cd7c7c.css": {
+      "archive": "assets/tailwind-1643fe418f6d3ad9eacf47d603d9c8150de2e6a435bbd333f32fd5f776cd7c7c.css",
+      "logical_path": "tailwind.css",
+      "sha256": "1643fe418f6d3ad9eacf47d603d9c8150de2e6a435bbd333f32fd5f776cd7c7c",
+      "size": 135202,
+      "mime": "text/css",
+      "licenses": [
+        "licenses/GitLab.txt",
+        "licenses/GitLabUI.txt",
+        "licenses/Tailwind.txt"
+      ],
+      "output_sha256": "1643fe418f6d3ad9eacf47d603d9c8150de2e6a435bbd333f32fd5f776cd7c7c",
+      "output_size": 135202
+    }
+  },
+  "styles": {
+    "light": [
+      "application-79f356d98146549c21e5657de00ff91a957f995329d1725db0bb2a7251d2b59a.css",
+      "page_bundles/tree-c7ee4210fee3e1004d99dd5eb2483d2711447051180f46718d8cd1bc741b455a.css",
+      "tailwind-1643fe418f6d3ad9eacf47d603d9c8150de2e6a435bbd333f32fd5f776cd7c7c.css",
+      "fonts-deb7ad1d55ca77c0172d8538d53442af63604ff490c74acc2859db295c125bdb.css",
+      "highlight/themes/dracula-beb276bec2c0ae7bdf817a66b4e0b13c38155a834473c5525f2e658159624767.css"
+    ],
+    "dark": [
+      "application_dark-a3de088d254f447173abe48a05ec6b7ac075668b58b5be1aa26c5012bb0f8395.css",
+      "page_bundles/tree-c7ee4210fee3e1004d99dd5eb2483d2711447051180f46718d8cd1bc741b455a.css",
+      "tailwind-1643fe418f6d3ad9eacf47d603d9c8150de2e6a435bbd333f32fd5f776cd7c7c.css",
+      "fonts-deb7ad1d55ca77c0172d8538d53442af63604ff490c74acc2859db295c125bdb.css",
+      "highlight/themes/dracula-beb276bec2c0ae7bdf817a66b4e0b13c38155a834473c5525f2e658159624767.css"
+    ]
+  },
+  "sprite": "icons-557611e974a59dbbc29ee0980dc4bc97610b136af3a30b5c715d47d566317bc5.svg"
+}

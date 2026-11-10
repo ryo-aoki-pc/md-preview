@@ -8,7 +8,9 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { main } from '../cli.mjs';
 import { MAX_LINE_BYTES, readLines } from '../lib/stdio.mjs';
-import { events, get, temp, until } from './helpers.mjs';
+import { events, get, isolateUserData, temp, until } from './helpers.mjs';
+
+isolateUserData();
 
 const cli = fileURLToPath(new URL('../cli.mjs', import.meta.url));
 const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;

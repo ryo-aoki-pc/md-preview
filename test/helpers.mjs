@@ -13,6 +13,18 @@ export function temp(t) {
   return path;
 }
 
+// 試験から起こすアプリが、この PC に導入済みの公式スタイルを読まないよう、既定の保存先のもとを空のフォルダーへ向ける
+// (この試験のプロセスと、そこから起こす子プロセスだけに効く)。
+export function isolateUserData() {
+  const base = fileURLToPath(new URL('../.tests/', import.meta.url));
+  mkdirSync(base, { recursive: true });
+  const path = mkdtempSync(join(base, 'userdata-'));
+  process.env.LOCALAPPDATA = path;
+  process.env.XDG_DATA_HOME = path;
+  process.on('exit', () => rmSync(path, { recursive: true, force: true }));
+  return path;
+}
+
 export async function until(predicate, message = '条件が時間内に成立する', timeout = 6000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
