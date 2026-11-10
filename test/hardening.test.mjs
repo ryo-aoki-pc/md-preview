@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { listMarkdown } from '../lib/documents.mjs';
+import { includeWatchPath } from '../lib/include-watch.mjs';
 import { loadPage } from '../lib/page.mjs';
 import { resolve } from '../lib/resolve.mjs';
 import { createServer } from '../lib/server.mjs';
@@ -89,4 +90,21 @@ test('配るライブラリの応答にも sandbox と共通のヘッダーが�
     assert.equal(response.headers['x-content-type-options'], 'nosniff', rel);
     assert.equal(response.headers['referrer-policy'], 'no-referrer', rel);
   }
+});
+
+test('取り込めなかった include の見張りは、途中がファイルでも、その上のフォルダーで出現を待つ', (t) => {
+  const root = temp(t);
+  writeFileSync(join(root, 'docs'), '今はファイル');
+  // docs が後でフォルダーに置き換わり、中にファイルが現れることがある
+  assert.equal(includeWatchPath(root, 'docs/chapter.md'), join(root, 'docs', 'chapter.md'));
+  assert.equal(includeWatchPath(root, 'docs/sub/chapter.md'), join(root, 'docs', 'sub', 'chapter.md'));
+  // ルートの外・.git・外へ出るリンクの下は、今までどおり見張らない
+  for (const name of ['../outside.md', '.git/config', 'a/../../b.md']) assert.equal(includeWatchPath(root, name), null);
+  const outside = temp(t);
+  try {
+    symlinkSync(outside, join(root, 'link'), 'junction');
+  } catch {
+    return t.skip('この環境ではフォルダーへのリンクを作れない');
+  }
+  assert.equal(includeWatchPath(root, 'link/later.md'), null);
 });

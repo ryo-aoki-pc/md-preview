@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -77,12 +86,34 @@ test('更新道具は node_modules から写しとライセンスを作り直せ
   assert.deepEqual(updatePageLibraries({ root, check: true }), lock);
 });
 
+test('更新道具は、置き場所の途中にリンクがあれば止め、リンクの先を変えない', (t) => {
+  const root = temp(t),
+    elsewhere = temp(t);
+  writeFileSync(join(root, 'package-lock.json'), readFileSync(join(repo, 'package-lock.json')));
+  mkdirSync(join(elsewhere, 'katex'));
+  writeFileSync(join(elsewhere, 'katex', 'keep.txt'), '利用者のファイル');
+  mkdirSync(join(root, 'page'));
+  try {
+    symlinkSync(elsewhere, join(root, 'page', 'lib'), 'junction');
+  } catch (error) {
+    if (error.code === 'EPERM') return t.skip('この環境ではフォルダーへのリンクを作れない');
+    throw error;
+  }
+  assert.throws(() => updatePageLibraries({ root, modules: join(repo, 'node_modules') }), /リンク/);
+  assert.deepEqual(readdirSync(elsewhere), ['katex']);
+  assert.deepEqual(readdirSync(join(elsewhere, 'katex')), ['keep.txt']);
+  assert.equal(readFileSync(join(elsewhere, 'katex', 'keep.txt'), 'utf8'), '利用者のファイル');
+});
+
 test('開発用依存を解決できない隔離コピーでも起動し、固定情報にあるファイルだけ配る', { timeout: 15000 }, async (t) => {
   const root = copied(t);
   mkdirSync(join(root, 'lib'));
   for (const file of ['server.mjs', 'documents.mjs', 'resolve.mjs'])
     writeFileSync(join(root, 'lib', file), readFileSync(join(repo, 'lib', file)));
   writeFileSync(join(root, 'page', 'lib', 'katex', 'unlisted.js'), '配ってはいけないファイル');
+  // 固定情報にあるファイルでも、中身が差し替わっていたら配らない。
+  const tampered = join(root, 'page', 'lib', 'katex', 'fonts', 'KaTeX_AMS-Regular.woff2');
+  writeFileSync(tampered, Buffer.concat([readFileSync(tampered), Buffer.from([0])]));
   // 親フォルダーの node_modules へも逃げて解決できないようにする。
   const script = [
     "import Module from 'node:module';",
@@ -90,7 +121,7 @@ test('開発用依存を解決できない隔離コピーでも起動し、固�
     "Module._resolveFilename = function(id, ...args) { if (/^(?:katex|mermaid)(?:\\/|$)/.test(id)) { const error = new Error('開発用依存は導入していません'); error.code = 'MODULE_NOT_FOUND'; throw error; } return Reflect.apply(original, this, [id, ...args]); };",
     "const {createServer} = await import('./lib/server.mjs');",
     "const server = await createServer({session:{root:()=>null,last:()=>({})},page:{html:'隔離したページ'}});",
-    "try { const paths=['katex/katex.min.js','katex/katex.min.css','katex/fonts/KaTeX_Main-Regular.woff2','mermaid/mermaid.min.js','katex/LICENSE','mermaid/LICENSE','katex/unlisted.js','katex/fonts/KaTeX_Main-Regular.woff','katex/fonts/KaTeX_Main-Regular.ttf','lock.json','katex/../package.json']; const results=[]; for(const path of paths){const response=await fetch(server.url+'_/lib/'+path);results.push({path,status:response.status,size:(await response.arrayBuffer()).byteLength});} process.stdout.write(JSON.stringify(results));} finally {await server.close();}",
+    "try { const paths=['katex/katex.min.js','katex/katex.min.css','katex/fonts/KaTeX_Main-Regular.woff2','mermaid/mermaid.min.js','katex/LICENSE','mermaid/LICENSE','katex/unlisted.js','katex/fonts/KaTeX_Main-Regular.woff','katex/fonts/KaTeX_Main-Regular.ttf','lock.json','katex/../package.json','katex/fonts/KaTeX_AMS-Regular.woff2']; const results=[]; for(const path of paths){const response=await fetch(server.url+'_/lib/'+path);results.push({path,status:response.status,size:(await response.arrayBuffer()).byteLength});} process.stdout.write(JSON.stringify(results));} finally {await server.close();}",
   ].join('\n');
   const result = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true });

@@ -94,6 +94,9 @@ export function updatePageLibraries({ root = repoRoot, modules = join(root, 'nod
       throw new Error('導入済みのパッケージと npm の固定情報が一致しません: ' + name);
     return { name, source, npm };
   });
+  // page や page/lib がリンクだと、下の作成・削除・書き込みがリンクの先へ行くので、先に確かめて止める。
+  for (const part of [resolve(root, 'page'), libraryRoot])
+    if (existsSync(part) && lstatSync(part).isSymbolicLink()) throw new Error('写しの置き場所の途中にリンクがあります');
   mkdirSync(libraryRoot, { recursive: true });
   for (const { name, source, npm } of sources) {
     const target = resolve(libraryRoot, name);
