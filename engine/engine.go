@@ -263,5 +263,6 @@ func (e *Engine) Close(ctx context.Context) error {
 	}
 	e.closed = true
 	e.module = nil
-	return e.runtime.Close(ctx)
+	// 解放は、呼び出し側の取り消しで中断させない (途中で止めると、閉じた印だけが残って閉じ直せない)。
+	return e.runtime.Close(context.WithoutCancel(ctx))
 }

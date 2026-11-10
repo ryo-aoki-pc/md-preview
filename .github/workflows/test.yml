@@ -24,7 +24,13 @@ jobs:
           go-version-file: go.mod
       - name: 整形を確認
         if: runner.os == 'Linux'
-        run: test -z "$(gofmt -l .)"
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt で整形されていないファイル:"
+            echo "$unformatted"
+            exit 1
+          fi
       - name: 静的検査
         run: go vet ./...
       - name: 試験

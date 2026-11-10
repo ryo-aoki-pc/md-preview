@@ -441,12 +441,43 @@ func TestConcurrentRender(t *testing.T) {
 	wg.Wait()
 }
 
+func TestInvalidInputUTF8(t *testing.T) {
+	e := testEngine(t)
+	counts := instrument(t, e, nil)
+	// Go の文字列は、UTF-8 として正しくないバイト列も持てる。エンジンが誤りで返し、領域を返して、次も描けること。
+	html, err := e.Render(context.Background(), "# 題\n\xff\xfe\n", nil)
+	if err == nil || err.Error() != "Markdown が UTF-8 ではありません。" || html != "" {
+		t.Fatalf("UTF-8 でない入力の応答: html=%q, err=%v", html, err)
+	}
+	if len(counts.live) != 0 {
+		t.Fatalf("UTF-8 でない入力の後に領域が残った: %v", counts.live)
+	}
+	renderOK(t, e)
+	if counts.instances != 1 {
+		t.Fatalf("UTF-8 でない入力で作り直した: %+v", counts)
+	}
+}
+
 func TestClose(t *testing.T) {
 	e := testEngine(t)
 	renderOK(t, e)
 	current := e.module
+	// 取り消し済みの ctx では、閉じずに戻る。その後に閉じ直せる。
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := e.Close(cancelled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("取り消し済みの Close: %v", err)
+	}
+	if current.IsClosed() {
+		t.Fatal("取り消し済みの Close でインスタンスが閉じた")
+	}
+	renderOK(t, e)
 	if err := e.Close(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	// 空の入力はエンジンを使わないので、閉じた後も空を返す (Node.js 版と同じく、エンジンを呼ぶ前に返す)。
+	if html, err := e.Render(context.Background(), "", nil); err != nil || html != "" {
+		t.Fatalf("Close 後の空の入力: html=%q, err=%v", html, err)
 	}
 	if !current.IsClosed() {
 		t.Fatal("Close 後もインスタンスが開いている")
