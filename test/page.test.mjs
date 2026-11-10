@@ -4,14 +4,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import test from 'node:test';
-import { createServer } from '../lib/server.mjs';
-import { loadPage } from '../lib/page.mjs';
-import { createSession } from '../lib/session.mjs';
-import { temp } from './helpers.mjs';
+import { prepareGoPageTests, renderGoPageDocument, startGoPageServer, temp } from './helpers.mjs';
 import { assetFixture } from './assets-fixture.mjs';
-import { exportDocument } from '../lib/export.mjs';
 import { pathToFileURL } from 'node:url';
-import { fakePlantuml } from './plantuml-helper.mjs';
 
 const require = createRequire(import.meta.url);
 let chromium;
@@ -32,27 +27,20 @@ const browserPath = [
   process.platform === 'linux' && '/usr/bin/google-chrome',
   chromium && chromium.executablePath(),
 ].find((path) => path && existsSync(path));
-const skip = !chromium
-  ? 'Playwright が見つからない（PLAYWRIGHT_MODULE または playwright が必要）'
-  : !browserPath
-    ? 'Edge / Chrome / Chromium が見つからない（EDGE_BIN または CHROME_BIN を指定できる）'
-    : false;
+const goCommands = await prepareGoPageTests();
+const skip =
+  goCommands.skip ||
+  (!chromium
+    ? 'Playwright が見つからない（PLAYWRIGHT_MODULE または playwright が必要）'
+    : !browserPath
+      ? 'Edge / Chrome / Chromium が見つからない（EDGE_BIN または CHROME_BIN を指定できる）'
+      : false);
 
 test('PlantUML の画像・失敗時の原文・読み込み済み画像の使い回しと印刷を確かめる', { skip }, async (t) => {
-  const fake = fakePlantuml(t);
-  let server;
-  const session = createSession({ plantuml: true, onRender: (data) => server?.broadcast('render', data) });
-  t.after(() => session.close());
-  const jumps = [];
-  server = await createServer({
-    session,
-    page: loadPage({ jump: true }),
-    plantuml: fake.renderer,
-    onJump: (value) => jumps.push(value),
-  });
-  t.after(() => server.close());
+  const server = await startGoPageServer(t, { live: true, jump: true, plantuml: true });
+  const jumps = server.jumps;
   const markdown = (heading, source) => '# ' + heading + '\n\n```plantuml\n' + source + '\n```\n';
-  session.setDocument({ name: '図.md', text: markdown('最初', '日本語'), rev: 1 });
+  await server.setDocument({ name: '図.md', text: markdown('最初', '日本語'), rev: 1 });
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
   const context = await browser.newContext();
@@ -77,12 +65,13 @@ test('PlantUML の画像・失敗時の原文・読み込み済み画像の使�
   );
   await page.locator('img.gp-plantuml').dblclick();
   await jumped;
+  await server.sync();
   assert.deepEqual(jumps, [{ line: 3 }]);
   assert.deepEqual(opened, []);
   await page.evaluate(() => {
     window.savedPlantuml = document.querySelector('img.gp-plantuml');
   });
-  session.setDocument({ name: '図.md', text: markdown('次の見出し', '日本語'), rev: 2 });
+  await server.setDocument({ name: '図.md', text: markdown('次の見出し', '日本語'), rev: 2 });
   await page.waitForFunction(() => document.querySelector('#gp-content h1')?.textContent.includes('次の見出し'));
   assert.equal(await page.evaluate(() => window.savedPlantuml === document.querySelector('img.gp-plantuml')), true);
   await page.evaluate(() => window.dispatchEvent(new Event('beforeprint')));
@@ -90,7 +79,7 @@ test('PlantUML の画像・失敗時の原文・読み込み済み画像の使�
   await page.emulateMedia({ media: 'print' });
   assert.equal(await page.locator('img.gp-plantuml').isVisible(), true);
   const source = 'plain 日本語 "><script>危険な原文</script>';
-  session.setDocument({ name: '図.md', text: markdown('失敗', source), rev: 3 });
+  await server.setDocument({ name: '図.md', text: markdown('失敗', source), rev: 3 });
   await page.waitForSelector('.gp-plantuml-error');
   assert.equal(await page.locator('.gp-plantuml-error p').textContent(), 'PlantUML の図を描けませんでした');
   assert.equal(await page.locator('.gp-plantuml-error code').textContent(), source);
@@ -104,7 +93,7 @@ test('書き出した単一 HTML を file:// で開き、数式と図を外部�
     file = join(root, 'sample.md'),
     output = join(root, 'out.html');
   writeFileSync(file, '# 書き出し\n\n$`x^2`$\n\n```mermaid\ngraph TD; A-->B\n```\n');
-  await exportDocument({ file, root, output });
+  await renderGoPageDocument({ file, root, output });
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
   const context = await browser.newContext();
@@ -144,16 +133,11 @@ test('書き出した単一 HTML を file:// で開き、数式と図を外部�
 test('小さな公式 CSS の読み込み・配色と失敗時の同梱スタイルへの復帰', { skip }, async (t) => {
   const f = assetFixture(t);
   f.save();
-  const server = await createServer({
-    session: {
-      root: () => null,
-      last: () => ({ render: { file: 'sample.md', dir: '', rev: 1, html: '<p>本文</p>', headings: [] } }),
-    },
-    page: loadPage(),
+  const server = await startGoPageServer(t, {
+    render: { file: 'sample.md', dir: '', rev: 1, html: '<p>本文</p>', headings: [] },
     assetsDir: f.directory,
-    assetsLockPath: f.lockPath,
+    assetsLock: readFileSync(f.lockPath, 'utf8'),
   });
-  t.after(() => server.close());
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
   for (const failure of [false, true]) {
@@ -208,26 +192,11 @@ async function fixturePage(
 ) {
   const root = temp(t);
   prepareRoot(root);
-  const jumps = [];
   const jumpRequests = [];
-  let lastRender = render;
-  let lastScroll = null;
-  let server;
-  const session = live
-    ? createSession({
-        root,
-        onRender: (data) => server?.broadcast('render', data),
-        onScroll: (data) => server?.broadcast('scroll', data),
-      })
-    : { root: () => root, last: () => ({ render: lastRender, scroll: lastScroll }) };
-  server = await createServer({
-    session,
-    page: loadPage({ jump, directory }),
-    officialStyle: false,
-    onJump: jump ? (value) => jumps.push(value) : undefined,
-  });
+  const server = await startGoPageServer(t, { root, live, jump, directory, render });
+  const jumps = server.jumps;
   if (live && !directory)
-    session.setDocument({
+    await server.setDocument({
       path: join(root, 'README.md'),
       name: 'README.md',
       text: readFileSync(join(root, 'README.md'), 'utf8'),
@@ -271,7 +240,6 @@ async function fixturePage(
     const blocked = page.isClosed() ? [] : await page.evaluate(() => window.gpBlocked);
     await context.close();
     await server.close();
-    await session.close?.();
     assert.deepEqual(errors, [], 'ページの例外がない');
     assert.deepEqual(attempted, [], '本文の外部画像を含まない試験では、外への要求を試みない');
     assert.deepEqual(blocked, [], 'CSP で拒否された外部への試みもない');
@@ -288,9 +256,7 @@ async function fixturePage(
     jumpRequests,
     eventRequests,
     send(name, data) {
-      if (name === 'render') lastRender = data;
-      if (name === 'scroll') lastScroll = data;
-      server.broadcast(name, data);
+      return server.broadcast(name, data);
     },
   };
 }
@@ -315,7 +281,7 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
       false,
     );
     await page.locator('summary').click();
-    fixture.send('render', payload(html, { rev: 2 }));
+    await fixture.send('render', payload(html, { rev: 2 }));
     await page.waitForFunction(() => document.querySelector('details').open);
     await page.locator('a[href="#heading"]').click();
     assert.equal(await page.locator('details').evaluate((el) => el.open), true);
@@ -412,7 +378,7 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
           2
         );
       });
-    fixture.send('scroll', { line: 70, ratio: 0.5, lines: 120 });
+    await fixture.send('scroll', { line: 70, ratio: 0.5, lines: 120 });
     await aligned();
     await page.selectOption('#gp-width', 'fixed');
     await aligned();
@@ -486,6 +452,7 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
     );
     await page.locator('#target').dblclick();
     assert.equal((await response).status(), 204);
+    await fixture.server.sync();
     assert.deepEqual(fixture.jumps, [{ line: 8 }]);
     assert.deepEqual(fixture.jumpRequests, [{ method: 'POST', body: { line: 8 } }]);
     assert.equal(await page.evaluate(() => window.gpDefaultPrevented), false);
@@ -515,9 +482,9 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
 
   await t.test('休止中の表示は、新しい render が届いたら接続を開き直さずに消える', async (t) => {
     const fixture = await fixturePage(t, browser);
-    fixture.send('stop', { reason: 'stop' });
+    await fixture.send('stop', { reason: 'stop' });
     await fixture.page.waitForFunction(() => document.querySelector('#gp-banner').textContent === 'プレビューを止めた');
-    fixture.send('render', payload('<p>再開した本文</p>', { rev: 2 }));
+    await fixture.send('render', payload('<p>再開した本文</p>', { rev: 2 }));
     await fixture.page.waitForFunction(
       () =>
         document.querySelector('#gp-banner').hidden &&
@@ -634,7 +601,7 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
     await page.waitForFunction(() => document.querySelector('#gp-outline').hidden);
     await page.setViewportSize({ width: 1200, height: 700 });
     await page.waitForFunction(() => !document.querySelector('#gp-outline').hidden);
-    fixture.send('render', payload('<p>見出しのない本文</p>', { headings: [], rev: 2 }));
+    await fixture.send('render', payload('<p>見出しのない本文</p>', { headings: [], rev: 2 }));
     await page.waitForFunction(
       () => document.querySelector('#gp-outline').hidden && document.querySelector('#gp-outline-toggle').disabled,
     );
@@ -668,7 +635,7 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
           2
         );
       });
-    fixture.send('scroll', { line: 70, ratio: 0.5, lines: 121 });
+    await fixture.send('scroll', { line: 70, ratio: 0.5, lines: 121 });
     await aligned();
     await page.locator('#gp-outline-toggle').click();
     await aligned();
@@ -764,13 +731,13 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
     const fixture = await fixturePage(t, browser, payload('<p>本文</p>', { notices: [] }));
     const { page } = fixture;
     assert.equal(await page.locator('#gp-notices-toggle').isVisible(), false);
-    fixture.send(
+    await fixture.send(
       'render',
       payload('<p>本文</p>', { rev: 2, notices: [{ kind: 'emoji', line: null, text: ':none:' }] }),
     );
     await page.waitForFunction(() => !document.querySelector('#gp-notices-toggle').hidden);
     await page.locator('#gp-notices-toggle').click();
-    fixture.send('render', {
+    await fixture.send('render', {
       file: 'error.md',
       dir: '',
       rev: 3,
@@ -828,7 +795,7 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
           ) < 2
         );
       });
-    fixture.send('scroll', { line: 70, ratio: 0.5, lines: 120 });
+    await fixture.send('scroll', { line: 70, ratio: 0.5, lines: 120 });
     await aligned();
     await page.locator('#gp-notices-toggle').click();
     await aligned();
