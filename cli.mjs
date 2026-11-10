@@ -12,10 +12,11 @@ import { runStdio } from './lib/stdio.mjs';
 import { defaultAssetsDirectory, loadAssets } from './lib/assets.mjs';
 import { install } from './assets/install.mjs';
 import { exportDocument } from './lib/export.mjs';
+import { createPlantumlRenderer, findPlantuml } from './lib/plantuml.mjs';
 
 const version = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 const HELP =
-  '使い方: mdpreview [--port <番号>] [--root <フォルダー>] [--no-open] [--browser <実行ファイル>] [--assets-dir <保存先>] [--no-official-style] <file.md | フォルダー>\n       mdpreview --stdio [--port <番号>] [--assets-dir <保存先>] [--no-official-style]\n       mdpreview install-style [--dir <保存先>] [--check]\n       mdpreview render [--root <フォルダー>] [--theme system|light|dark] [--width fluid|fixed] [-o <out.html>] <file.md>\n       mdpreview --help | --version\n';
+  '使い方: mdpreview [--port <番号>] [--root <フォルダー>] [--no-open] [--browser <実行ファイル>] [--assets-dir <保存先>] [--no-official-style] [--no-plantuml] <file.md | フォルダー>\n       mdpreview --stdio [--port <番号>] [--assets-dir <保存先>] [--no-official-style] [--no-plantuml]\n       mdpreview install-style [--dir <保存先>] [--check]\n       mdpreview render [--root <フォルダー>] [--theme system|light|dark] [--width fluid|fixed] [--no-plantuml] [-o <out.html>] <file.md>\n       mdpreview --help | --version\nPATH に plantuml があれば、PlantUML の図を手元で描きます。\n--no-plantuml を付けると、原文のコードブロックのまま表示します。\n';
 
 export function parseArgs(argv) {
   if (argv[0] === 'render') {
@@ -25,6 +26,10 @@ export function parseArgs(argv) {
       const arg = argv[i];
       if (!positional && arg === '--') {
         positional = true;
+        continue;
+      }
+      if (!positional && arg === '--no-plantuml') {
+        result.plantuml = false;
         continue;
       }
       if (!positional && ['--root', '--theme', '--width', '-o'].includes(arg)) {
@@ -76,6 +81,10 @@ export function parseArgs(argv) {
       options.officialStyle = false;
       continue;
     }
+    if (!positional && arg === '--no-plantuml') {
+      options.plantuml = false;
+      continue;
+    }
     if (!positional && ['--port', '--root', '--browser', '--assets-dir'].includes(arg)) {
       const value = argv[++i];
       if (!value || value.startsWith('--')) throw new Error(`${arg} の値を指定してください`);
@@ -93,7 +102,7 @@ export function parseArgs(argv) {
   if (options.stdio) {
     if (options.file || !options.open || options.browser || options.root)
       throw new Error(
-        '--stdio は --port・--assets-dir・--no-official-style 以外のオプションやファイルと一緒に指定できません',
+        '--stdio は --port・--assets-dir・--no-official-style・--no-plantuml 以外のオプションやファイルと一緒に指定できません',
       );
     return options;
   }
@@ -118,11 +127,16 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   let server;
   let stopWatch;
   let shutdown;
+  let plantuml;
   try {
     const options = parseArgs(argv);
+    if (!options.action && options.command !== 'install-style' && options.plantuml !== false) {
+      const command = findPlantuml();
+      if (command) plantuml = createPlantumlRenderer({ command });
+    }
     if (options.command === 'render') {
       try {
-        const result = await exportDocument(options);
+        const result = await exportDocument({ ...options, plantuml });
         if (!options.output) stdout.write(result.html);
         const labels = {
           reference: '参照',
@@ -180,6 +194,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
         version,
         assetsDir: options.assetsDir || defaultAssetsDirectory(),
         officialStyle: options.officialStyle,
+        plantuml,
         onStart: io.onStart,
       });
     const path = await realpath(resolve(options.file)).catch(() => {
@@ -200,11 +215,13 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     const text = directory ? null : await read();
     session = createSession({
       root,
+      plantuml: !!plantuml,
       onRender: (data) => server?.broadcast('render', data),
       onScroll: (data) => server?.broadcast('scroll', data),
     });
     server = await createServer({
       session,
+      plantuml,
       page: loadPage({ directory }),
       port: options.port,
       assetsDir: options.assetsDir || defaultAssetsDirectory(),
@@ -287,6 +304,8 @@ export async function main(argv = process.argv.slice(2), io = {}) {
           : error.message,
     );
     return 2;
+  } finally {
+    await plantuml?.close();
   }
 }
 

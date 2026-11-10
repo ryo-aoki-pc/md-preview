@@ -280,7 +280,7 @@ export const KNOWN_DIFFERENCES = [
       "children",
       28
     ],
-    "reason": "61 行の PlantUML: 外部の図サービスと設定が必要なので今回の実装対象外",
+    "reason": "61 行の PlantUML: 手元の plantuml を有効にしていない場合は原文のまま",
     "local": {
       "type": "element",
       "tagName": "div",
@@ -546,6 +546,24 @@ test('既知の言語のコードブロックには字句の span がある', ()
     assert.ok(pre, 'コードブロックがない: ' + language);
     assert.ok(elements(pre, n => n.tagName === 'span' && !hasClass(n, 'line')).length, '字句の span がない: ' + language);
   }
+});
+
+test('有効な PlantUML は URL・rel・行の位置以外を GitLab の図の見本と比較する', () => {
+  const result = renderDocument(readFileSync(new URL('code.md', fixtures), 'utf8'), { plantuml: {} });
+  const tree = normalizeHtml(result.html);
+  const actual = elements(tree, (node) => node.tagName === 'a' && node.properties.dataDiagram === 'plantuml')[0].node;
+  const expected = structuredClone(
+    KNOWN_DIFFERENCES.find((difference) => difference.reason.startsWith('61 行の PlantUML')).oracle,
+  );
+  assert.equal(actual.children[0].properties.dataSourcepos, '61:1-63:3');
+  delete actual.properties.href;
+  delete expected.properties.href;
+  delete actual.properties.rel;
+  delete expected.properties.rel;
+  delete actual.children[0].properties.src;
+  delete expected.children[0].properties.src;
+  delete actual.children[0].properties.dataSourcepos;
+  assert.deepEqual(actual, expected);
 });
 
 test('比較器はコードの空白・class・リンク・チェック状態・sourcepos を厳密に区別する', () => {

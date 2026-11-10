@@ -16,6 +16,8 @@
 - Neovim からは [LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter) の `<leader>cp` で使う。未保存の内容の表示、カーソルに合わせたスクロール、本文のダブルクリックでエディタの行へ移る操作を扱う
 - Neovim の導入は、setup-notes の [LazyVim の GitLab プレビューを導入する](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/neovim.md#lazyvim-の-gitlab-プレビューを導入する)・[Windows 11 で LazyVim の GitLab プレビューを導入する](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/neovim.md#windows-11-で-lazyvim-の-gitlab-プレビューを導入する)に従う
 - 外へ通信する場面は [README](../README.md#外へ通信する場面) にある
+- PlantUML のコードブロックは、PATH の絶対パスの項目に `plantuml` があれば手元で SVG にして表示する。コマンドが無い場合、`--no-plantuml` を付けた場合、原文が 256 KiB を超える場合は、コードブロックのまま表示し、「GitLab との違い」の「図」で知らせる
+- `--no-plantuml` はプレビュー・`--stdio`・`render` で使える。描画に失敗したときは原文へ戻す。`render` では成功した SVG を HTML の画像に埋め、失敗した図の件数を標準エラーへ知らせる。原文は外へ送らず、図の中から手元のファイルや URL を読む処理も無効にする
 
 </details>
 
