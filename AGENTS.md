@@ -18,7 +18,10 @@ Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本
 
 - `engine/` — 描画エンジンの Rust の crate。`src/glfm.rs`・`src/formatter.rs` は gem の写し、`src/lib.rs` は WebAssembly から呼ぶ入口（Ruby の橋渡しの代わり）。`gitlab/glfm_markdown.rb` は GitLab がこの gem に渡すオプションのソースの写し（試験が `lib/engine.mjs` の値と比べる）、`glfm_markdown.wasm` はビルドした成果物、`engine.lock.json` は GitLab・gem・comrak・コンテナのイメージ・`.wasm` の固定値、`licenses/` は `.wasm` に入る crate のライセンスの原文、`build.sh` は作り直す手順
 - `lib/engine.mjs` — `.wasm` を読み、Markdown を GitLab の整形器の HTML にする（`renderMarkdown`）。オプションは GitLab の `OPTIONS` と同じ値（`GITLAB_OPTIONS`）
-- `lib/pipeline.mjs` — front matter と CR を処理し、GitLab の順で消毒・フィルターを通す同期の `renderDocument`
+- `lib/pipeline.mjs` — front matter・CR・include を処理し、GitLab の順で消毒・フィルターを通す同期の `renderDocument`。HTML・見出し・取り込みの記録・表示の差の通知を返す
+- `lib/include.mjs` — IncludeFilter の文字列の展開。`context.readInclude` だけで本文を受け取り、32 回の上限・16 MiB の展開後の大きさ・原文への行番号の対応を管理する
+- `lib/notices.mjs` — 完成した木を変えずに、参照・図・提案・取り込めなかった include・絵文字・見つからないメディアを通知する。存在の確認は `context.exists` があるときだけ行う
+- `lib/paths.mjs` — ファイルを開かずに、文書の基準とルート内の相対パスを解決する
 - `lib/sanitize.mjs` — html-pipeline と GitLab の許可リスト、木の変換、リンクの消毒
 - `lib/filters/` — GitLab のフィルターごとの木の変換。最後に `syntax-highlight.mjs` でコードを配色する
 - `lib/highlight.mjs` — highlight.js を遅延して読み、字句を Rouge のクラスと行ごとの木へ変換する
@@ -65,12 +68,14 @@ for f in lib/*.mjs lib/filters/*.mjs test/*.mjs; do node --check "$f"; done
 git diff --check
 ```
 
+- `test/include.test.mjs` — include の記法・上限・非再帰・パス・失敗・容量・消毒、Comrak のエスケープの例と、読み込みなしの API 出力の互換性
+- `test/notices.test.mjs` — 通知の拾い分け・include を展開した後の原文の行・重複・抜き出し・件数の上限・HTML を変えないこと
 - `test/sanitize.test.mjs` — 許可リスト・URL・危険な属性と要素・タスク入力の条件
 - `test/filters.test.mjs` — 各フィルターの Ruby ソースの分岐
 - `test/highlight.test.mjs` — 配色の言語・スコープ・行分け・エスケープ・遅延読み込み
 - `test/fixtures.test.mjs` — GitLab の保存済みの実出力と木を厳密に比較する。意図した差だけを正規化し、設定が必要な差は場所と値を固定する
 - `test/pipeline.test.mjs` — 全 Markdown 素材と代表構文、消毒の境界、文書間の独立性
-- `test/xss.test.mjs` — 悪意のある入力を通し、出力を HTML として読み直した木に、許可していない要素・属性・URL が無いことを確かめる
+- `test/xss.test.mjs` — 悪意のある入力を直接渡す場合と include から取り込む場合を通し、出力を HTML として読み直した木に、許可していない要素・属性・URL が無いことを確かめる
 - Node.js 22 以上
 - 描画に関わる変更は、試験に例を足す。GitLab の出力と比べて確かめたことだけを「同じ」と書く
 

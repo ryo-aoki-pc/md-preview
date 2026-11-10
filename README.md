@@ -29,12 +29,14 @@ GitLab は、エンジンの HTML に Ruby のフィルター（`Banzai::Pipelin
 ```js
 import { renderDocument } from './lib/pipeline.mjs';
 
-const { html, headings } = renderDocument('# 題\n\n- [x] 済み\n');
+const { html, headings, notices } = renderDocument('# 題\n\n- [x] 済み\n');
 ```
 
 - 消毒は GitLab と同じ許可リスト（html-pipeline の許可リストに GitLab の差分を重ねたもの）で行う。`<script>`、`on…` の属性、`javascript:` のリンクなどは出力に残らない
 - 写したフィルター: コードの言語、JSON の表、画像の幅と高さ、数式と mermaid の目印、色のチップ、動画と音声、目次、脚注、差分の記法、画像のリンク、外部リンク、タスク、文字の向き、コードの配色
-- 写していないもの（原文のまま出す）: `#123`・`@名前` などの参照、PlantUML、Kroki、提案（suggestion）、独自の絵文字、`::include`
+- `::include{file=…}` は、読み込みの関数を渡したときだけ、ルートの内側のファイルで展開する（32 個まで・再帰しない。GitLab のリポジトリの表示と同じ決まり）。URL は取り込まず、その URL へのリンクにする
+- 写していないもの（原文のまま出す）: `#123`・`@名前` などの参照、PlantUML、Kroki、提案（suggestion）、独自の絵文字
+- `notices` に、GitLab では別の見え方になる所（参照になりうる記法、PlantUML などの図、取り込めなかった include、文字のまま残った絵文字の短縮記法、手元に無い画像）を、原文の行と一緒に返す
 - GitLab と違う所: 絵文字の短縮記法（`:smile:`）は `<gl-emoji>` で包まず文字にする。脚注の ID に乱数を付けない。外部の画像は GitLab の中継を通さず、元の URL から読む。コードの配色は highlight.js の字句を Rouge のクラス名に対応づけたもので、色分けは GitLab より粗い
 
 合成の Markdown 17 個を gitlab.com の API に送って保存した HTML（`test/fixtures/`）と、試験で比べている。上の違いと、GitLab のデータや設定が要る 11 か所（`test/fixtures.test.mjs` の「既知の差」）を除いて、要素・属性・文字が一致する。
