@@ -119,12 +119,14 @@ def _normalized_sheet_model(sheet_model, region):
     return model
 
 
-def _render(region, model, warnings):
+def _render(region, model, warnings, keep_kind=False):
     """新しい行と、HTML の表に変えたときの理由（変えなければ None）。"""
     if region.kind == "pipe":
         try:
             return pipe_table.render(region, model, warnings), None
         except NotRepresentable as error:
+            if keep_kind:
+                raise
             return html_table.render_from_pipe(region, model, warnings), str(error)
     return html_table.render(region, model, warnings), None
 
@@ -145,9 +147,20 @@ def _already_applied(sheet_model, region, md):
     return lines == md.lines[region.start:region.end + 1]
 
 
-def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False):
+def _trailing_empty(model):
+    """結合も文字も無い末尾の行・列の数（パイプ表の見出し行は除く）。"""
+    row_end = 1 if model.kind == "pipe" else 0
+    col_end = 0
+    for cell in model.cells:
+        if cell.text or cell.rowspan > 1 or cell.colspan > 1:
+            row_end = max(row_end, cell.row + cell.rowspan)
+            col_end = max(col_end, cell.col + cell.colspan)
+    return model.rows - row_end, model.cols - col_end
+
+
+def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False, keep_kind=False, strict_text=False):
     report = Report()
-    data = workbook.read(xlsx_path, force=force)
+    data = workbook.read(xlsx_path, force=force, strict=strict_text)
     report.warnings.extend(data.warnings)
     if md_path is None:
         md_path = data.markdown_path
@@ -221,9 +234,17 @@ def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False):
             continue
         warnings = []
         try:
-            lines, converted = _render(region, model, warnings)
+            lines, converted = _render(region, model, warnings, keep_kind=keep_kind)
         except NotRepresentable as error:
-            report.errors.append("%s: 書き戻せない: %s" % (label, error))
+            if keep_kind and region.kind == "pipe":
+                reason = str(error)
+                if error.row is not None and error.col is not None:
+                    reason = "%d 行 %d 列: %s" % (error.row, error.col, reason)
+                report.errors.append(
+                    "%s: パイプ表のままでは書けない（%s）。HTML の表に変えてよければ --keep-kind を外す"
+                    % (label, reason))
+            else:
+                report.errors.append("%s: 書き戻せない: %s" % (label, error))
             continue
         for warning in warnings:
             report.warnings.append("%s: %s" % (label, warning))
@@ -231,6 +252,14 @@ def import_workbook(xlsx_path, md_path=None, dry_run=False, force=False):
         if lines == original:
             report.messages.append("%s（%s）: 変更なし" % (label, _range_text(region)))
             continue
+        old_model = region.parsed.model
+        # 行を消して空になった列と、列を消して空になった行は、中身を消したものではないので数えない
+        for count, previous, unit, kept in zip(_trailing_empty(model), _trailing_empty(old_model), ("行", "列"),
+                                               (model.cols >= old_model.cols, model.rows >= old_model.rows)):
+            if count > previous and kept:
+                report.warnings.append(
+                    "%s: 末尾の %d %sが空になっている（%sごと消すなら、Excel で%sを削除する）"
+                    % (label, count - previous, unit, unit, unit))
         replacements.append(Replacement(region, lines, model))
         if converted:
             report.messages.append("%s（%s）: %sため HTML の表に変えて更新" % (label, _range_text(region), converted))

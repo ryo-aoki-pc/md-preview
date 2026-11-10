@@ -372,7 +372,7 @@ def render(region, model, warnings):
         raise NotRepresentable("見出し行と 1 列以上の列が要る")
     for cell in model.cells:
         if cell.rowspan > 1 or cell.colspan > 1:
-            raise NotRepresentable("セル結合がある")
+            raise NotRepresentable("セル結合がある", cell.row + 1, cell.col + 1)
     columns = model.cols
     grid = [[""] * columns for _ in range(model.rows)]
     for cell in model.cells:
@@ -419,7 +419,10 @@ def render(region, model, warnings):
                     return raw
         if text in anywhere:
             return anywhere[text]
-        return to_pipe_cell(text)
+        try:
+            return to_pipe_cell(text)
+        except NotRepresentable as error:
+            raise NotRepresentable(str(error), new_row + 1, col + 1) from error
 
     rendered_rows = []
     for index, row in enumerate(grid):

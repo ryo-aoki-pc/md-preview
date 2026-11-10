@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import warnings
+from urllib.parse import unquote
 
 from .model import Cell, TableModel, normalize_text, sheet_form
 from .textwidth import text_width, wrapped_line_count
@@ -48,6 +49,7 @@ QUICK_REFERENCE = [
     "・HTML の表: 太字かつ塗りつぶしのセルが見出し（<th>）。セル結合は rowspan / colspan",
     "・セル結合やコードブロックがある Markdown の表は、書き戻すと HTML の表になる",
     "・行を挿入すると上の行の書式が写る。見出しの直下に挿入したら [挿入オプション] で「下と同じ書式を適用」を選ぶ",
+    "・行や列を消すときは、行・列ごと削除する（中身だけを消すと空の行・列が残る）",
 ]
 
 
@@ -479,7 +481,14 @@ def _format_datetime(value):
     return value.isoformat()
 
 
-def _cell_text(cell, table, force, where):
+def _strict_cell_error(table, where, kind, text):
+    text = text.replace("\r", "\\r").replace("\n", "\\n")
+    table.errors.append(
+        "%s: Excel が%sに変えたセルがある（%s）。セルを文字列の書式にして入力し直す"
+        % (where, kind, text))
+
+
+def _cell_text(cell, table, force, where, strict=False):
     from openpyxl.cell.rich_text import CellRichText
 
     value = cell.value
@@ -490,16 +499,28 @@ def _cell_text(cell, table, force, where):
         value = str(value)
     if isinstance(value, str):
         if cell.data_type == "f":
-            table.warnings.append("%s: 数式は式の文字のまま書き戻す: %s" % (where, value))
+            if strict:
+                _strict_cell_error(table, where, "数式", value)
+            else:
+                table.warnings.append("%s: 数式は式の文字のまま書き戻す: %s" % (where, value))
         elif cell.data_type == "e":
-            table.warnings.append("%s: エラー値は文字のまま書き戻す: %s" % (where, value))
+            if strict:
+                _strict_cell_error(table, where, "エラー値", value)
+            else:
+                table.warnings.append("%s: エラー値は文字のまま書き戻す: %s" % (where, value))
         return unescape_from_excel(normalize_text(value))
     if isinstance(value, bool):
-        table.warnings.append("%s: 真偽値を文字にした: %s" % (where, _format_number(value)))
-        return _format_number(value)
+        text = _format_number(value)
+        if strict:
+            _strict_cell_error(table, where, "真偽値", text)
+        else:
+            table.warnings.append("%s: 真偽値を文字にした: %s" % (where, text))
+        return text
     if isinstance(value, (int, float)):
         text = _format_number(value)
-        if cell.number_format in ("General", "@"):
+        if strict:
+            _strict_cell_error(table, where, "数値", text)
+        elif cell.number_format in ("General", "@"):
             table.warnings.append("%s: 数値を文字にした: %s（文字列の書式で入力し直すと確実）" % (where, text))
         elif force:
             table.warnings.append("%s: 数値を文字にした: %s" % (where, text))
@@ -578,7 +599,22 @@ def _table_extent(ws, start):
     return (top, left, bottom, right), ignored
 
 
-def _read_table_sheet(ws, start, table, force):
+def _link_in_text(link, text):
+    """ハイパーリンクのリンク先が、セルの文字に書いてあるか（無ければ捨てることになる）。
+
+    Excel は URL の入力に自動でリンクを付け、スキームとホストを小文字にして覚える。
+    """
+    target = link.target or link.location or ""
+    if target.lower().startswith("mailto:"):
+        target = target[7:]
+    target = target.rstrip("/")
+    if not target:
+        return True
+    haystack = text.lower()
+    return target.lower() in haystack or unquote(target).lower() in haystack
+
+
+def _read_table_sheet(ws, start, table, force, strict=False):
     from openpyxl.utils import get_column_letter
 
     (top, left, bottom, right), ignored = _table_extent(ws, start)
@@ -596,6 +632,9 @@ def _read_table_sheet(ws, start, table, force):
                 if (r, c) != (m.min_row, m.min_col):
                     covered.add((r, c))
     cells = []
+    styled = []
+    hyperlinks = []
+    comments = []
     for r in range(top, bottom + 1):
         for c in range(left, right + 1):
             if (r, c) in covered:
@@ -603,9 +642,31 @@ def _read_table_sheet(ws, start, table, force):
             source = ws.cell(row=r, column=c)
             rowspan, colspan = merges.get((r, c), (1, 1))
             where = "シート「%s」の %s%d" % (ws.title, get_column_letter(c), r)
-            text = _cell_text(source, table, force, where)
+            text = _cell_text(source, table, force, where, strict)
+            font = source.font
+            fill = source.fill
+            if text and font is not None and (
+                    font.i or font.strike
+                    or (font.u not in (None, "none") and not source.hyperlink)
+                    or (font.b and (fill is None or fill.fill_type != "solid")
+                        and not (table.kind == "pipe" and r == top))):
+                styled.append(source.coordinate)
+            if source.hyperlink and not _link_in_text(source.hyperlink, text):
+                hyperlinks.append(source.coordinate)
+            if source.comment is not None:
+                comments.append(source.coordinate)
             cells.append(Cell(r - top, c - left, text, rowspan, colspan,
                               header=_is_header(source), align=_horizontal(source)))
+    for names, feature, hint in (
+            (styled, "セル全体の書式（太字・斜体・取り消し線・下線）", "（強調は ** などで書く）"),
+            (hyperlinks, "ハイパーリンク", "（[文字](URL) の形で書く）"),
+            (comments, "コメント（メモ）", "")):
+        if names:
+            positions = ", ".join(names[:5])
+            if len(names) > 5:
+                positions += " ほか %d 個" % (len(names) - 5)
+            table.warnings.append("シート「%s」: %sは書き戻さない: %s%s"
+                                  % (ws.title, feature, positions, hint))
     return TableModel(None, bottom - top + 1, right - left + 1, cells)
 
 
@@ -643,7 +704,7 @@ def _read_meta(ws, data):
         data.tables.append(table)
 
 
-def read(path, force=False):
+def read(path, force=False, strict=False):
     """ブックを読む。"""
     if not os.path.splitext(path)[1].lower() in (".xlsx", ".xlsm"):
         raise WorkbookError("Excel のブック（.xlsx）を指定してください: %s" % path)
@@ -686,7 +747,7 @@ def read(path, force=False):
             continue
         known_titles.add(sheet.title)
         table.sheet_title = sheet.title
-        table.model = _read_table_sheet(sheet, start, table, force)
+        table.model = _read_table_sheet(sheet, start, table, force, strict)
     for title in workbook.sheetnames:
         if title not in known_titles and title not in (INDEX_SHEET, META_SHEET):
             data.warnings.append("シート「%s」はどの表とも対応しないので読まない" % title)

@@ -104,6 +104,106 @@ class CliTest(unittest.TestCase):
         code, out, err = run_cli("export")
         self.assertEqual(code, 2)
 
+    def test_keep_kind_blocks_conversion_and_other_tables(self):
+        original = DOCUMENT + "\n| a |\n|---|\n| 1 |\n"
+        with open(self.md, "w", encoding="utf-8", newline="") as handle:
+            handle.write(original)
+        code, out, err = run_cli("export", self.md)
+        self.assertEqual(code, 0, err)
+        book = openpyxl.load_workbook(self.xlsx)
+        book[book.sheetnames[1]]["B2"] = "```sh\necho test\n```"
+        book[book.sheetnames[2]]["A2"] = "2"
+        book.save(self.xlsx)
+        for options in (("--keep-kind",), ("--keep-kind", "--force"), ("--keep-kind", "--dry-run")):
+            with self.subTest(options=options):
+                code, out, err = run_cli("import", self.xlsx, *options)
+                self.assertEqual(code, 1, err)
+                self.assertIn(
+                    "表 1: パイプ表のままでは書けない（2 行 2 列: コードブロックはパイプ表のセルに書けない）。HTML の表に変えてよければ --keep-kind を外す",
+                    err)
+                self.assertNotIn("Traceback", err)
+                with open(self.md, encoding="utf-8", newline="") as handle:
+                    self.assertEqual(handle.read(), original)
+        code, out, err = run_cli("import", self.xlsx)
+        self.assertEqual(code, 0, err)
+        self.assertIn("コードブロックはパイプ表のセルに書けないため HTML の表に変えて更新", err)
+        with open(self.md, encoding="utf-8") as handle:
+            updated = handle.read()
+        self.assertIn("<table>", updated)
+        self.assertIn("```sh\necho test\n```", updated)
+        self.assertIn("| 2 |", updated)
+
+    def test_keep_kind_blocks_merged_cell(self):
+        code, out, err = run_cli("export", self.md)
+        self.assertEqual(code, 0, err)
+        book = openpyxl.load_workbook(self.xlsx)
+        book[book.sheetnames[1]].merge_cells("A2:B2")
+        book.save(self.xlsx)
+        code, out, err = run_cli("import", self.xlsx, "--keep-kind")
+        self.assertEqual(code, 1, err)
+        self.assertIn("パイプ表のままでは書けない（2 行 1 列: セル結合がある）", err)
+        with open(self.md, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), DOCUMENT)
+        code, out, err = run_cli("import", self.xlsx)
+        self.assertEqual(code, 0, err)
+        self.assertIn("セル結合があるため HTML の表に変えて更新", err)
+        with open(self.md, encoding="utf-8") as handle:
+            self.assertIn('colspan="2"', handle.read())
+
+    def test_strict_text_blocks_non_text_values(self):
+        cases = [
+            (3.1, "General", "数値", "3.1", "数値を文字にした"),
+            (123, "@", "数値", "123", "数値を文字にした"),
+            (True, "General", "真偽値", "TRUE", "真偽値を文字にした"),
+            ("=1+1", "@", "数式", "=1+1", "数式は式の文字のまま書き戻す"),
+            ("#N/A", "@", "エラー値", "#N/A", "エラー値は文字のまま書き戻す"),
+        ]
+        for value, number_format, kind, text, warning in cases:
+            with self.subTest(kind=kind, number_format=number_format):
+                with open(self.md, "w", encoding="utf-8", newline="") as handle:
+                    handle.write(DOCUMENT)
+                code, out, err = run_cli("export", self.md, "--force")
+                self.assertEqual(code, 0, err)
+                book = openpyxl.load_workbook(self.xlsx)
+                sheet = book[book.sheetnames[1]]
+                sheet["B2"] = value
+                sheet["B2"].number_format = number_format
+                book.save(self.xlsx)
+                code, out, err = run_cli("import", self.xlsx, "--strict-text")
+                self.assertEqual(code, 1, err)
+                self.assertIn(
+                    "シート「表1 文書」の B2: Excel が%sに変えたセルがある（%s）。セルを文字列の書式にして入力し直す"
+                    % (kind, text), err)
+                self.assertNotIn("Traceback", err)
+                with open(self.md, encoding="utf-8") as handle:
+                    self.assertEqual(handle.read(), DOCUMENT)
+                code, out, err = run_cli("import", self.xlsx)
+                self.assertEqual(code, 0, err)
+                self.assertIn("警告: 表 1: シート「表1 文書」の B2: " + warning, err)
+
+    def test_strict_text_blocks_value_matching_original_text(self):
+        original = DOCUMENT.replace("`scoop install lazygit`", "3.1")
+        with open(self.md, "w", encoding="utf-8", newline="") as handle:
+            handle.write(original)
+        code, out, err = run_cli("export", self.md)
+        self.assertEqual(code, 0, err)
+        book = openpyxl.load_workbook(self.xlsx)
+        book[book.sheetnames[1]]["B2"] = 3.1
+        book.save(self.xlsx)
+        code, out, err = run_cli("import", self.xlsx, "--strict-text")
+        self.assertEqual(code, 1, err)
+        self.assertIn("Excel が数値に変えたセルがある", err)
+        with open(self.md, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), original)
+
+    def test_strict_text_and_force_are_incompatible(self):
+        for options in (("--strict-text", "--force"), ("--force", "--strict-text")):
+            with self.subTest(options=options):
+                code, out, err = run_cli("import", self.xlsx, *options)
+                self.assertEqual(code, 2, err)
+                self.assertIn("--strict-text と --force は同時に指定できません", err)
+                self.assertNotIn("Traceback", err)
+
     def test_table_selection(self):
         with open(self.md, "a", encoding="utf-8", newline="") as handle:
             handle.write("\n| a |\n|---|\n| 1 |\n")
@@ -130,6 +230,35 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0, stderr.getvalue())
         with open(self.md, encoding="utf-8") as handle:
             self.assertIn("| lazygit2 |", handle.read())
+
+    def test_edit_forwards_import_protections(self):
+        cases = [
+            ("--keep-kind", "```\ncode\n```", "パイプ表のままでは書けない"),
+            ("--strict-text", 3.1, "Excel が数値に変えたセルがある"),
+        ]
+        for option, value, error in cases:
+            with self.subTest(option=option):
+                directory = tempfile.mkdtemp(dir=self.dir)
+
+                def fake_startfile(path):
+                    book = openpyxl.load_workbook(path)
+                    book[book.sheetnames[1]]["B2"] = value
+                    book.save(path)
+
+                stderr = io.StringIO()
+                with mock.patch.object(cli.os, "name", "nt"), \
+                        mock.patch.object(cli.os, "startfile", fake_startfile, create=True), \
+                        mock.patch.object(cli.tempfile, "mkdtemp", return_value=directory), \
+                        mock.patch.object(builtins, "input", lambda *a: ""), \
+                        redirect_stderr(stderr), redirect_stdout(io.StringIO()):
+                    code = cli.main(["edit", self.md, option])
+                self.assertEqual(code, 1, stderr.getvalue())
+                self.assertIn(error, stderr.getvalue())
+                self.assertIn("ブックを残しました", stderr.getvalue())
+                self.assertIn('--md "%s"%s' % (self.md, " " + option), stderr.getvalue())
+                self.assertTrue(any(name.endswith(".xlsx") for name in os.listdir(directory)))
+                with open(self.md, encoding="utf-8") as handle:
+                    self.assertEqual(handle.read(), DOCUMENT)
 
     def test_edit_not_saved(self):
         stderr = io.StringIO()

@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import unittest
 import zipfile
+from copy import copy
 from unittest import mock
 from xml.sax.saxutils import escape
 
@@ -194,7 +195,208 @@ class ExportImportTest(unittest.TestCase):
         self.export()
         report = sync.import_workbook(self.xlsx)
         self.assertFalse(report.changed)
+        self.assertEqual(report.warnings, [])
         self.assertEqual(read(self.md), SAMPLE)
+
+    def test_discarded_cell_features(self):
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        sheet = book[self.sheet(1)]
+        sheet["A2"].font = openpyxl.styles.Font(i=True)
+        sheet["B2"].font = openpyxl.styles.Font(b=True)
+        sheet["A3"].font = openpyxl.styles.Font(strike=True)
+        sheet["B3"].font = openpyxl.styles.Font(u="single")
+        sheet["A1"].hyperlink = "https://example.com/"
+        sheet["B1"].value = "https://example.org/"
+        sheet["B1"].hyperlink = "https://example.org/"
+        sheet["B1"].font = openpyxl.styles.Font(u="single")
+        sheet["B3"].comment = openpyxl.comments.Comment("補足", "試験")
+        book.save(self.xlsx)
+        table = workbook.read(self.xlsx).tables[0]
+        self.assertEqual(table.warnings, [
+            "シート「表1 文書」: セル全体の書式（太字・斜体・取り消し線・下線）は書き戻さない: A2, B2, A3, B3（強調は ** などで書く）",
+            "シート「表1 文書」: ハイパーリンクは書き戻さない: A1（[文字](URL) の形で書く）",
+            "シート「表1 文書」: コメント（メモ）は書き戻さない: B3"])
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.warnings, ["表 1: " + warning for warning in table.warnings])
+        self.assertIn("| lazygit | `scoop install lazygit` |", read(self.md))
+        self.assertNotIn("[ツール]", read(self.md))
+        self.assertNotIn("**", read(self.md))
+
+    def test_discarded_features_limit_positions(self):
+        write(self.md, "| a | b |\n|---|---|\n| c | d |\n| e | f |\n| g | h |\n")
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        sheet = book[self.sheet(1)]
+        for row in sheet.iter_rows(min_row=2):
+            for cell in row:
+                cell.font = openpyxl.styles.Font(i=True, b=True, strike=True, u="single")
+                cell.hyperlink = "https://example.com/"
+                cell.comment = openpyxl.comments.Comment("補足", "試験")
+        book.save(self.xlsx)
+        warnings = workbook.read(self.xlsx).tables[0].warnings
+        self.assertEqual(len(warnings), 3)
+        for warning in warnings:
+            self.assertIn("A2, B2, A3, B3, A4 ほか 1 個", warning)
+            self.assertNotIn("B4", warning)
+
+    def test_expected_cell_formats_do_not_warn(self):
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        sheet = book[self.sheet(1)]
+        # パイプ表の見出しの太字と、見出しから写った本文の書式は警告しない
+        sheet["A1"].fill = openpyxl.styles.PatternFill()
+        sheet["A2"].font = copy(sheet["B1"].font)
+        sheet["A2"].fill = copy(sheet["B1"].fill)
+        sheet["B3"].value = None
+        sheet["B3"].font = openpyxl.styles.Font(i=True, b=True, strike=True, u="double")
+        book.save(self.xlsx)
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.warnings, [])
+
+    def test_hyperlinks_with_visible_targets_do_not_warn(self):
+        cases = [
+            ("https://example.com", "https://example.com/"),
+            ("連絡: user@example.com", "mailto:user@example.com"),
+            ("[案内](https://example.com/guide)", "https://example.com/guide/"),
+            # Excel はスキームとホストを小文字にして覚える
+            ("HTTPS://EXAMPLE.COM/Path", "https://example.com/Path"),
+            ("https://example.com/案内", "https://example.com/%E6%A1%88%E5%86%85"),
+        ]
+        for text, target in cases:
+            with self.subTest(target=target):
+                self.export()
+                book = openpyxl.load_workbook(self.xlsx)
+                sheet = book[self.sheet(1)]
+                sheet["A2"] = text
+                sheet["A2"].hyperlink = target
+                sheet["A2"].font = openpyxl.styles.Font(u="single")
+                book.save(self.xlsx)
+                self.assertEqual(workbook.read(self.xlsx).tables[0].warnings, [])
+
+    def test_internal_and_empty_hyperlinks(self):
+        from openpyxl.worksheet.hyperlink import Hyperlink
+
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        sheet = book[self.sheet(1)]
+        sheet["A2"].hyperlink = Hyperlink(ref="A2", location="目次!A1")
+        sheet["B2"].hyperlink = Hyperlink(ref="B2")
+        book.save(self.xlsx)
+        self.assertEqual(workbook.read(self.xlsx).tables[0].warnings, [
+            "シート「表1 文書」: ハイパーリンクは書き戻さない: A2（[文字](URL) の形で書く）"])
+
+    def test_html_header_format_and_bold_only(self):
+        # HTML の表: 太字 + 塗りつぶしは見出しなので警告しない。太字だけのセルは警告する
+        write(self.md, "<table>\n<tr><th>h</th><td>a</td></tr>\n<tr><td>b</td><td>c</td></tr>\n</table>\n")
+        self.export()
+        self.assertEqual(workbook.read(self.xlsx).tables[0].warnings, [])
+        book = openpyxl.load_workbook(self.xlsx)
+        sheet = book[self.sheet(1)]
+        sheet["B1"].font = openpyxl.styles.Font(b=True)
+        sheet["A2"].font = copy(sheet["A1"].font)
+        sheet["A2"].fill = copy(sheet["A1"].fill)
+        book.save(self.xlsx)
+        table = workbook.read(self.xlsx).tables[0]
+        self.assertEqual(table.warnings, [
+            "シート「表1」: セル全体の書式（太字・斜体・取り消し線・下線）は書き戻さない: B1（強調は ** などで書く）"])
+        self.assertTrue(table.model.anchors()[(1, 0)].header)
+        self.assertFalse(table.model.anchors()[(0, 1)].header)
+
+    def test_rich_text_warning_is_preserved(self):
+        from openpyxl.cell.rich_text import CellRichText, TextBlock
+        from openpyxl.cell.text import InlineFont
+
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        sheet = book[self.sheet(1)]
+        sheet["A2"] = CellRichText([TextBlock(InlineFont(i=True), "一部"), "だけ"])
+        book.save(self.xlsx)
+        table = workbook.read(self.xlsx).tables[0]
+        self.assertEqual(table.warnings, [
+            "シート「表1 文書」の A2: セルの一部だけの書式は書き戻さない（文字だけを使う）"])
+        self.assertEqual(table.model.anchors()[(1, 0)].text, "一部だけ")
+
+    def test_cleared_trailing_row_warns(self):
+        self.export()
+        edit_sheet(self.xlsx, self.sheet(1), {"A3": None, "B3": " \n\t "})
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.warnings, [
+            "表 1: 末尾の 1 行が空になっている（行ごと消すなら、Excel で行を削除する）"])
+        model = sync.list_tables(self.md)[0].parsed.model
+        self.assertEqual(model.rows, 3)
+        self.assertEqual(model.cell_at(2, 0).text, "")
+        self.assertEqual(sync.import_workbook(self.xlsx).warnings, [])
+
+    def test_cleared_trailing_column_warns(self):
+        self.export()
+        edit_sheet(self.xlsx, self.sheet(1), {"B1": None, "B2": None, "B3": None})
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.warnings, [
+            "表 1: 末尾の 1 列が空になっている（列ごと消すなら、Excel で列を削除する）"])
+        self.assertEqual(sync.list_tables(self.md)[0].parsed.model.cols, 2)
+
+    def test_deleted_rows_do_not_warn_about_columns(self):
+        # 見出しが空の表で本文の行を行ごと消しても、列が空になったとは言わない
+        write(self.md, "|   |   |\n|---|---|\n| 1 | 2 |\n")
+        self.export()
+        book = openpyxl.load_workbook(self.xlsx)
+        title = self.sheet(1)
+        book[title].delete_rows(2, 1)
+        book.defined_names["mdtable_1"].attr_text = "'%s'!$A$1:$B$1" % title
+        book.save(self.xlsx)
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.warnings, [])
+        self.assertEqual(read(self.md), "|   |   |\n|---|---|\n")
+
+    def test_original_empty_trailing_rows_and_columns_do_not_warn(self):
+        write(self.md, "| a | |\n|---|---|\n| b | |\n| | |\n")
+        self.export()
+        edit_sheet(self.xlsx, self.sheet(1), {"A2": "変更"})
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.warnings, [])
+
+    def test_only_increased_trailing_empty_rows_warn(self):
+        write(self.md, "| a | b |\n|---|---|\n| c | d |\n| | |\n")
+        self.export()
+        edit_sheet(self.xlsx, self.sheet(1), {"A2": None, "B2": None})
+        report = sync.import_workbook(self.xlsx)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.warnings, [
+            "表 1: 末尾の 1 行が空になっている（行ごと消すなら、Excel で行を削除する）"])
+
+    def test_cleared_trailing_row_does_not_warn_on_conflict(self):
+        self.export()
+        edit_sheet(self.xlsx, self.sheet(1), {"A3": None, "B3": None})
+        write(self.md, SAMPLE.replace("lazygit", "変更"))
+        report = sync.import_workbook(self.xlsx)
+        self.assertTrue(report.errors)
+        self.assertEqual(report.warnings, [])
+
+    def test_empty_merged_trailing_cells_are_not_empty_rows_or_columns(self):
+        original = "<table>\n<tr><td>a</td><td>b</td></tr>\n<tr><td>c</td><td>d</td></tr>\n</table>\n"
+        for merge, edits in (
+                ("A2:B2", {"A1": "変更", "A2": None, "B2": None}),
+                ("A1:A2", {"A1": None, "B1": "変更", "A2": None, "B2": None}),
+                ("B1:B2", {"A1": "変更", "B1": None, "B2": None})):
+            with self.subTest(merge=merge):
+                write(self.md, original)
+                self.export()
+                book = openpyxl.load_workbook(self.xlsx)
+                sheet = book[self.sheet(1)]
+                for ref, value in edits.items():
+                    sheet[ref] = value
+                sheet.merge_cells(merge)
+                book.save(self.xlsx)
+                report = sync.import_workbook(self.xlsx)
+                self.assertEqual(report.errors, [])
+                self.assertEqual(report.warnings, [])
 
     def test_excel_shaped_round_trip(self):
         # Excel が保存した形（共有文字列・_x000D_・ふりがな）でも変わらない
@@ -586,8 +788,8 @@ class ExportImportTest(unittest.TestCase):
                 # 配置を落とした出力でも収束はするため、ブックとの構造の比較で止める
                 render = sync._render
 
-                def lose_alignment(region, model, warnings):
-                    lines, converted = render(region, model, warnings)
+                def lose_alignment(region, model, warnings, keep_kind=False):
+                    lines, converted = render(region, model, warnings, keep_kind=keep_kind)
                     return [line.replace(' align="right"', "") for line in lines], converted
 
                 with mock.patch.object(sync, "_render", side_effect=lose_alignment):

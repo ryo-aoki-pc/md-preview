@@ -15,6 +15,11 @@ from .model import normalize_text
 class NotRepresentable(Exception):
     """パイプ表のセルでは書けない（HTML の表にする必要がある）。"""
 
+    def __init__(self, message, row=None, col=None):
+        super().__init__(message)
+        self.row = row
+        self.col = col
+
 
 _BR_TAG = re.compile(r"<br[ \t]*/?>", re.I)
 _TRAILING_BR = re.compile(r"(?:<br[ \t]*/?>)[ \t]*$", re.I)

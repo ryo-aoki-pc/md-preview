@@ -69,7 +69,8 @@ def cmd_export(args):
 
 
 def cmd_import(args):
-    report = import_workbook(args.workbook, args.md, args.dry_run, args.force)
+    report = import_workbook(args.workbook, args.md, args.dry_run, args.force,
+                             args.keep_kind, args.strict_text)
     if args.dry_run and report.diff:
         sys.stdout.write(report.diff)
     _print_report(report)
@@ -100,6 +101,7 @@ def cmd_edit(args):
     directory = tempfile.mkdtemp(prefix="mdtable-")
     stem = os.path.splitext(os.path.basename(markdown))[0]
     xlsx = os.path.join(directory, "%s.tables.%s.xlsx" % (stem, secrets.token_hex(4)))
+    import_options = (" --keep-kind" if args.keep_kind else "") + (" --strict-text" if args.strict_text else "")
     keep = True
     try:
         report = export(markdown, xlsx, args.table, True)
@@ -123,7 +125,8 @@ def cmd_edit(args):
         report = None
         for attempt in range(2):
             try:
-                report = import_workbook(xlsx, markdown, False, False)
+                report = import_workbook(xlsx, markdown, keep_kind=args.keep_kind,
+                                         strict_text=args.strict_text)
                 break
             except WorkbookError:
                 if attempt == 1:
@@ -132,7 +135,7 @@ def cmd_edit(args):
         _print_report(report)
         if report.errors:
             _err("ブックを残しました。直してから次で取り込めます:")
-            _err('  mdtable import "%s" --md "%s"' % (xlsx, markdown))
+            _err('  mdtable import "%s" --md "%s"%s' % (xlsx, markdown, import_options))
             return 1
         if report.changed:
             _err("書き戻しました: %s" % markdown)
@@ -143,7 +146,7 @@ def cmd_edit(args):
     except (KeyboardInterrupt, EOFError):
         _err("")
         _err("中止しました。ブックを残しました: %s" % xlsx)
-        _err('取り込むときは: mdtable import "%s" --md "%s"' % (xlsx, markdown))
+        _err('取り込むときは: mdtable import "%s" --md "%s"%s' % (xlsx, markdown, import_options))
         return 1
     finally:
         if not keep:
@@ -176,11 +179,15 @@ def build_parser():
     p.add_argument("--dry-run", action="store_true", help="書き戻さずに差分を出す")
     p.add_argument("--force", action="store_true",
                    help="衝突や、Excel が日付・数値に変えたセルがあっても書き戻す")
+    p.add_argument("--keep-kind", action="store_true", help="パイプ表を HTML の表に変える必要があれば止める")
+    p.add_argument("--strict-text", action="store_true", help="数値・真偽値・数式・エラー値のセルがあれば止める")
     p.set_defaults(func=cmd_import)
 
     p = sub.add_parser("edit", help="Excel で開いて編集し、閉じたら書き戻す（Windows）")
     p.add_argument("markdown", help="Markdown のファイル")
     p.add_argument("--table", action="append", metavar="番号|L行", help="編集する表")
+    p.add_argument("--keep-kind", action="store_true", help="パイプ表を HTML の表に変える必要があれば止める")
+    p.add_argument("--strict-text", action="store_true", help="数値・真偽値・数式・エラー値のセルがあれば止める")
     p.set_defaults(func=cmd_edit)
     return parser
 
@@ -189,6 +196,8 @@ def main(argv=None):
     _prepare_streams()
     parser = build_parser()
     args = parser.parse_args(argv)
+    if getattr(args, "strict_text", False) and getattr(args, "force", False):
+        parser.error("--strict-text と --force は同時に指定できません")
     try:
         return args.func(args)
     except USER_ERRORS as error:
