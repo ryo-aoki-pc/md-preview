@@ -21,7 +21,7 @@ import (
 const MaxLineBytes = 96 * 1024 * 1024
 const MaxOutputBytes = 1024 * 1024
 
-// フィールドの順番も Node.js 版の JSON 行にそろえる。
+// JSON 行のフィールドの順番も一定に保つ。
 type errorMessage struct {
 	Type    string `json:"type"`
 	Fatal   bool   `json:"fatal,omitempty"`

@@ -83,7 +83,7 @@ func TestConcurrentRenderAndCancellation(tst *testing.T) {
 }
 
 // template の中身は、GitLab と同じく残して消毒する (gitlab.com の Markdown API も、div と表の中の
-// template の中身を残して返す)。Node.js 版は、木を作る部品が中身を別の場所に持つので落としていた。
+// template の中身を残して返す)。
 func TestTemplateContent(tst *testing.T) {
 	e, err := engine.New(context.Background())
 	if err != nil {

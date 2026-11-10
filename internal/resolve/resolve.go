@@ -12,7 +12,7 @@ type Result struct {
 	Path   string
 }
 
-// IsAbsolute は Node.js と同じく、Windows ではドライブを省いたルート始まりも受け付ける。
+// IsAbsolute は Windows ではドライブを省いたルート始まりも受け付ける。
 func IsAbsolute(path string) bool {
 	if runtime.GOOS == "windows" && len(path) > 0 && (path[0] == '/' || path[0] == '\\') {
 		return true

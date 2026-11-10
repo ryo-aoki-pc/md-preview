@@ -222,7 +222,7 @@ func ParseLock(bytes []byte) (*LockInfo, error) {
 	return &LockInfo{Lock: lock, SHA256: hash, ID: lock.Version + "-" + hash[:12], fileOrder: lockFileOrder(bytes)}, nil
 }
 
-// Node.js 版の再検査も同じ導入情報を使えるよう、固定 JSON のファイルの順序を保つ。
+// 導入情報を一定の順序で出すため、固定 JSON のファイルの順序を保つ。
 func lockFileOrder(data []byte) []string {
 	var raw struct {
 		Files json.RawMessage `json:"files"`

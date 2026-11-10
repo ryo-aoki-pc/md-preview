@@ -12,8 +12,8 @@
 
 **選択した方針**
 
-- clone は更新するソースを置く場所にし、実行するファイルと依存はリポジトリの外へ入れる
-- 導入・更新には、どちらも `scripts/setup.mjs` を使う
+- 実行ファイルを 1 つ置くだけにする。ほかに入れるものは無い
+- 取得したファイルは sha256 で確かめる
 
 **参照**
 
@@ -27,74 +27,75 @@
 
 ### md-preview を導入・更新する
 
-- md-preview を `~/repos/md-preview` に clone し、`mdpreview` コマンドを入れて確かめる。更新もこの項の手順を通す
-- 前提: Node.js 22 以上（npm を含む）と git が入っている
-- 実行場所: GNOME にログインした自分のユーザーの端末（bash）。`sudo` は使わない
-- 更新では、手元の変更の確認を省かない
+- GitHub Releases の実行ファイルを取得し、`mdpreview` コマンドを入れて確かめる。更新もこの項の手順を通す
+- 前提: `curl`・`sha256sum`・`install` が入っている。対応する CPU は x86-64 と AArch64
+- 実行場所: GNOME にログインした自分のユーザーの端末（bash）。`sudo` は使わない。この項の手順 1〜4 は、同じ端末で続けて行う（前の手順で決めた名前とフォルダーを使う）
 
-1. Node.js と git の版を確かめる。
+1. CPU を確かめ、取得するファイルの名前を決める。
 
    ```bash
-   printf '\n\033[7m 確認 \033[0m\n'
-   node --version
-   git --version
+   # CPU に合う配布ファイルを選ぶ
+   preview_download_name=$(
+     case "$(uname -m)" in
+       x86_64) printf 'mdpreview-linux-amd64\n' ;;
+       aarch64) printf 'mdpreview-linux-arm64\n' ;;
+       *) printf '対象外の CPU です。\n' >&2; exit 1 ;;
+     esac
+   ) &&
+     printf '\n\033[7m 確認 \033[0m\n' &&
+     printf '%s\n' "$preview_download_name"
    ```
 
-   - Node.js は `v22.` 以上、git は `git version` と版が出ればよい
-   - コマンドが無いか Node.js が 22 より古ければ、導入・更新してからこの項の手順 1 を貼り直す
+   - `uname -m` が `x86_64` なら `mdpreview-linux-amd64`、`aarch64` なら `mdpreview-linux-arm64` が出ればよい
+   - `対象外の CPU です。` が出たら、この項はここで止める
 
-1. clone があれば、手元の変更を確かめる。
-
-   ```bash
-   # 既存の clone の変更を確かめる
-   if [ -e ~/repos/md-preview ]; then
-     printf '\n\033[7m 確認 \033[0m\n'
-     git -C ~/repos/md-preview status --short
-   fi
-   ```
-
-   - 何も出なければ、この項の手順 3 へ進む
-   - 変更やエラーが出たら、その内容を解決してからこの項の手順 2 を貼り直す
-
-1. リポジトリを clone し、既にあれば更新する。
+1. 一時フォルダーに実行ファイルと `SHA256SUMS` を取得する。
 
    ```bash
-   # md-preview のソースを取得・更新する
-   mkdir -p ~/repos &&
-     if [ -e ~/repos/md-preview ]; then
-       git -C ~/repos/md-preview pull --ff-only
-     else
-       git clone https://github.com/ryo-aoki-pc/md-preview.git ~/repos/md-preview
-     fi
+   # 配布ファイルと sha256 の一覧を、専用のフォルダーへ取得する
+   preview_download_dir=$(mktemp -d) &&
+     curl -fL -o "$preview_download_dir/$preview_download_name" "https://github.com/ryo-aoki-pc/md-preview/releases/latest/download/$preview_download_name" &&
+     curl -fL -o "$preview_download_dir/SHA256SUMS" 'https://github.com/ryo-aoki-pc/md-preview/releases/latest/download/SHA256SUMS'
    ```
 
    - エラーなく終わればよい
-   - `pull --ff-only` が失敗したら、中断して clone の状態を解決してからこの項の手順 2 へ戻る
+   - 取得に失敗したら、この項の手順 3 へ進まず、通信先を確かめてこの項の手順 2 を貼り直す
 
-1. コマンドを導入し、導入の状態を確かめる。
+1. 取得した実行ファイルの sha256 を確かめる。
 
    ```bash
    (
-     # mdpreview を導入する
-     cd ~/repos/md-preview || exit
+     cd -- "$preview_download_dir" || exit
      printf '\n\033[7m 確認 \033[0m\n'
-     node scripts/setup.mjs &&
-       node scripts/setup.mjs --check
+     sha256sum -c --ignore-missing SHA256SUMS
    )
    ```
 
-   - 最後に `導入済み: mdpreview` と版、起動役のパスが出ればよい
-   - `問題:` が出たら、案内に従って直してからこの項の手順 4 を貼り直す
-   - `~/.local/bin` が PATH に無いときは、PATH に加えて端末を開き直し、この項の手順 4 を貼り直す
-   - `ほかの導入が動いています` で止まったら、そのプロセスが終わるのを待ってこの項の手順 4 を貼り直す
+   - `<取得するファイルの名前>: OK` が出ればよい
+   - `FAILED` やエラーが出たら、取得したファイルを使わず、この項の手順 2 からやり直す
 
-1. 起動役から版を確かめる。
+1. 実行ファイルを置き、一時フォルダーを消す。
 
    ```bash
+   # コマンドを置き、取得に使ったファイルを片付ける
+   mkdir -p ~/.local/bin &&
+     install -m 755 "$preview_download_dir/$preview_download_name" ~/.local/bin/mdpreview &&
+     rm -- "$preview_download_dir/$preview_download_name" "$preview_download_dir/SHA256SUMS" &&
+     rmdir -- "$preview_download_dir"
+   ```
+
+   - エラーなく終わればよい
+   - 動いているプレビューがあっても置き換えられる。次に起こすプレビューから、取得した版を使う
+
+1. コマンドの版を確かめる。
+
+   ```bash
+   printf '\n\033[7m 確認 \033[0m\n'
    mdpreview --version
    ```
 
-   - この項の手順 4 の `導入済み: mdpreview` に続く版と同じ版が出ればよい
+   - `0.2.0` などの版が出ればよい。GitHub Releases の最新の版と比べる
+   - `~/.local/bin` が PATH に無いときは、PATH に加えて端末を開き直し、この項の手順 5 を貼り直す
    - コマンドが無ければ PATH を直して端末を開き直し、この項の手順 5 を貼り直す
 
 1. 小さな Markdown を開き、URL を確かめて止める。
@@ -112,21 +113,20 @@
 
    - `プレビュー: http://127.0.0.1:` で始まる URL が出ればよい
    - URL を確かめたら、同じ端末で Ctrl+C を押して止める
-   - エラーが出たら、中断してこの項の手順 4 の導入状態を確かめる
+   - エラーが出たら、中断してこの項の手順 5 の版と PATH を確かめる
 
 <details id="md-preview-を導入更新する-の補足と注意点">
   <summary>md-preview を導入・更新する の補足と注意点</summary>
 
-**[md-preview を導入・更新する](#md-preview-を導入更新する)の手順 3**
+**[md-preview を導入・更新する](#md-preview-を導入更新する)のリード**
 
-- 更新は `pull --ff-only` の後に、この項の手順 4〜6 の導入・確認を繰り返す
+- 導入も更新も、この項の手順 1〜6 を通す
 
 **[md-preview を導入・更新する](#md-preview-を導入更新する)の手順 4**
 
-- 導入先は `${XDG_DATA_HOME:-~/.local/share}/md-preview`。空か絶対パスでない `XDG_DATA_HOME` は未設定として扱う
-- 起動役 `mdpreview` は `~/.local/bin` に置く
-- `--check` は何も変えず、写したファイル・依存・起動役・PATH を確かめる
-- 一時フォルダーで組み立てて確かめてから入れ替える。導入の記録は導入先の `install.json` に置く
+- 置き場所は `~/.local/bin/mdpreview`。外すときはこのファイルを消す
+- 公式スタイルも外すときは、[公式スタイルの取得](#md-preview-の公式スタイルを取得する)に書いた保存先の `md-preview-assets` のフォルダーを消す
+- 同梱しているもののライセンスの原文は `mdpreview --licenses` で出す
 
 **[md-preview を導入・更新する](#md-preview-を導入更新する)の手順 6**
 
@@ -188,89 +188,82 @@
 
 ### Windows 11 で md-preview を導入・更新する
 
-- md-preview を `%USERPROFILE%\repos\md-preview` に clone し、`mdpreview` コマンドを入れて確かめる。更新もこの項の手順を通す
-- 前提: Node.js 22 以上（npm を含む）と git が入っている。PowerShell 7 の実行ポリシーは `RemoteSigned`（`Unrestricted`・`Bypass` でもよい）にしてある
-- 実行場所: この PC のデスクトップの管理者ではない PowerShell 7。この項の手順 1 で開く
-- 更新では、手元の変更の確認を省かない。入れ替えを妨げるプレビューがあれば、閉じてからやり直す
+- GitHub Releases の実行ファイルを取得し、`mdpreview` コマンドを入れて確かめる。更新もこの項の手順を通す
+- 前提: x86-64（amd64）の Windows 11 と PowerShell 7
+- 実行場所: この PC のデスクトップの管理者ではない PowerShell 7。この項の手順 1 で開く。この項の手順 2〜4 は、同じ窓で続けて行う（前の手順で決めた名前とフォルダーを使う）
+- 更新するときは、先に動いているプレビューを止める。Neovim から使っているときは Neovim を閉じる
 
 1. 管理者ではない PowerShell 7 を開く。
 
    - スタートメニューで「PowerShell」を探し、クリックして開く（「Windows PowerShell」ではない。「管理者として実行」にはしない）
    - 「PowerShell」が無ければ、[アプリを入れる](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#アプリを入れる)の手順 6〜9 を通す
 
-1. Node.js と git の版を確かめる。
+1. 一時フォルダーに実行ファイルと `SHA256SUMS` を取得する。
 
    ```powershell
-   "`n$([char]27)[7m 確認 $([char]27)[0m"
-   node --version
-   git --version
-   ```
-
-   - Node.js は `v22.` 以上、git は `git version` と版が出ればよい
-   - コマンドが無いか Node.js が 22 より古ければ、導入・更新してからこの項の手順 2 を貼り直す
-
-1. clone があれば、手元の変更を確かめる。
-
-   ```powershell
-   # 既存の clone の変更を確かめる
-   if ([string]::IsNullOrWhiteSpace($env:USERPROFILE)) { throw "USERPROFILE が空です" }
-   if (Test-Path -LiteralPath "$env:USERPROFILE\repos\md-preview") {
-     "`n$([char]27)[7m 確認 $([char]27)[0m"
-     git -C "$env:USERPROFILE\repos\md-preview" status --short
-   }
-   ```
-
-   - 何も出なければ、この項の手順 4 へ進む
-   - 変更やエラーが出たら、その内容を解決してからこの項の手順 3 を貼り直す
-
-1. リポジトリを clone し、既にあれば更新する。
-
-   ```powershell
-   # md-preview のソースを取得・更新する
-   if ([string]::IsNullOrWhiteSpace($env:USERPROFILE)) { throw "USERPROFILE が空です" }
-   New-Item -ItemType Directory -Path "$env:USERPROFILE\repos" -Force -ErrorAction Stop | Out-Null
-   if (Test-Path -LiteralPath "$env:USERPROFILE\repos\md-preview") {
-     git -C "$env:USERPROFILE\repos\md-preview" pull --ff-only
-   } else {
-     git clone https://github.com/ryo-aoki-pc/md-preview.git "$env:USERPROFILE\repos\md-preview"
-   }
+   # 配布ファイルと sha256 の一覧を、TEMP の専用のフォルダーへ取得する
+   if ([string]::IsNullOrWhiteSpace($env:TEMP)) { throw "TEMP が空です" }
+   $downloadDirectory = Join-Path $env:TEMP ("md-preview-download-" + [guid]::NewGuid())
+   New-Item -ItemType Directory -Path $downloadDirectory -ErrorAction Stop | Out-Null
+   $downloadName = 'mdpreview-windows-amd64.exe'
+   $downloadFile = Join-Path $downloadDirectory $downloadName
+   Invoke-WebRequest -Uri "https://github.com/ryo-aoki-pc/md-preview/releases/latest/download/$downloadName" -OutFile $downloadFile -ErrorAction Stop
+   Invoke-WebRequest -Uri 'https://github.com/ryo-aoki-pc/md-preview/releases/latest/download/SHA256SUMS' -OutFile "$downloadDirectory\SHA256SUMS" -ErrorAction Stop
    ```
 
    - エラーなく終わればよい
-   - `pull --ff-only` が失敗したら、中断して clone の状態を解決してからこの項の手順 3 へ戻る
+   - 取得に失敗したら、この項の手順 3 へ進まず、通信先を確かめてこの項の手順 2 を貼り直す
 
-1. コマンドを導入し、導入の状態を確かめる。
+1. 取得した実行ファイルの sha256 を比べる。
 
    ```powershell
-   & {
-     # mdpreview を導入する
-     if ([string]::IsNullOrWhiteSpace($env:USERPROFILE)) { throw "USERPROFILE が空です" }
-     Push-Location -LiteralPath "$env:USERPROFILE\repos\md-preview" -ErrorAction Stop
-     try {
-       "`n$([char]27)[7m 確認 $([char]27)[0m"
-       node scripts/setup.mjs
-       if ($LASTEXITCODE -ne 0) { return }
-       node scripts/setup.mjs --check
-     } finally {
-       Pop-Location
-     }
+   # 一覧の同じファイル名の行と、大文字・小文字を区別せずに比べる
+   $sumPattern = '^[0-9a-fA-F]{64}\s+\*?' + [regex]::Escape($downloadName) + '$'
+   $sumLines = @(Get-Content -LiteralPath "$downloadDirectory\SHA256SUMS" -ErrorAction Stop | Where-Object { $_ -match $sumPattern })
+   if ($sumLines.Count -ne 1) {
+     Remove-Item -LiteralPath $downloadFile -Force -ErrorAction Stop
+     throw "SHA256SUMS に対象のファイルの行が 1 つありません。取得をやり直してください"
    }
+   $expectedHash = ($sumLines[0] -split '\s+')[0]
+   $actualHash = (Get-FileHash -LiteralPath $downloadFile -Algorithm SHA256 -ErrorAction Stop).Hash
+   if ($actualHash -ine $expectedHash) {
+     Remove-Item -LiteralPath $downloadFile -Force -ErrorAction Stop
+     throw "sha256 が一致しません。取得した実行ファイルを削除しました"
+   }
+   "`n$([char]27)[7m 確認 $([char]27)[0m"
+   "$downloadName : sha256 が一致しました"
    ```
 
-   - 最後に `導入済み: mdpreview` と版、起動役のパスが出ればよい
-   - `問題:` が出たら、案内に従って直してからこの項の手順 5 を貼り直す
-   - `%USERPROFILE%\.local\bin` が PATH に無いときは、PATH に加えて PowerShell 7 を開き直し、この項の手順 5 を貼り直す
-   - `導入先を入れ替えられません` で止まったら、プレビューを閉じてこの項の手順 5 を貼り直す
-   - `ほかの導入が動いています` で止まったら、そのプロセスが終わるのを待ってこの項の手順 5 を貼り直す
+   - `mdpreview-windows-amd64.exe : sha256 が一致しました` が出ればよい
+   - 一致しない場合やエラーが出た場合は、この項の手順 4 へ進まず、この項の手順 2 からやり直す
 
-1. 起動役から版を確かめる。
+1. 動いているプレビューを止め、実行ファイルを置く。
+
+   - プレビューを起こした窓で Ctrl+C を押す。Neovim から使っているときは Neovim を閉じる
 
    ```powershell
+   # mdpreview.exe を置き、取得に使ったフォルダーを片付ける
+   if ([string]::IsNullOrWhiteSpace($env:USERPROFILE)) { throw "USERPROFILE が空です" }
+   $previewBin = Join-Path $env:USERPROFILE '.local\bin'
+   New-Item -ItemType Directory -Path $previewBin -Force -ErrorAction Stop | Out-Null
+   Move-Item -LiteralPath $downloadFile -Destination (Join-Path $previewBin 'mdpreview.exe') -Force -ErrorAction Stop
+   Remove-Item -LiteralPath "$downloadDirectory\SHA256SUMS" -ErrorAction Stop
+   Remove-Item -LiteralPath $downloadDirectory -ErrorAction Stop
+   ```
+
+   - エラーなく終わればよい
+   - 動いているプレビューがあると置き換えられない。プレビューを止め、Neovim を閉じてから、この項の手順 4 を貼り直す
+
+1. コマンドの版を確かめる。
+
+   ```powershell
+   "`n$([char]27)[7m 確認 $([char]27)[0m"
    mdpreview --version
    ```
 
-   - この項の手順 5 の `導入済み: mdpreview` に続く版と同じ版が出ればよい
-   - コマンドが無ければ PATH を直して PowerShell 7 を開き直し、この項の手順 6 を貼り直す
+   - `0.2.0` などの版が出ればよい。GitHub Releases の最新の版と比べる
+   - `%USERPROFILE%\.local\bin` が PATH に無いときは、PATH に加えて PowerShell 7 を開き直し、この項の手順 5 を貼り直す
+   - コマンドが無ければ PATH を直して PowerShell 7 を開き直し、この項の手順 5 を貼り直す
 
 1. 小さな Markdown を開き、URL を確かめて止める。
 
@@ -291,25 +284,22 @@
 
    - `プレビュー: http://127.0.0.1:` で始まる URL が出ればよい
    - URL を確かめたら、同じ窓で Ctrl+C を押して止める
-   - エラーが出たら、中断してこの項の手順 5 の導入状態を確かめる
+   - エラーが出たら、中断してこの項の手順 5 の版と PATH を確かめる
 
 <details id="windows-11-で-md-preview-を導入更新する-の補足と注意点">
   <summary>Windows 11 で md-preview を導入・更新する の補足と注意点</summary>
 
+**[Windows 11 で md-preview を導入・更新する](#windows-11-で-md-preview-を導入更新する)のリード**
+
+- 導入も更新も、この項の手順 1〜6 を通す
+
 **[Windows 11 で md-preview を導入・更新する](#windows-11-で-md-preview-を導入更新する)の手順 4**
 
-- 更新は `pull --ff-only` の後に、この項の手順 5〜7 の導入・確認を繰り返す
+- 置き場所は `%USERPROFILE%\.local\bin\mdpreview.exe`。外すときは、プレビューを止めてこのファイルを消す
+- 公式スタイルも外すときは、[公式スタイルの取得](#windows-11-で-md-preview-の公式スタイルを取得する)に書いた保存先の `md-preview-assets` のフォルダーを消す
+- 同梱しているもののライセンスの原文は `mdpreview --licenses` で出す
 
-**[Windows 11 で md-preview を導入・更新する](#windows-11-で-md-preview-を導入更新する)の手順 5**
-
-- 導入先は `%LOCALAPPDATA%\md-preview`。空の `LOCALAPPDATA` は `%USERPROFILE%\AppData\Local` として扱う
-- 起動役は `%USERPROFILE%\.local\bin` の `mdpreview.ps1`（PowerShell）・`mdpreview.cmd`（cmd）・`mdpreview`（Git Bash）
-- `--check` は何も変えず、写したファイル・依存・起動役・PATH を確かめる
-- 一時フォルダーで組み立てて確かめてから入れ替える。導入の記録は導入先の `install.json` に置く
-- `--install-dir` で ASCII 外の文字か `%` か `"` を含む独自のパスを指定した場合は、cmd 用を置かず、PowerShell と Git Bash 用を置く
-- 終わると元の作業ディレクトリへ戻る
-
-**[Windows 11 で md-preview を導入・更新する](#windows-11-で-md-preview-を導入更新する)の手順 7**
+**[Windows 11 で md-preview を導入・更新する](#windows-11-で-md-preview-を導入更新する)の手順 6**
 
 - `--no-open` はブラウザを開かずに起動する。終了すると試験用のフォルダーを消す
 - 試験用の Markdown を専用のフォルダーに作るのは、そのフォルダーがルート（読める範囲）になるため

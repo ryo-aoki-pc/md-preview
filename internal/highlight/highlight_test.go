@@ -72,7 +72,7 @@ func TestLanguages(tst *testing.T) {
 	}
 }
 
-// 元の lib/highlight.mjs と同じ SHA-256 の導入済み Node.js 版から、登録名と全別名の結果を採取した。
+// 登録名と全別名の見本は、Node.js 版の出力から採取した。
 func TestAllLanguageNames(tst *testing.T) {
 	raw, err := os.ReadFile("testdata/languages.json")
 	if err != nil {

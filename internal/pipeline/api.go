@@ -1,6 +1,6 @@
 // Package pipeline は、Markdown を、GitLab の順で消毒とフィルターを通した最終の HTML にする。
 //
-// 今の Node.js 版の lib/pipeline.mjs の renderDocument に当たる。ファイルにもネットワークにも触らない
+// ファイルにもネットワークにも触らない
 // (読み込みは Context の関数に任せる)。
 package pipeline
 
@@ -14,15 +14,15 @@ import (
 type IncludeKind int
 
 const (
-	// IncludeText は、本文を読めた (Node.js 版の文字列)。
+	// IncludeText は、本文を読めた。
 	IncludeText IncludeKind = iota
-	// IncludeMissing は、ファイルが無い (Node.js 版の null)。
+	// IncludeMissing は、ファイルが無い。
 	IncludeMissing
-	// IncludeNotReadable は、読めない (Node.js 版の { error: 'not readable' })。
+	// IncludeNotReadable は、読めない。
 	IncludeNotReadable
-	// IncludeTooLarge は、大きすぎる (Node.js 版の { error: 'too large' })。
+	// IncludeTooLarge は、大きすぎる。
 	IncludeTooLarge
-	// IncludeInvalid は、上のどれでもない値 (Node.js 版で、文字列でも null でも { error } でもない値を返した場合)。
+	// IncludeInvalid は、上のどれでもない値。
 	IncludeInvalid
 )
 

@@ -19,7 +19,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 
 ## 導入
 
-Node.js 22 以上（npm を含む）と git が要る。ソースを clone し、導入スクリプトで実行するファイルと依存をリポジトリの外へ入れる。
+Go の単体の実行ファイルを、GitHub Releases から取得して置く。利用する端末に Go・Node.js・git は要らない。取得したファイルは sha256 で確かめる。
 
 | OS | 導入・更新の手順 |
 | --- | --- |
@@ -38,6 +38,7 @@ mdpreview docs                       # フォルダーの Markdown の一覧を�
 mdpreview --no-open README.md        # ブラウザを開かず、URL を出す
 mdpreview render -o preview.html README.md  # HTML に書き出す
 mdpreview --help
+mdpreview --licenses                 # 同梱しているもののライセンスの原文を出す
 ```
 
 - 127.0.0.1 だけで待ち受け、URL に推測できない値を入れる。出てきた URL（`プレビュー: http://127.0.0.1:…`）をブラウザで開く
@@ -60,27 +61,14 @@ GitLab は、Markdown を gem `gitlab-glfm-markdown`（Rust。Comrak に GitLab 
 
 - 合わせている版: GitLab 19.5.1（gem 0.0.45、Comrak 0.56.0）。固定値は [engine/engine.lock.json](engine/engine.lock.json)
 - gem に渡すオプションは、GitLab の `OPTIONS` と同じ値にしてある。GitLab が機能フラグで決める `github_pre_lang` だけは、`<pre lang="…">` の形に固定している
-- `engine/glfm_markdown.wasm` は外の機能を何も取り込まない。Node.js 22 以上があれば動き、Rust は要らない
+- `engine/glfm_markdown.wasm` は外の機能を何も取り込まない。実行ファイルに埋め込み、`engine` パッケージが wazero で動かす。利用する端末に Rust や WebAssembly の実行環境を別に入れる必要はない
 - gem とその依存のライセンスの原文は [engine/licenses/](engine/licenses/) にある
 
-```js
-import { renderMarkdown } from './lib/engine.mjs';
-
-renderMarkdown('- [~] 対象外\n');
-// <ul class="task-list" …><li class="inapplicable task-list-item" …>…
-```
-
-`renderMarkdown` の HTML は消毒していない（GitLab も、この後ろの段で消毒する）。
+`engine` パッケージの出力は消毒していない（GitLab も、この後ろの段で消毒する）。
 
 ## 消毒とフィルター
 
-GitLab は、エンジンの HTML に Ruby のフィルター（`Banzai::Pipeline::GfmPipeline`）を順に掛けて、最終の HTML にする。`lib/pipeline.mjs` の `renderDocument` は、その順序のまま JavaScript に写したもの。
-
-```js
-import { renderDocument } from './lib/pipeline.mjs';
-
-const { html, headings, notices } = renderDocument('# 題\n\n- [x] 済み\n');
-```
+GitLab は、エンジンの HTML に Ruby のフィルター（`Banzai::Pipeline::GfmPipeline`）を順に掛けて、最終の HTML にする。`internal/pipeline` の `Renderer.Render` は、その順序で `internal/sanitize`・`internal/filters`・`internal/highlight` を通す。HTML の木は `golang.org/x/net/html` で扱う。
 
 - 消毒は GitLab と同じ許可リスト（html-pipeline の許可リストに GitLab の差分を重ねたもの）で行う。`<script>`、`on…` の属性、`javascript:` のリンクなどは出力に残らない
 - 写したフィルター: コードの言語、JSON の表、画像の幅と高さ、数式と mermaid の目印、色のチップ、動画と音声、目次、脚注、差分の記法、画像のリンク、外部リンク、タスク、文字の向き、コードの配色
@@ -89,17 +77,30 @@ const { html, headings, notices } = renderDocument('# 題\n\n- [x] 済み\n');
 - HTML への書き出しでは、描けた PlantUML の SVG を画像として埋める。PlantUML のためのスクリプトは入れない
 - 写していないもの（原文のまま出す）: `#123`・`@名前` などの参照、Kroki、提案（suggestion）、独自の絵文字
 - `notices` に、GitLab では別の見え方になる所（参照になりうる記法、原文のまま残った図、取り込めなかった include、文字のまま残った絵文字の短縮記法、手元に無い画像）を、原文の行と一緒に返す
-- GitLab と違う所: 絵文字の短縮記法（`:smile:`）は `<gl-emoji>` で包まず文字にする。脚注の ID に乱数を付けない。外部の画像は GitLab の中継を通さず、元の URL から読む。コードの配色は highlight.js の字句を Rouge のクラス名に対応づけたもので、色分けは GitLab より粗い
+- GitLab と違う所: 絵文字の短縮記法（`:smile:`）は `<gl-emoji>` で包まず文字にする。脚注の ID に乱数を付けない。外部の画像は GitLab の中継を通さず、元の URL から読む。コードの配色は Chroma が作る。クラスは GitLab と同じ短い名前に対応づけ、包みと行の span は GitLab と同じ形にする。字句の区切りと色分けには違いがある
 
-合成の Markdown 17 個を gitlab.com の API に送って保存した HTML（`test/fixtures/`）と、試験で比べている。上の違いと、GitLab のデータや設定が要る 11 か所（`test/fixtures.test.mjs` の「既知の差」）を除いて、要素・属性・文字が一致する。
+合成の Markdown 17 個を gitlab.com の API に送って保存した HTML（`test/fixtures/`）と、試験で比べている。上の違いと、GitLab のデータや設定が要る 11 か所（`internal/pipeline/testdata/known_differences.json`）を除いて、要素・属性・文字が一致する。
 
 ## テスト
 
+Go 1.27.3 を使う。
+
 ```sh
-npm ci --ignore-scripts
-npm test
+go vet ./...
+go test ./...
+gofmt -l .
 ```
 
-ページの試験（`test/page.test.mjs`）は、Playwright と Edge・Chrome・Chromium のどれかが要る。Playwright を通常の場所から読めないときは、`PLAYWRIGHT_MODULE` に導入先を指定する。無ければ、その試験だけ skip になる（合格には数えない）。
+ブラウザの試験は開発用で、Node.js 22 以上・Go・Playwright と、Edge・Chrome・Chromium のどれかが要る。
 
-作り直す手順と決まりは [AGENTS.md](AGENTS.md) にある。
+```sh
+node --test test/page.test.mjs
+```
+
+`test/page.test.mjs` は試験用サーバーと書き出しのコマンドを Go でビルドし、本物の KaTeX・mermaid をブラウザで描く。Playwright を通常の場所から読めないときは、`PLAYWRIGHT_MODULE` に導入先を指定する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる。必要な道具が無ければ理由を付けて skip する（合格には数えない）。
+
+GitLab の本物の出力との比較は `go test ./...` に含まれる。保存済みの見本を使い、試験中は GitLab へ通信しない。作り直す手順と決まりは [AGENTS.md](AGENTS.md) にある。
+
+## ライセンス
+
+md-preview は [MIT ライセンス](LICENSE)。同梱しているものの一覧は [licenses/manifest.json](licenses/manifest.json) にあり、原文は `mdpreview --licenses` で出す。

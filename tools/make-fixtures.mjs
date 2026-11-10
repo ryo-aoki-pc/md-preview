@@ -9,7 +9,7 @@
 // 名前を渡すと、その見本だけを作り直す。
 //
 // トークンは環境変数から読んでヘッダーに入れるだけで、表示もファイルへの保存もしない。
-// 失敗したときも、応答の本文は表示しない。試験 (npm test) は GitLab に繋がない。
+// 失敗したときも、応答の本文は表示しない。試験 (go test ./... と node --test test/page.test.mjs) は GitLab に繋がない。
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
