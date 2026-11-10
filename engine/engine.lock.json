@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "gitlab": {
+    "version": "19.5.1",
+    "source": "https://github.com/gitlabhq/gitlabhq/blob/v19.5.1/Gemfile.lock"
+  },
+  "gem": {
+    "name": "gitlab-glfm-markdown",
+    "version": "0.0.45",
+    "url": "https://rubygems.org/downloads/gitlab-glfm-markdown-0.0.45.gem",
+    "sha256": "50853c490a934d6e608f89901448b326aef8e4a97b96bedde4cacc7c91e7ae46",
+    "cargo_lock": "ext/gitlab_glfm_markdown/Cargo.lock",
+    "files": {
+      "src/glfm.rs": {
+        "gem": "ext/gitlab_glfm_markdown/src/glfm.rs",
+        "sha256": "7413e8e4a08d1f0b83a7b3cfd356d450a090ce1dfad4bc091cd5e4ee1d7d0395"
+      },
+      "src/formatter.rs": {
+        "gem": "ext/gitlab_glfm_markdown/src/formatter.rs",
+        "sha256": "750eafe4a9d135035b220d18d4bb04e5aad4a037074a13b2260590c1ada8b262"
+      },
+      "licenses/gitlab-glfm-markdown.txt": {
+        "gem": "LICENSE",
+        "sha256": "d0dec51ee8a7ba8181a9913a694943f38cb0dc21b2971f25c9fcdeaed826b58d"
+      }
+    }
+  },
+  "comrak": "0.56.0",
+  "image": "docker.io/library/rust@sha256:e97df055c54a05160e7c67ba3b2963de6ddb95903911baf8922dbcd1b394f698",
+  "rustc": "1.99.1",
+  "wasm": {
+    "path": "glfm_markdown.wasm",
+    "sha256": "ac55f1e0b8ceba2e317e45316941fd3adbf2ab6efd5af86de7bf595c2a12c093",
+    "size": 2030368
+  }
+}

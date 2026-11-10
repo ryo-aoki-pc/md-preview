@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.wasm binary
+# ほかの作者のライセンスの原文は、1 バイトも変えずに置く (改行の変換も空白の検査もしない)
+engine/licenses/** -text -whitespace
