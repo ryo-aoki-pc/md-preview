@@ -10,6 +10,9 @@
   const fileEl = document.getElementById('gp-file');
   const banner = document.getElementById('gp-banner');
   const content = document.getElementById('gp-content');
+  const noticesPanel = document.getElementById('gp-notices');
+  const noticesContent = document.getElementById('gp-notices-content');
+  const noticesToggle = document.getElementById('gp-notices-toggle');
   const themeEl = document.getElementById('gp-theme');
   const widthEl = document.getElementById('gp-width');
   const shellStyle = document.querySelector('link[href="_/preview.css"]');
@@ -44,6 +47,85 @@
     reloading = true;
     location.reload();
   }
+
+  // ---- GitLab との違い -----------------------------------------------------------
+  const noticeLabels = new Map([
+    ['reference', 'GitLab では参照のリンクになる書き方（手元ではリンクにしない）'],
+    ['diagram', 'GitLab では図になるコードブロック（手元では描かない）'],
+    ['suggestion', 'GitLab のマージリクエストでは提案になるコードブロック'],
+    ['include', '取り込めなかった ::include'],
+    ['emoji', '絵文字にならなかった短縮記法'],
+    ['missing', '手元に見つからない画像・動画・音声'],
+    ['more', 'ほかに'],
+  ]);
+  let noticesWanted = savedAppearance.notices === true;
+  let noticeCount = 0;
+
+  function toolbarHeight() {
+    return (
+      header.offsetHeight +
+      (noticesPanel.hidden ? 0 : noticesPanel.offsetHeight) +
+      (banner.hidden ? 0 : banner.offsetHeight)
+    );
+  }
+  function applyNotices() {
+    noticesPanel.hidden = CONFIG.list || !noticeCount || !noticesWanted;
+    noticesToggle.hidden = CONFIG.list || !noticeCount;
+    noticesToggle.textContent = 'GitLab との違い ' + noticeCount;
+    noticesToggle.setAttribute('aria-expanded', String(!noticesPanel.hidden));
+    queueLayout();
+  }
+  function buildNotices(values) {
+    const notices = Array.isArray(values) ? values.filter((item) => item && noticeLabels.has(item.kind)) : [];
+    noticeCount = notices.length;
+    noticesContent.replaceChildren();
+    for (const [kind, label] of noticeLabels) {
+      const items = notices.filter((item) => item.kind === kind);
+      if (!items.length) continue;
+      const section = document.createElement('section');
+      section.dataset.kind = kind;
+      if (kind === 'more') {
+        for (const item of items) {
+          const heading = document.createElement('h3');
+          heading.textContent = 'ほかに ' + String(item.text) + ' 件';
+          section.append(heading);
+        }
+      } else {
+        const heading = document.createElement('h3');
+        heading.textContent = label + '（' + items.length + '件）';
+        const list = document.createElement('ul');
+        for (const item of items) {
+          const li = document.createElement('li');
+          const line = Number.isSafeInteger(item.line) && item.line >= 1 ? item.line : null;
+          const row = document.createElement(line === null ? 'span' : 'button');
+          if (line !== null) {
+            row.type = 'button';
+            row.addEventListener('click', () => {
+              buildMap();
+              // 次の scroll が届くまでは、欄や本文の高さが変わっても押した行へ合わせ直す。
+              lastScroll = {
+                line,
+                ratio: 0,
+                lines: lastScroll?.lines || map.reduce((end, entry) => Math.max(end, entry.end), line),
+              };
+              syncScroll();
+            });
+          }
+          row.textContent = (line === null ? '' : String(line) + ' 行: ') + String(item.text);
+          li.append(row);
+          list.append(li);
+        }
+        section.append(heading, list);
+      }
+      noticesContent.append(section);
+    }
+    applyNotices();
+  }
+  noticesToggle.addEventListener('click', () => {
+    noticesWanted = !noticesWanted;
+    rememberAppearance('notices', noticesWanted);
+    applyNotices();
+  });
 
   // ---- 見出しと文書の一覧 ---------------------------------------------------------
   const outline = document.getElementById('gp-outline');
@@ -84,7 +166,7 @@
       (typeof element.checkVisibility === 'function' ? element.checkVisibility() : element.getClientRects().length > 0);
     const visible = outlineLinks.filter((link) => shown(document.getElementById(link.id)));
     let current = visible[0];
-    const top = header.offsetHeight + (banner.hidden ? 0 : banner.offsetHeight) + 12;
+    const top = toolbarHeight() + 12;
     // 文書の末尾の近くの見出しは、画面の上端まで上がらない。いちばん下まで来たら、画面に入っている最後の見出しを選ぶ。
     const atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
     for (const link of visible) {
@@ -130,6 +212,7 @@
     return url.href;
   }
   async function renderList() {
+    buildNotices([]);
     fileEl.textContent = '一覧';
     document.title = '文書の一覧 — GitLab プレビュー';
     outlineToggle.hidden = true;
@@ -412,6 +495,7 @@
     content.querySelectorAll('details').forEach((d, i) => {
       if (open[i]) d.open = true;
     });
+    buildNotices(Object.hasOwn(m, 'error') ? [] : m.notices);
     buildOutline(m.headings);
     buildMap();
     syncScroll();
@@ -442,7 +526,9 @@
 
   function isRelative(value) {
     // ? で始まるリンク (クエリだけ) は、ファイルへの相対パスではないので書き換えない。
-    return !!value && !SCHEME.test(value) && !value.startsWith('//') && !value.startsWith('#') && !value.startsWith('?');
+    return (
+      !!value && !SCHEME.test(value) && !value.startsWith('//') && !value.startsWith('#') && !value.startsWith('?')
+    );
   }
 
   function localReference(value, dir) {
@@ -624,7 +710,7 @@
   function syncScroll() {
     const s = lastScroll;
     if (!s || !last) return;
-    const head = header.offsetHeight + (banner.hidden ? 0 : banner.offsetHeight);
+    const head = toolbarHeight();
     let y;
     if (map.length) {
       let lo = 0;
@@ -671,7 +757,8 @@
       syncQueued = false;
       const height = header.offsetHeight;
       root.style.setProperty('--gp-header-height', height + 'px');
-      root.style.setProperty('--gp-toolbar-height', height + (banner.hidden ? 0 : banner.offsetHeight) + 'px');
+      root.style.setProperty('--gp-banner-top', height + (noticesPanel.hidden ? 0 : noticesPanel.offsetHeight) + 'px');
+      root.style.setProperty('--gp-toolbar-height', toolbarHeight() + 'px');
       buildMap();
       syncScroll();
       markHeading();
@@ -681,7 +768,7 @@
   window.addEventListener('resize', queueLayout);
   if (typeof ResizeObserver !== 'undefined') {
     const observer = new ResizeObserver(queueLayout);
-    for (const el of [header, banner, content]) observer.observe(el);
+    for (const el of [header, noticesPanel, banner, content]) observer.observe(el);
   }
   if (document.fonts) {
     document.fonts.ready.then(queueLayout);

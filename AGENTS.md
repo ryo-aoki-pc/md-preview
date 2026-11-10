@@ -13,7 +13,9 @@ Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本
 - 消毒は `hast-util-sanitize` と `lib/sanitize.mjs` の規則で行う。正規表現で HTML の文字列を直接書き換えて消毒しない
 - `test/fixtures/*.gitlab.html` は GitLab が返した HTML そのままで、手で書き換えない。見本の入力（`test/fixtures/*.md`）は合成の文章だけにし、実在の利用者・プロジェクトに解決される参照（`@名前` など）を入れない（GitLab が返す HTML に、その人の名前が入る）
 - サーバーは 127.0.0.1 だけで待ち受け、URL に推測できない token を入れる。`Host` と `Sec-Fetch-Site` を確かめ、CORS のヘッダーは付けない。ファイルは `lib/resolve.mjs` の `resolve()` でルートの内側の実ファイルに限る（`..`・`\`・Windows の `:`・末尾の点と空白・デバイス名・`.git`・リンクでの脱出を拒む）。これらを緩めない
-- ページの CSP は `script-src 'self'`。ページに入れるスクリプトとライブラリは、同じサーバーから配る。配るライブラリは許可リストのファイルだけにし、`node_modules` をそのまま見せない
+- 取り込んだファイルの監視も `resolve()` でルート内を確かめ、文書ごとに32個までにする。失敗した include は、安全な親の下で出現を待つ。編集中の文書の再描画には最後に受けた本文を使う
+- `page/lib/` は KaTeX・mermaid の原文の写し。手で直さず、`tools/update-page-libs.mjs` で `lock.json`・ライセンスと一緒に更新する。CSS に残る woff / ttf の参照は変えず、配るフォントは woff2 だけにする
+- ページの CSP は `script-src 'self'`。ページに入れるスクリプトとライブラリは、同じサーバーから配る。配るライブラリは `page/lib/lock.json` にあるファイルだけにし、`node_modules` をそのまま見せない
 - ページでは、サーバーから届いた文字（見出し・知らせ・ファイル名）を `textContent` で入れる。HTML として入れてよいのは、`renderDocument` の `html` だけ
 - `engine/glfm_markdown.wasm` を手で差し替えない。`engine/build.sh --update` で作り、`engine/engine.lock.json` と一緒にコミットする
 
@@ -31,11 +33,14 @@ Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本
 - `lib/tree.mjs` — フィルターで共有する hast の操作
 - `cli.mjs` — 引数の解釈、ブラウザの起動、ファイルの監視と終了処理。実行コマンドは `mdpreview`。ファイル・フォルダー表示と `--stdio` の入口を切り替える
 - `lib/resolve.mjs`・`lib/server.mjs` — ルート内のパス検査、127.0.0.1 の HTTP / SSE サーバーとローカルのライブラリ配信
-- `lib/session.mjs`・`lib/worker.mjs` — 文書とスクロールの状態、1つの worker による文書ごとの描画と集約、時間制限、休止時の取り消し。ファイル文書の購読・監視・破棄も管理する
+- `lib/session.mjs`・`lib/worker.mjs` — 文書とスクロールの状態、1つの worker による文書ごとの描画と集約、時間制限、休止時の取り消し。ファイル文書の購読・監視・破棄と、include の依存先の監視も管理する
 - `lib/stdio.mjs` — Neovim 用の JSON 行の入出力、96 MB の行制限、休止と再開、タブ数とジャンプの通知
 - `lib/documents.mjs` — Markdown の拡張子と一覧。隠しファイル・依存・フォルダーのリンクを除き、深さと件数を制限する
-- `lib/watch.mjs` — フォルダーの監視と定期的な stat で、置き換え保存にも追従する。ファイル文書の表示側には削除専用の通知も渡せる
-- `lib/page.mjs`・`page/` — ページ設定の埋め込みとブラウザの表示。文書の移動・一覧・見出し欄・印刷の表示も扱う。KaTeX・mermaid は同じサーバーから読む
+- `lib/include-watch.mjs` — include の相対名を実パスにし、まだ無いファイルは安全な親まで検査する
+- `lib/watch.mjs` — フォルダーの監視と定期的な stat で、置き換え保存にも追従する。ファイル文書の表示側には削除専用の通知も渡せる。include では、まだ無い親フォルダーの出現にも追従する
+- `lib/page.mjs`・`page/` — ページ設定の埋め込みとブラウザの表示。文書の移動・一覧・見出し欄・GitLab との違いの知らせ・印刷の表示も扱う。KaTeX・mermaid は同じサーバーから読む
+- `page/lib/` — ブラウザに配る KaTeX・mermaid と原文のライセンス。`lock.json` に npm の版・integrity と各ファイルの sha256・大きさを固定する
+- `tools/update-page-libs.mjs` — 開発用。`node_modules` の原文を写し直し、`--check` で固定情報・原文との一致を検査する
 - `tools/make-fixtures.mjs` — 開発用。見本の入力を gitlab.com の Markdown API に送り、返った HTML を保存する。アプリからは呼ばれない
 - `test/` — `node --test` の試験。`test/fixtures/` は、合成の Markdown（`<名前>.md`）、GitLab の本物の出力（`<名前>.gitlab.html`）、取得した条件（`fixtures.json`）
 
@@ -56,6 +61,17 @@ GitLab の版を上げるときは、次の順に行う。
 3. `engine/engine.lock.json` の `gitlab`（版・出典・オプションの URL と sha256）、`gem`（版・URL・sha256・`files` の sha256）、`comrak` を書き換える。`build.sh` は最初に写しを `engine.lock.json` の sha256 と比べるので、ここを合わせないと止まる
 4. `engine/build.sh --check-gem`、`engine/build.sh --update` の順に実行する
 5. `lib/engine.mjs` の `GITLAB_OPTIONS` を、写した `glfm_markdown.rb` の `OPTIONS` に合わせる（`npm test` が比べる）
+
+## KaTeX・mermaid の版を上げる
+
+実行時は `page/lib/` の写しを使い、KaTeX・mermaid の `node_modules` は要らない。更新のときだけ開発依存を導入する。
+
+1. `npm install --save-dev --save-exact katex@<版> mermaid@<版>` で版を固定し、`package.json` と `package-lock.json` を合わせる
+2. `node tools/update-page-libs.mjs` で JS・CSS・woff2 と原文のライセンスを写し、`page/lib/lock.json` を書き直す。CSS は原文のままにする。今のブラウザは先頭の woff2 を選ぶため、woff / ttf は置かない
+3. `node tools/update-page-libs.mjs --check` と `npm test` を実行する。Playwright の試験では、本物の数式・図と外部への要求がないことも確かめる
+4. 写し・ライセンス・`lock.json`・npm の固定情報を一緒にレビューし、同じ変更に含める。`page/lib/**` は `.gitattributes` の `-text -whitespace` で原文のバイトを保つ
+
+`--check` は開発依存がない導入でも sha256 と大きさを検査する。開発依存がある場合は、その版と原文にも比べる。
 
 ## 見本を作り直す
 
@@ -87,8 +103,9 @@ git diff --check
 - `test/pipeline.test.mjs` — 全 Markdown 素材と代表構文、消毒の境界、文書間の独立性
 - `test/xss.test.mjs` — 悪意のある入力を直接渡す場合と include から取り込む場合を通し、出力を HTML として読み直した木に、許可していない要素・属性・URL が無いことを確かめる
 - `test/resolve.test.mjs`・`test/server.test.mjs` — Windows / POSIX のパス検査と実 HTTP / SSE、配信の許可リスト、ヘッダー、文書別 SSE と一覧の拒否条件・順序・上限の試験
-- `test/session.test.mjs`・`test/watch.test.mjs`・`test/cli.test.mjs` — 描画の集約と時間切れからの復帰、文書ごとの最新入力、32件の上限と5秒後の破棄、ファイル保存、CLI のファイル・フォルダーの起動と終了の試験
-- `test/page.test.mjs` — 本物のサーバー・KaTeX・mermaid によるブラウザ試験。文書の移動・戻ると進む・一覧・見出し欄・印刷と、外部要求の試みがないことを確認する。Playwright（`PLAYWRIGHT_MODULE` または `playwright`）と Edge / Chrome / Chromium がない場合は理由を付けて skip する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる
+- `test/page-libs.test.mjs` — 写しの sha256・大きさ・ライセンス・更新と改変検出、許可リスト外の拒否と、KaTeX・mermaid の `node_modules` がない導入での配信を確かめる
+- `test/session.test.mjs`・`test/watch.test.mjs`・`test/cli.test.mjs` — 描画の集約と時間切れからの復帰、文書ごとの最新入力、32件の上限と5秒後の破棄、include の変更・削除・出現と32個の監視上限・入れ替え・解除、ファイル保存、CLI のファイル・フォルダーの起動と終了の試験
+- `test/page.test.mjs` — 本物のサーバー・KaTeX・mermaid によるブラウザ試験。文書の移動・戻ると進む・一覧・見出し欄・違いの知らせの安全な表示と行への移動・include の再描画・印刷と、外部要求の試みがないことを確認する。Playwright（`PLAYWRIGHT_MODULE` または `playwright`）と Edge / Chrome / Chromium がない場合は理由を付けて skip する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる
 - `test/stdio.test.mjs` — 実際の子プロセスで hello / ready、本文・スクロール、タブ数、休止・再開、ジャンプ、行の分割・上限、パイプと終了、別ルートへの切り替え時のファイル文書の reload を確かめる
 - `test/helpers.mjs` — 作業ツリー内の一時ファイル、HTTP と SSE、非同期条件の試験用補助
 - Node.js 22 以上
