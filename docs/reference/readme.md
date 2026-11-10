@@ -25,7 +25,7 @@
 
 PlantUML は外部の図サービスを使わず、PATH の絶対パスの項目にある手元の `plantuml` を使う。[フィルター](../../lib/filters/plantuml.mjs)は GitLab と同じく消毒の前にコードブロックを img に変え、原文と sha256 の ID を集める。コマンドが無い場合と `--no-plantuml`、原文が 256 KiB を超える図は、原文のまま残す。
 
-[描画する部品](../../lib/plantuml.mjs)は原文を標準入力にだけ渡し、`SANDBOX` と Java の headless を指定して一時フォルダーで起こす。描画は直列で、同じ ID の待ちは共有し、成功した SVG だけをメモリーに覚える。時間切れ・中止・終了では子のプロセスを木ごと止める。プレビューは token・Host・Sec-Fetch-Site を検査した経路から SVG を sandbox 付きで返し、ページでは img として表示する。SVG を DOM に入れず、失敗時は原文のコードブロックへ戻す。
+[描画する部品](../../lib/plantuml.mjs)は原文を標準入力にだけ渡し、`SANDBOX` と Java の headless を指定して一時フォルダーで起こす。`SANDBOX` は、環境変数 `PLANTUML_SECURITY_PROFILE` と、`JAVA_TOOL_OPTIONS` の最後に足す同じ名前の Java のプロパティの両方で指定する（PlantUML はプロパティを先に読むので、利用者の `JAVA_TOOL_OPTIONS` に別の値があっても `SANDBOX` になる）。原文は、PlantUML のサーバー（GitLab が図を送る先）と同じく、先頭が `@start` でなければ `@startuml` と `@enduml` で包む。構文に誤りのある図は、PlantUML が誤りを描いた SVG を返すので、GitLab と同じくその図を見せる。SVG でない出力（原文に `@@@format png` の行があるときなど）は失敗として扱う。描画は直列で、同じ ID の待ちは共有し、成功した SVG だけをメモリーに覚える。時間切れ・中止・終了では子のプロセスを木ごと止める。プレビューは token・Host・Sec-Fetch-Site を検査した経路から SVG を sandbox 付きで返し、ページでは img として表示する。SVG を DOM に入れず、失敗時は原文のコードブロックへ戻す。
 
 [見本との比較](../../test/fixtures.test.mjs)は、合成の Markdown を GitLab が描いた HTML と、手元の最終 HTML を木にして比べる。属性の順、遅延画像、脚注の乱数、絵文字の囲み、コードの配色の字句は、試験で列挙した差だけを正規化する。それ以外の既知の差は、文書・木の場所・理由・両側の値を固定する。参照のリンクを一律に文字へ戻すような、違いを隠す正規化はしない。
 
