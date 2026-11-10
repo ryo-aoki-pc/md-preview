@@ -177,6 +177,8 @@ function launchers(installDir, binDir) {
       text:
         '\ufeff# mdpreview の起動役 (PowerShell)。md-preview の導入スクリプト (scripts/setup.mjs) が置いた。\r\n' +
         `$preview = ${psPath}\r\n` +
+        // node が見つからないと $LASTEXITCODE が変わらず、成功 (0) で終わってしまうので、先に 1 を入れておく。
+        '$global:LASTEXITCODE = 1\r\n' +
         '& node $preview @args\r\n' +
         'exit $LASTEXITCODE\r\n',
     },
@@ -212,11 +214,12 @@ function selfTest(directory, version) {
   if (shown.status !== 0 || shown.stdout.trim() !== version) {
     throw new Error('導入した mdpreview が動きません: ' + (shown.stderr || shown.stdout).trim());
   }
-  // 描画エンジン (.wasm) と依存を実際に読み、小さな文書を描く。
+  // 描画エンジン (.wasm) と依存を実際に読み、小さな文書を描く (コードの配色も通し、遅れて読む highlight.js も確かめる)。
   const probe =
     "import { renderDocument } from './lib/pipeline.mjs';" +
-    "const { html } = renderDocument('# 確認\\n\\n- [x] 済\\n');" +
-    "if (!html.includes('task-list-item')) { console.error('描画の結果が違います'); process.exit(1); }";
+    "const { html } = renderDocument('# 確認\\n\\n- [x] 済\\n\\n```js\\nlet a = 1;\\n```\\n');" +
+    "if (!html.includes('task-list-item') || !html.includes('<span class=\"k\">let</span>'))" +
+    " { console.error('描画の結果が違います'); process.exit(1); }";
   const rendered = run(process.execPath, ['--input-type=module', '--eval', probe], { cwd: directory });
   if (rendered.status !== 0) {
     throw new Error('導入した mdpreview で描画できません: ' + (rendered.stderr || rendered.stdout).trim());
@@ -251,13 +254,14 @@ function recover(installDir) {
   for (const full of found) remove(full);
 }
 
-// 導入先の隣に残っている、退避した前の導入 (.old-*) と作業用フォルダ (.new-*)。
+// 導入先の隣に残っている、退避した前の導入 (.old-<番号>) と作業用フォルダ (.new-<番号>)。
+// このスクリプトが付ける名前 (プロセスの番号) だけを拾う。似た名前の、利用者のフォルダ (.old-backup など) は触らない。
 function leftovers(installDir) {
   const parent = path.dirname(installDir);
   const base = path.basename(installDir);
   return fs
     .readdirSync(parent)
-    .filter((name) => name.startsWith(`${base}.old-`) || name.startsWith(`${base}.new-`))
+    .filter((name) => name.startsWith(`${base}.`) && /^(?:old|new)-[0-9]+$/u.test(name.slice(base.length + 1)))
     .map((name) => path.join(parent, name));
 }
 
@@ -352,6 +356,9 @@ function install({ installDir, binDir }) {
   // 導入先は入れ替えるので、clone を中に含むフォルダは使えない (clone ごと退避して消してしまう)。
   if (inside(repository, installDir) || inside(realRepository, realInstall))
     throw new Error('--install-dir に、clone を含むフォルダは指定できません');
+  // 導入先は丸ごと入れ替えるので、その中に起動役を置くと、入れ替えと失敗時の戻しで起動役を失う。
+  if (inside(binDir, installDir) || inside(realBin, realInstall))
+    throw new Error('--bin-dir に、導入先の中のフォルダは指定できません');
   if (nodeMajor() < minimumNode) throw new Error(`Node.js ${minimumNode} 以上が必要です（今は ${process.version}）`);
   const version = repositoryVersion();
   if (!version) throw new Error(`package.json を読めません: ${repository}`);
@@ -510,6 +517,8 @@ function check({ installDir, binDir }) {
     }
     if (actual === null) problems.push(`起動役がありません: ${file}`);
     else if (actual !== text) problems.push(`起動役の中身が導入先と合いません。導入し直してください: ${file}`);
+    else if (!windows && !(fs.statSync(file).mode & 0o111))
+      problems.push(`起動役に実行の許可がありません。導入し直してください: ${file}`);
   }
   const cmdLauncher = path.join(binDir, 'mdpreview.cmd');
   if (windows && planned.length && !planned.some(({ file }) => file === cmdLauncher) && fs.existsSync(cmdLauncher)) {

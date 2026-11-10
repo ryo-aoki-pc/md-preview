@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import {
+  chmodSync,
   cpSync,
   existsSync,
   lstatSync,
@@ -216,9 +217,42 @@ test('成功した導入は、以前に残った退避と作業用フォルダ�
   mkdirSync(space.installDir + '.old-12345');
   writeFileSync(path.join(space.installDir + '.old-12345', 'marker'), '戻せずに残った前の導入');
   mkdirSync(space.installDir + '.new-12345');
+  // 似た名前でも、このスクリプトが付ける名前 (番号) でないフォルダーは、利用者のものとして残す。
+  for (const name of ['.old-backup', '.new-idea', '.old-12345x']) {
+    mkdirSync(space.installDir + name);
+    writeFileSync(path.join(space.installDir + name, 'keep'), '利用者のファイル');
+  }
   success(setup(space));
-  assert.deepEqual(leftovers(space), []);
+  assert.deepEqual(leftovers(space).sort(), ['md-preview.new-idea', 'md-preview.old-12345x', 'md-preview.old-backup']);
+  assert.equal(read(path.join(space.installDir + '.old-backup', 'keep')), '利用者のファイル');
 });
+
+test('途中で止まった導入の回収でも、似た名前の利用者のフォルダーは残す', (t) => {
+  const space = workspace(t);
+  success(setup(space));
+  mkdirSync(space.installDir + '.old-backup');
+  writeFileSync(path.join(space.installDir + '.old-backup', 'keep'), '利用者のファイル');
+  // 鍵を残して止まった導入 (もう無いプロセスの番号)
+  mkdirSync(space.installDir + '.lock');
+  writeFileSync(path.join(space.installDir + '.lock', 'pid'), '2147483646');
+  mkdirSync(space.installDir + '.new-2147483646');
+  success(setup(space));
+  assert.deepEqual(leftovers(space), ['md-preview.old-backup']);
+  assert.equal(read(path.join(space.installDir + '.old-backup', 'keep')), '利用者のファイル');
+});
+
+test(
+  '--check は、起動役に実行の許可が無いことを知らせる',
+  { skip: windows ? '実行の許可は Windows に無い' : false },
+  (t) => {
+    const space = workspace(t);
+    success(setup(space));
+    chmodSync(path.join(space.binDir, 'mdpreview'), 0o644);
+    const check = setup(space, '--check');
+    assert.equal(check.status, 1);
+    assert.match(check.stdout, /問題: 起動役に実行の許可がありません/u);
+  },
+);
 
 test('--check は、導入の記録の版が clone と違うことを知らせる', (t) => {
   const space = workspace(t);
@@ -392,6 +426,21 @@ test('clone の中・clone を含む親・clone 内の起動役の指定を拒�
   assert.ok(existsSync(path.join(space.clone, 'cli.mjs')));
 });
 
+test('導入先の中の起動役の指定を拒み、前の導入と起動役を変えない', (t) => {
+  const space = workspace(t);
+  success(setup(space));
+  writeFileSync(installed(space, 'marker'), '前の導入');
+  const before = read(path.join(space.binDir, 'mdpreview'));
+  for (const binDir of [space.installDir, path.join(space.installDir, 'bin')]) {
+    const child = setup({ ...space, binDir });
+    assert.equal(child.status, 1);
+    assert.match(child.stderr, /--bin-dir に、導入先の中のフォルダは指定できません/u);
+  }
+  assert.equal(read(installed(space, 'marker')), '前の導入');
+  assert.equal(existsSync(installed(space, 'bin')), false);
+  assert.equal(read(path.join(space.binDir, 'mdpreview')), before);
+});
+
 test('リンクで clone 内へ向かう導入先も拒む', (t) => {
   const space = workspace(t);
   const link = path.join(space.root, 'link');
@@ -526,6 +575,17 @@ test(
           args: ['--stdio', 'a&b %TEMP% x.md'],
           input: input.toString('base64'),
         });
+        // node が PATH に無いときは、成功 (0) で終わらない。
+        const located = spawnSync('where.exe', [shell], { encoding: 'utf8' });
+        const full = located.stdout.split(/\r?\n/u)[0];
+        const system = path.join(process.env.SystemRoot, 'System32');
+        const missing = spawnSync(full, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', launcher, '--version'], {
+          env: { ...space.env, PATH: system, Path: system },
+          encoding: 'utf8',
+          timeout: 15000,
+        });
+        assert.ifError(missing.error);
+        assert.equal(missing.status, 1, missing.stdout + missing.stderr);
       });
   },
 );
