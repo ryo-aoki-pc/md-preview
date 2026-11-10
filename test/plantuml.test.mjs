@@ -40,6 +40,9 @@ test('PlantUML の ID と標準入力は UTF-8 の原文から決まる', () => 
   assert.equal(plantumlInput('a\n'), '@startuml\na\n@enduml\n');
   assert.equal(plantumlInput('@startuml\na\n@enduml'), '@startuml\na\n@enduml\n');
   assert.equal(plantumlInput('@startmindmap\n@endmindmap\n'), '@startmindmap\n@endmindmap\n');
+  // PlantUML のサーバー (GitLab が図を送る先) と同じく、先頭が @start でなければ包む。先頭の空行や字下げは落とさない。
+  assert.equal(plantumlInput('\n@startuml\na\n@enduml'), '@startuml\n\n@startuml\na\n@enduml\n@enduml\n');
+  assert.equal(plantumlInput('  @startuml\n  a\n  @enduml'), '@startuml\n  @startuml\n  a\n  @enduml\n@enduml\n');
 });
 
 test('フィルターは二つの対象・chomp・重複の集約と行の位置を扱う', () => {
@@ -177,6 +180,29 @@ test('偽のコマンドで SVG を描き、同じ ID の待ちと成功のキ�
     assert.equal(calls[0][2].windowsVerbatimArguments, true);
   } else assert.equal(calls[0][2].detached, true);
 });
+
+test(
+  'Windows は ComSpec が無くても、名前だけの cmd.exe ではなく System32 の絶対パスで起こす',
+  { skip: process.platform !== 'win32' && 'Windows だけの試験' },
+  async (t) => {
+    const calls = [];
+    const fake = fakePlantuml(t, {
+      spawn: (...args) => {
+        calls.push(args);
+        return spawn(...args);
+      },
+    });
+    const name = Object.keys(process.env).find((key) => key.toUpperCase() === 'COMSPEC');
+    const previous = name && process.env[name];
+    if (name) delete process.env[name];
+    try {
+      assert.equal((await fake.renderer.render('comspec 無し')).toString(), SVG);
+    } finally {
+      if (name) process.env[name] = previous;
+    }
+    assert.equal(calls[0][0].toLowerCase(), join(process.env.SystemRoot, 'System32', 'cmd.exe').toLowerCase());
+  },
+);
 
 test('図を直列に描き、上限を超えた成功のキャッシュを古い順に捨てる', async (t) => {
   const fake = fakePlantuml(t, { maxCacheBytes: Buffer.byteLength(SVG) });
