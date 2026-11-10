@@ -133,6 +133,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
           missing: '見つからないメディア',
           more: '省略した知らせ',
         };
+        for (const warning of result.warnings) report(warning);
         for (const [kind, count] of result.notices) report(`${labels[kind] || '表示の違い'}: ${count} 件`);
         return 0;
       } catch (error) {

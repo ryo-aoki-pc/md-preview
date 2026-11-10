@@ -58,7 +58,7 @@ test('通常の書き出しはスクリプト無しで、CSP・本文・配色�
     assert.doesNotMatch(html, /127\.0\.0\.1|\/_[/]assets\/|\?token=/);
     assert.equal(html.includes(f.root), false);
     assert.equal(html.includes(f.root.replaceAll('\\', '/')), false);
-    if (theme === 'system') assert.match(html, /@media\(prefers-color-scheme:dark\)/);
+    if (theme === 'system') assert.match(html, /@media screen and \(prefers-color-scheme:dark\)/);
   }
 });
 
@@ -137,6 +137,65 @@ test('相対とルートからの URL を書き出し先からの相対にし、
   const stdout = toHtml(inspect((await exportDocument(f)).html).content);
   assert.match(stdout, /href="\.\/other.md#heading"/);
   assert.match(stdout, /href="\.\.\/other.md\?x=1#part"/);
+});
+
+test('書き出し先がルートの外なら、ルートより上のフォルダーの名前を HTML に入れない', async (t) => {
+  const f = fixture(t, '[文書](other.md#heading)\n\n![絵](../images/a.png)\n\n[ルート](/top.md)\n');
+  mkdirSync(join(f.root, 'images'));
+  writeFileSync(join(f.root, 'images', 'a.png'), '画像');
+  writeFileSync(join(f.root, 'top.md'), '本文');
+  writeFileSync(join(dirname(f.file), 'other.md'), '本文');
+  const outside = temp(t);
+  const output = join(outside, 'out.html');
+  const { html, warnings } = await exportDocument({ ...f, output });
+  const content = toHtml(inspect(html).content);
+  // 文書のフォルダーから見た相対パスのまま (標準出力へ書くときと同じ)
+  assert.match(content, /href="\.\/other.md#heading"/);
+  assert.match(content, /src="\.\.\/images\/a.png"/);
+  assert.match(content, /href="\.\.\/top.md"/);
+  // 書き出し先から見たパスにすると入る、ルートのフォルダーの名前が無い
+  const rootName = f.root.split(/[\\/]/).at(-1);
+  assert.equal(html.includes(rootName), false, rootName);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /書き出し先がルートの外/);
+  // ルートの内側へ書くときは、知らせない
+  assert.deepEqual((await exportDocument({ ...f, output: join(f.root, 'out.html') })).warnings, []);
+  assert.deepEqual((await exportDocument(f)).warnings, []);
+});
+
+test('入力の Markdown と同じ書き出し先は拒み、入力を壊さない', async (t) => {
+  const f = fixture(t, '# 原稿\n');
+  for (const output of [
+    f.file,
+    join(dirname(f.file), '.', 'sample.md'),
+    join(f.root, 'docs', '..', 'docs', 'sample.md'),
+  ]) {
+    await assert.rejects(exportDocument({ ...f, output }), /書き出し先が、入力のファイルと同じです/);
+    assert.equal(readFileSync(f.file, 'utf8'), '# 原稿\n');
+  }
+  assert.equal(
+    readdirSync(dirname(f.file)).some((name) => name.endsWith('.tmp')),
+    false,
+  );
+});
+
+test('無いフォルダーをルートに指定したら、そのことを知らせる', async (t) => {
+  const f = fixture(t);
+  await assert.rejects(exportDocument({ ...f, root: join(f.root, 'none') }), /ルートにはフォルダーを指定してください/);
+});
+
+test('OS に従う配色の暗い側は画面だけにし、操作欄の高さを 0 にする', async (t) => {
+  const f = fixture(t);
+  const system = (await exportDocument({ ...f, theme: 'system' })).html;
+  assert.match(system, /@media screen and \(prefers-color-scheme:dark\)\{/);
+  assert.doesNotMatch(system, /@media\(prefers-color-scheme:dark\)/);
+  assert.match(system, /:root\{--gp-toolbar-height:0px\}/);
+  // 本文のスタイルは入り、操作欄・見出しの欄・知らせの欄のスタイルは入らない
+  assert.match(system, /#gp-page\.file-holder \{/);
+  for (const selector of ['#gp-controls', '#gp-outline', '#gp-notices', '本文のスタイル: ここから'])
+    assert.equal(system.includes(selector), false, selector);
+  for (const theme of ['light', 'dark'])
+    assert.doesNotMatch((await exportDocument({ ...f, theme })).html, /prefers-color-scheme/);
 });
 
 test('git のトップを既定のルートにし、無ければ文書のフォルダーを使う', async (t) => {
