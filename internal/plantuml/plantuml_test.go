@@ -410,9 +410,7 @@ func TestCloseKillsTreeAndQueue(t *testing.T) {
 	requireError(t, <-running, "中止")
 	requireError(t, <-queued, "中止")
 	for _, c := range f.calls() {
-		if testProcessAlive(c.PID) {
-			t.Fatalf("終了後にプロセスが残っています: %d", c.PID)
-		}
+		requireGone(t, c.PID, "終了後にプロセスが残っています")
 		if strings.Contains(c.Source, "queued") {
 			t.Fatal("終了後に待ち行列を実行しました")
 		}
@@ -511,9 +509,7 @@ func TestCancelKillsTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range f.calls() {
-		if testProcessAlive(c.PID) {
-			t.Fatalf("取り消し後に子孫が残りました: %d", c.PID)
-		}
+		requireGone(t, c.PID, "取り消し後に子孫が残りました")
 	}
 }
 
@@ -542,5 +538,18 @@ func TestWindowsAbsolutePathRules(t *testing.T) {
 		if !windowsAbsolute(name) {
 			t.Errorf("絶対パスを拒みました: %q", name)
 		}
+	}
+}
+
+// requireGone は、プロセスがいなくなったことを確かめる。POSIX では、止めた直後の孫は、親が回収されて
+// init に引き取られるまで「いる」ように見える (kill(pid, 0) は、回収前のゾンビにも成功する) ので、少し待つ。
+func requireGone(t *testing.T, pid int, message string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for testProcessAlive(pid) {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: %d", message, pid)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
