@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -199,6 +200,13 @@ func (s *Server) serve(ctx context.Context, conn net.Conn) {
 		}
 	}
 	_ = conn.SetReadDeadline(time.Time{})
+	// 行頭の空白でヘッダーを次の行へ続ける古い書き方は、前の行の値にせず拒む。
+	for _, line := range bytes.Split(header, []byte("\n"))[1:] {
+		if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
+			rejectParser(400)
+			return
+		}
+	}
 	// URL はルーターだけが解釈する。Go の URL 解析が不完全な % を拒む前に、解析用の対象を置き換える。
 	lineEnd := bytes.IndexByte(header, '\n')
 	if lineEnd < 0 {
@@ -365,7 +373,16 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 	}
 	path := pathOf(r)
 	base := "/" + s.Token
-	jumpRoute := s.opts.OnJump != nil && path == base+"/_/jump"
+	// token は最初の区切りまでを取り出し、どこまで合ったかで時間が変わらない比べ方をする。
+	segment, rest := "", ""
+	if strings.HasPrefix(path, "/") {
+		segment = path[1:]
+		if i := strings.IndexByte(segment, '/'); i >= 0 {
+			segment, rest = segment[:i], segment[i:]
+		}
+	}
+	authorized := subtle.ConstantTimeCompare([]byte(segment), []byte(s.Token)) == 1
+	jumpRoute := s.opts.OnJump != nil && authorized && rest == "/_/jump"
 	if r.Method == "POST" && jumpRoute {
 		s.jump(conn, r)
 		return
@@ -378,7 +395,7 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 		send(conn, r, 405, h, nil)
 		return
 	}
-	if path == base {
+	if authorized && rest == "" {
 		query := ""
 		if i := strings.IndexByte(r.RequestURI, '?'); i >= 0 {
 			query = r.RequestURI[i:]
@@ -386,11 +403,11 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 		send(conn, r, 301, http.Header{"Location": []string{base + "/" + query}}, []byte{})
 		return
 	}
-	if !strings.HasPrefix(path, base+"/") {
+	if !authorized {
 		send(conn, r, 404, nil, nil)
 		return
 	}
-	rel := path[len(base)+1:]
+	rel := rest[1:]
 	if rel == "" {
 		p := params(r)
 		config := map[string]any{"assets": nil, "notice": s.opts.AssetsNotice, "hasDocument": s.opts.Session.HasDocument(), "currentDocument": !p.Has("doc") || s.opts.Session.IsCurrentDocument(p.Get("doc"))}

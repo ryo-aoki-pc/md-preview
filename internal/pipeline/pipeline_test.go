@@ -81,6 +81,41 @@ func TestConcurrentRenderAndCancellation(tst *testing.T) {
 		tst.Fatal(err)
 	}
 }
+
+// template の中身は、GitLab と同じく残して消毒する (gitlab.com の Markdown API も、div と表の中の
+// template の中身を残して返す)。Node.js 版は、木を作る部品が中身を別の場所に持つので落としていた。
+func TestTemplateContent(tst *testing.T) {
+	e, err := engine.New(context.Background())
+	if err != nil {
+		tst.Fatal(err)
+	}
+	defer e.Close(context.Background())
+	r := New(e)
+	for _, c := range [][2]string{
+		{"<div><template>文字<b>太字</b></template></div>", "<div>文字<b>太字</b></div>"},
+		{"<table><template><tr><td>表の中</td></tr></template></table>", `<table dir="auto"><tr><td>表の中</td></tr></table>`},
+		{"前\n\n<template>\n\n段落の中身\n\n</template>\n\n後", `<p data-sourcepos="1:1-1:3" dir="auto">前</p>` + "\n\n" + `<p data-sourcepos="5:1-5:15" dir="auto">段落の中身</p>` + "\n\n" + `<p data-sourcepos="9:1-9:3" dir="auto">後</p>`},
+	} {
+		result, err := r.Render(context.Background(), c[0], Context{})
+		if err != nil {
+			tst.Fatal(c[0], err)
+		}
+		if diff, err := compareHTML(c[1], result.HTML, false); diff != "" || err != nil {
+			tst.Fatalf("入力=%q\nGo=%q\n%s %v", c[0], result.HTML, diff, err)
+		}
+	}
+	result, err := r.Render(context.Background(), `<template><img src="x.png" onerror="alert(1)"><script>alert(1)</script><a href="javascript:alert(1)">リンク</a></template>`, Context{})
+	if err != nil {
+		tst.Fatal(err)
+	}
+	root, err := t.Fragment(context.Background(), result.HTML)
+	if err != nil {
+		tst.Fatal(err)
+	}
+	if problems := safetyProblems(root); len(problems) != 0 || !strings.Contains(result.HTML, "リンク") || strings.Contains(result.HTML, "alert") {
+		tst.Fatal(problems, result.HTML)
+	}
+}
 func TestTextAttributeOrderScope(tst *testing.T) {
 	a := `前 <pre lang="html" data-sourcepos="1:1-1:3">後`
 	b := `前 <pre data-sourcepos="1:1-1:3" lang="html">後`

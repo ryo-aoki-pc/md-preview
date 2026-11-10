@@ -138,7 +138,11 @@ func TestHTTPGuards(t *testing.T) {
 			t.Fatal(site, r)
 		}
 	}
-	for _, target := range []string{"/", "/wrong/", "/" + s.Token + "x/"} {
+	last := "0"
+	if strings.HasSuffix(s.Token, "0") {
+		last = "1"
+	}
+	for _, target := range []string{"/", "/wrong/", "/" + s.Token + "x/", "/" + s.Token[:31] + "/", "/" + s.Token[:31] + last + "/", "//" + s.Token + "/", "/x/" + s.Token + "/"} {
 		r := raw(t, s, fmt.Sprintf("GET %s HTTP/1.1\r\nHost: localhost:%d\r\n\r\n", target, s.Port), "GET")
 		if r.status != 404 {
 			t.Fatal(r)
@@ -219,6 +223,21 @@ func TestRawParser(t *testing.T) {
 		r := raw(t, s, item.raw, "GET")
 		if r.status != item.status {
 			t.Fatal(r.status, item.status)
+		}
+		protected(t, r)
+	}
+	// Host が複数ある要求と、行頭の空白で続けたヘッダーは、どの値を使うかを決めずに拒む。
+	host := fmt.Sprintf("127.0.0.1:%d", s.Port)
+	for _, header := range []string{
+		"Host: " + host + "\r\nHost: attacker.example\r\n",
+		"Host: attacker.example\r\nHost: " + host + "\r\n",
+		"Host: " + host + "\r\nhOST: " + host + "\r\n",
+		"Host: " + host + "\r\nX-A: 1\r\n Host: attacker.example\r\n",
+		"Host: " + host + "\r\nX-A: 1\r\n\tSec-Fetch-Site: same-origin\r\n",
+	} {
+		r := raw(t, s, fmt.Sprintf("GET /%s/ HTTP/1.1\r\n%s\r\n", s.Token, header), "GET")
+		if r.status != 400 {
+			t.Fatalf("%q: %d", header, r.status)
 		}
 		protected(t, r)
 	}
