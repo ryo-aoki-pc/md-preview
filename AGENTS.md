@@ -34,11 +34,17 @@ Go の単一実行ファイルへの移行中。Go 版が Node.js 版と同じ�
 - `engine/engine.go` — 埋め込んだ `.wasm` を wazero で動かす Go の描画エンジン。出力は消毒していない。取り消し・異常終了後とメモリー上限超過時に実体を作り直す
 - `engine/testdata/golden.json` — Node.js 版が作った描画結果の見本。Go 版の出力とバイト単位で比べる
 - `page/embed.go` — ページと `page/lib/` の資産の埋め込み。Go のソースは含めない
-- `cmd/mdpreview/` — Go 版のコマンド。現段階は `--version` と `--help` だけ
+- `cmd/mdpreview/` — Go 版のコマンド。描画エンジンを必要時に作り、プレビューと Neovim の JSON 行を起動する。`render`・`install-style` は引数を解釈する仮の入口
 - `internal/version/` — 既定の版と、ビルド時に差し替える変数
 - `internal/plantuml/` — 絶対パスの PATH の探索、原文を標準入力だけに渡す手元の描画、共有・直列の待ち行列・成功のキャッシュ。取り消し・時間切れ・終了では子孫も止める
 - `assets/embed.go` — 公式資産そのものを含めず、`assets/assets.lock.json` の元のバイト列だけを埋め込む
 - `internal/assets/` — 固定した公式資産の取得・CSS の相対化・一時領域からの入れ替えと、通信しない導入状態の検査。検査済みのバイト列の写しだけを許可リストで渡す
+- `internal/resolve/`・`internal/documents/` — URL と実パスの閉じ込め、Markdown の一覧。Windows のジャンクションは OS のハンドルから最終パスを取得する
+- `internal/watch/` — 標準ライブラリの定期確認による変更・削除・再作成の監視と、存在しない include の親の検査
+- `internal/session/` — 文書ごとの最新描画、取り消しと時間制限、ファイル文書・include・図の保持と破棄。描画器はインターフェースで受け取り、試験では偽物を使う
+- `internal/pagefiles/` — 埋め込みページの設定と、固定情報の大きさ・sha256 を照合するライブラリの読み取り
+- `internal/server/` — 127.0.0.1 の HTTP と SSE。要求は `net/http.ReadRequest` で解析し、パス整理・接続再利用・Expect の自動応答を使わない
+- `internal/stdio/`・`internal/cli/` — Neovim との版1の取り決め、コマンドの引数、ブラウザ起動と終了処理。PlantUML と公式スタイルは外から渡す関数で接続する
 - `internal/pipeline/api.go` — 描画の流れ（消毒・フィルター・配色・取り込み・知らせ）の型と入口（`Renderer.Render`）。ほかのパッケージは、この形で使う。中身を移すまで、`stub.go` が仮の実装を持つ
 - `internal/pipeline/testdata/golden/pipeline.jsonl.gz` — Node.js 版（`80784dd`）の `renderDocument` の入力と出力 2,715 件（Node.js 版の試験が通した入力と、公開の文書）。Go 版の出力を、HTML は木で、ほかは JSON で比べる見本。手で書き換えない
 

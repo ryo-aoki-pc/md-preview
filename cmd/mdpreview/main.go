@@ -1,37 +1,66 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"io"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/version"
+	"github.com/ryo-aoki-pc/md-preview/engine"
+	"github.com/ryo-aoki-pc/md-preview/internal/cli"
+	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-preview/internal/server"
 )
 
-const help = `使い方: mdpreview --version | --help
-
-Markdown を GitLab の描画でプレビューするアプリです。
-Go 版への移行中です。この段階で使えるのは次の引数だけです。
-
-  --version  版を表示する
-  --help     この使い方を表示する
-`
+const help = cli.Help
 
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 1 {
-		switch args[0] {
-		case "--version":
-			fmt.Fprintln(stdout, version.Version)
-			return 0
-		case "--help":
-			fmt.Fprint(stdout, help)
-			return 0
+	deps, closeRenderer := dependencies()
+	defer closeRenderer()
+	return cli.Run(context.Background(), args, cli.IO{Stdout: stdout, Stderr: stderr}, deps)
+}
+
+// 使い方や版を表示するだけの起動では、描画エンジンを作らない。
+type commandRenderer struct {
+	mu       sync.Mutex
+	engine   *engine.Engine
+	renderer *pipeline.Renderer
+}
+
+func (r *commandRenderer) Render(ctx context.Context, text string, c pipeline.Context) (pipeline.Result, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.engine == nil {
+		e, err := engine.New(ctx)
+		if err != nil {
+			return pipeline.Result{}, err
 		}
+		r.engine = e
+		r.renderer = pipeline.New(e)
 	}
-	fmt.Fprintln(stderr, "この引数での起動はまだ Go 版にありません。--help を参照してください。")
-	return 2
+	return r.renderer.Render(ctx, text, c)
+}
+func (r *commandRenderer) close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.engine != nil {
+		_ = r.engine.Close(context.Background())
+	}
+}
+
+// 担当パッケージの統合時に、この 2 つの関数を実物へ差し替える。
+func dependencies() (cli.Dependencies, func()) {
+	r := &commandRenderer{}
+	return cli.Dependencies{Renderer: r, CreateDiagram: func(context.Context) (server.DiagramRenderer, error) { return nil, nil }, LoadAssets: func(string) (server.OfficialAssets, string) { return nil, "" }}, r.close
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	deps, closeRenderer := dependencies()
+	code := cli.Run(ctx, os.Args[1:], cli.IO{}, deps)
+	closeRenderer()
+	cancel()
+	os.Exit(code)
 }
