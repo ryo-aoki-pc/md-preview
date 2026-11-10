@@ -8,7 +8,7 @@ import test from 'node:test';
 import { fromHtml } from 'hast-util-from-html';
 import { visit } from 'unist-util-visit';
 
-import { renderDocument } from '../lib/pipeline.mjs';
+import { DocumentError, renderDocument } from '../lib/pipeline.mjs';
 import { gitlabSchema } from '../lib/sanitize.mjs';
 
 // 消毒が通す要素と、消毒の後ろのフィルターが作る要素。これ以外が出力にあれば誤り。
@@ -206,4 +206,39 @@ test('検査そのものが、危ない出力を見つける', () => {
   assert.deepEqual(problems('<p style="color: red">a</p>'), ['style="color: red"']);
   assert.deepEqual(problems('<!-- x -->'), ['コメント']);
   assert.deepEqual(problems('<img src="data:image/png;base64,AAAA">'), ['src="data:image/png;base64,AAAA"']);
+});
+
+test('JavaScript の特別な名前の要素・言語・属性でも、落ちずに描く', () => {
+  const fence = String.fromCharCode(96).repeat(3);
+  const names = ['constructor', '__proto__', 'prototype', 'toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', '__defineGetter__'];
+  for (const name of names) {
+    for (const text of [
+      `<${name} class="x" id="y" style="z">text</${name}>`,
+      `${fence}${name}\ncode\n${fence}`,
+      `${fence}${name}:${name}\ncode\n${fence}`,
+      `<pre lang="${name}"><code class="language-${name} ${name}">code</code></pre>`,
+      `<span class="${name}">a</span> <div class="${name}">b</div> <li class="${name}">c</li>`,
+      `<a ${name}="1" href="x" class="${name}">link</a> <img src="x.png" ${name}="1" class="${name}">`,
+      `![x](x.png){${name}=1 width=10}`,
+      `${fence}json:table\n{"fields":[{"key":"${name}","label":"${name}"}],"items":[{"${name}":"v","a":1}],"markdown":true}\n${fence}`,
+      `[${name}]: https://example.com\n\n[${name}] [x][${name}] :${name}: {+ ${name} +} \`${name}\``,
+    ]) {
+      const { html } = renderDocument(text + '\n');
+      assert.deepEqual(problems(html), [], `入力: ${JSON.stringify(text)}\n出力: ${html}`);
+      assert.doesNotMatch(html, /native code|\[object /, `入力: ${JSON.stringify(text)}`);
+    }
+  }
+});
+
+test('入れ子が深すぎる文書は、途中の HTML を返さず、分かる誤りになる', () => {
+  for (const text of ['<div>'.repeat(20000) + 'x\n', '>'.repeat(5000) + ' x\n']) {
+    assert.throws(
+      () => renderDocument(text),
+      (error) => error instanceof DocumentError && error.message === '入れ子が深すぎるため、描画できません。' && error.cause instanceof RangeError,
+    );
+  }
+  // その後も描ける
+  assert.match(renderDocument('ok\n').html, /<p [^>]*>ok<\/p>/);
+  // ふつうの深さ (数百段) は描く
+  assert.match(renderDocument('>'.repeat(200) + ' x\n').html, /^<blockquote /);
 });
