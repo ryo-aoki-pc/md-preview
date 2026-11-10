@@ -1,6 +1,7 @@
 # md-preview の導入と更新（AlmaLinux 10・Windows 11）
 
 - Markdown を GitLab の描画でプレビューする `mdpreview` コマンド（[md-preview](../README.md)）を入れる。本文は GitLab に送らず、手元で描く
+- 使い方は [md-preview の使い方](usage.md) にある
 - どの項も単独で通せる。項のリードの前提を先に満たす
 - bash のブロックはブラケットペーストの効く端末に、PowerShell のブロックは PowerShell 7 に貼り、貼った後に Enter を押す。貼った後は、反転表示の「確認」から後ろの出力を箇条書きで確かめる
 - PowerShell 7 の導入と実行ポリシーは、setup-notes の [アプリを入れる](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#アプリを入れる)の手順 6〜9 に従う
@@ -100,12 +101,12 @@
 
    ```bash
    (
-     # 試験用の Markdown を開く
-     preview_file=$(mktemp --suffix=.md) || exit
-     trap 'rm -f -- "$preview_file"' EXIT
-     printf '# プレビューの確認\n\n本文です。\n' > "$preview_file" || exit
+     # 試験用の Markdown を、専用のフォルダーに作って開く
+     preview_dir=$(mktemp -d) || exit
+     trap 'rm -rf -- "$preview_dir"' EXIT
+     printf '# プレビューの確認\n\n本文です。\n' > "$preview_dir/preview.md" || exit
      printf '\n\033[7m 確認 \033[0m\n'
-     mdpreview --no-open "$preview_file"
+     mdpreview --no-open "$preview_dir/preview.md"
    )
    ```
 
@@ -129,7 +130,53 @@
 
 **[md-preview を導入・更新する](#md-preview-を導入更新する)の手順 6**
 
-- `--no-open` はブラウザを開かずに起動する。終了すると試験用の一時ファイルを消す
+- `--no-open` はブラウザを開かずに起動する。終了すると試験用のフォルダーを消す
+- 試験用の Markdown を専用のフォルダーに作るのは、そのフォルダーがルート（読める範囲）になるため
+
+</details>
+
+---
+
+### md-preview の公式スタイルを取得する
+
+- 任意で GitLab の公式の CSS・フォントを取得する。未導入のときは約 785 MB を取得し、約 4 MB を保存する。取得元へ通信する
+- 前提: [md-preview を導入・更新する](#md-preview-を導入更新する)を通し、`mdpreview` が PATH にある
+- 実行場所: GNOME にログインした自分のユーザーの端末（bash）。`sudo` は使わない
+- アプリを更新して公式スタイルの版が変わったときも、この項の手順を通す
+
+1. 公式スタイルを取得する。
+
+   ```bash
+   mdpreview install-style
+   ```
+
+   - `mdpreview: 公式資産を導入しました:` と保存先、または `mdpreview: 導入済みの公式資産を確認しました。` が出ればよい
+   - エラーが出たら、通信先と保存先を確かめてからこの項の手順 1 を貼り直す
+
+1. 公式スタイルを使えることを確かめる。
+
+   ```bash
+   mdpreview install-style --check
+   ```
+
+   - `mdpreview: 公式スタイルを利用できます` が出ればよい（終了コード 0）
+   - `mdpreview: 公式スタイルが未導入または破損しています` が出たら、この項の手順 1 からやり直す（終了コード 1）
+
+<details id="md-preview-の公式スタイルを取得する-の補足と注意点">
+  <summary>md-preview の公式スタイルを取得する の補足と注意点</summary>
+
+**[md-preview の公式スタイルを取得する](#md-preview-の公式スタイルを取得する)の手順 1**
+
+- 保存先は `${XDG_DATA_HOME:-~/.local/share}/md-preview-assets`。空か絶対パスでない `XDG_DATA_HOME` は未設定として扱う。直下に版ごとのフォルダーを置く
+- 取得元は `registry.gitlab.com` など。固定した版・ファイル・取得元は [assets/assets.lock.json](../assets/assets.lock.json) にある
+- ライセンスの原文も保存先に置く。公式資産はリポジトリや書き出す HTML に含めて再配布せず、使う端末ごとに取得する
+- 次に起こしたプレビューから公式の CSS とフォント（GitLab Sans）を使う。コードの配色はライト・ダークとも Dracula
+- 保存先のフォルダーを消すと、同梱のスタイルでの表示に戻る
+- `--dir` で保存先を変えた場合、`--check` にも同じ `--dir` を付ける。プレビューには `--assets-dir` でその保存先を指定する。`--no-official-style` で同梱のスタイルを選べる
+
+**[md-preview の公式スタイルを取得する](#md-preview-の公式スタイルを取得する)の手順 2**
+
+- `--check` は通信せず、導入済みのファイルを検査する。プレビューの表示と HTML への書き出しでも取得しない
 
 </details>
 
@@ -229,14 +276,15 @@
 
    ```powershell
    & {
-     # 試験用の Markdown を開く
-     $previewFile = Join-Path ([IO.Path]::GetTempPath()) ("md-preview-" + [guid]::NewGuid() + ".md")
+     # 試験用の Markdown を、専用のフォルダーに作って開く
+     $previewDirectory = Join-Path ([IO.Path]::GetTempPath()) ("md-preview-" + [guid]::NewGuid())
      try {
-       Set-Content -LiteralPath $previewFile -Value "# プレビューの確認`n`n本文です。" -Encoding utf8 -ErrorAction Stop
+       New-Item -ItemType Directory -Path $previewDirectory -ErrorAction Stop | Out-Null
+       Set-Content -LiteralPath "$previewDirectory\preview.md" -Value "# プレビューの確認`n`n本文です。" -Encoding utf8 -ErrorAction Stop
        "`n$([char]27)[7m 確認 $([char]27)[0m"
-       mdpreview --no-open $previewFile
+       mdpreview --no-open "$previewDirectory\preview.md"
      } finally {
-       Remove-Item -LiteralPath $previewFile -Force -ErrorAction SilentlyContinue
+       Remove-Item -LiteralPath $previewDirectory -Recurse -Force -ErrorAction SilentlyContinue
      }
    }
    ```
@@ -263,7 +311,58 @@
 
 **[Windows 11 で md-preview を導入・更新する](#windows-11-で-md-preview-を導入更新する)の手順 7**
 
-- `--no-open` はブラウザを開かずに起動する。終了すると試験用の一時ファイルを消す
+- `--no-open` はブラウザを開かずに起動する。終了すると試験用のフォルダーを消す
+- 試験用の Markdown を専用のフォルダーに作るのは、そのフォルダーがルート（読める範囲）になるため
+
+</details>
+
+---
+
+### Windows 11 で md-preview の公式スタイルを取得する
+
+- 任意で GitLab の公式の CSS・フォントを取得する。未導入のときは約 785 MB を取得し、約 4 MB を保存する。取得元へ通信する
+- 前提: [Windows 11 で md-preview を導入・更新する](#windows-11-で-md-preview-を導入更新する)を通し、`mdpreview` が PATH にある
+- 実行場所: この PC のデスクトップの管理者ではない PowerShell 7。この項の手順 1 で開く
+- アプリを更新して公式スタイルの版が変わったときも、この項の手順を通す
+
+1. 管理者ではない PowerShell 7 を開く。
+
+   - スタートメニューで「PowerShell」を探し、クリックして開く（「Windows PowerShell」ではない。「管理者として実行」にはしない）
+   - 「PowerShell」が無ければ、[アプリを入れる](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#アプリを入れる)の手順 6〜9 を通す
+
+1. 公式スタイルを取得する。
+
+   ```powershell
+   mdpreview install-style
+   ```
+
+   - `mdpreview: 公式資産を導入しました:` と保存先、または `mdpreview: 導入済みの公式資産を確認しました。` が出ればよい
+   - エラーが出たら、通信先と保存先を確かめてからこの項の手順 2 を貼り直す
+
+1. 公式スタイルを使えることを確かめる。
+
+   ```powershell
+   mdpreview install-style --check
+   ```
+
+   - `mdpreview: 公式スタイルを利用できます` が出ればよい（終了コード 0）
+   - `mdpreview: 公式スタイルが未導入または破損しています` が出たら、この項の手順 2 からやり直す（終了コード 1）
+
+<details id="windows-11-で-md-preview-の公式スタイルを取得する-の補足と注意点">
+  <summary>Windows 11 で md-preview の公式スタイルを取得する の補足と注意点</summary>
+
+**[Windows 11 で md-preview の公式スタイルを取得する](#windows-11-で-md-preview-の公式スタイルを取得する)の手順 2**
+
+- 保存先は `%LOCALAPPDATA%\md-preview-assets`。空の `LOCALAPPDATA` は `%USERPROFILE%\AppData\Local` として扱う。直下に版ごとのフォルダーを置く
+- 取得元は `registry.gitlab.com` など。固定した版・ファイル・取得元は [assets/assets.lock.json](../assets/assets.lock.json) にある
+- ライセンスの原文も保存先に置く。公式資産はリポジトリや書き出す HTML に含めて再配布せず、使う端末ごとに取得する
+- 次に起こしたプレビューから公式の CSS とフォント（GitLab Sans）を使う。コードの配色はライト・ダークとも Dracula
+- 保存先のフォルダーを消すと、同梱のスタイルでの表示に戻る
+- `--dir` で保存先を変えた場合、`--check` にも同じ `--dir` を付ける。プレビューには `--assets-dir` でその保存先を指定する。`--no-official-style` で同梱のスタイルを選べる
+
+**[Windows 11 で md-preview の公式スタイルを取得する](#windows-11-で-md-preview-の公式スタイルを取得する)の手順 3**
+
+- `--check` は通信せず、導入済みのファイルを検査する。プレビューの表示と HTML への書き出しでも取得しない
 
 </details>
 

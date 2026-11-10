@@ -2,25 +2,55 @@
 
 Markdown を GitLab の描画でプレビューするアプリ（`mdpreview`）。本文を GitLab に送らず、手元で HTML にする。
 
-導入のスクリプトと手順書は、これから足す。今は、clone の中で `npm ci --ignore-scripts` を実行してから、`node cli.mjs` で動かす。
+AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/install.md)、使い方の手順は [docs/usage.md](docs/usage.md) にある。
+設計は [docs/reference/readme.md](docs/reference/readme.md) にある。
+
+## できること
+
+- Markdown を GitLab に送らず、手元で描いてブラウザに表示する。ファイルの保存に合わせて描き直す。Neovim からは未保存の内容も表示する
+- 本文の相対リンクから別の Markdown へ移り、ブラウザの戻る・進むで行き来する。「一覧」でルート内の文書を選び、「見出し」で見出しの一覧を左に出し入れする
+- 「GitLab との違い」で、参照・図・提案・取り込み・絵文字・メディアの知らせを読み、本文の該当する行へ移る
+- `::include{file=…}` でルート内のファイルを取り込む。取り込むファイルの変更・削除・作成に合わせて描き直す
+- 数式（KaTeX）と図（mermaid）を、同梱のライブラリで描く
+- Markdown を HTML に書き出す。スタイルと、文書に必要な数式・図のライブラリを埋め込み、サーバーを起こさずにブラウザで開ける形にする
+- ブラウザから印刷する。印刷用の表示では操作欄・見出し欄・知らせを隠す
+- 配色（システム・ライト・ダーク）と本文幅（全幅・固定幅）を切り替える。任意で GitLab の公式スタイルとフォントを取得し、プレビューに使う
+- Neovim（[LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter)）からは、カーソルに合わせたスクロールと、プレビューのダブルクリックによるエディタの行への移動も行う
+
+## 導入
+
+Node.js 22 以上（npm を含む）と git が要る。ソースを clone し、導入スクリプトで実行するファイルと依存をリポジトリの外へ入れる。
+
+| OS | 導入・更新の手順 |
+| --- | --- |
+| AlmaLinux 10 | [md-preview を導入・更新する](docs/install.md#md-preview-を導入更新する) |
+| Windows 11 | [Windows 11 で md-preview を導入・更新する](docs/install.md#windows-11-で-md-preview-を導入更新する) |
+
+公式スタイルは任意。[AlmaLinux 10 の取得手順](docs/install.md#md-preview-の公式スタイルを取得する)・[Windows 11 の取得手順](docs/install.md#windows-11-で-md-preview-の公式スタイルを取得する)に従う。未導入なら同梱のスタイルで表示する。
 
 ## 使い方
 
 ```sh
-node cli.mjs README.md          # ファイルを開く。ブラウザに表示し、ファイルが変わると描き直す
-node cli.mjs docs               # フォルダーを開く。中の Markdown の一覧を出す
-node cli.mjs --no-open README.md   # ブラウザを開かず、URL だけを出す
+mdpreview README.md                  # ファイルを開く
+mdpreview docs                       # フォルダーの Markdown の一覧を開く
+mdpreview --no-open README.md        # ブラウザを開かず、URL を出す
+mdpreview render -o preview.html README.md  # HTML に書き出す
+mdpreview --help
 ```
 
 - 127.0.0.1 だけで待ち受け、URL に推測できない値を入れる。出てきた URL（`プレビュー: http://127.0.0.1:…`）をブラウザで開く
-- 本文の相対リンクが別の Markdown を指すとき、同じタブの中でその文書へ移る（ブラウザの戻る・進むで戻れる）。操作欄の「一覧」で、フォルダーの Markdown の一覧を出す
-- 操作欄の「見出し」で、見出しの一覧を左に出し入れする。配色（システム・ライト・ダーク）と本文幅（全幅・固定幅）も操作欄で変える
-- 数式（KaTeX）と図（mermaid）は、同じサーバーから配るライブラリでブラウザが描く。CDN は使わない
 - 画像・動画・リンクの相対パスは、手元のファイルを指す。読めるのは、開いたファイルのリポジトリ（`.git` のあるフォルダー。無ければファイルのあるフォルダー）の内側だけで、`.git` の中は返さない。`--root <フォルダー>` で変えられる
-- 本文が外部の URL の画像・動画を指すときは、ブラウザがその URL から読む（GitLab と同じ）。それ以外に、表示のために外へ通信することはない
 - `--port <番号>` で待ち受けるポートを、`--browser <実行ファイル>` で開くブラウザを指定する。Ctrl+C で終わる
 
-Neovim からは、[LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter) の `<leader>cp` が `mdpreview --stdio` を起こして使う（未保存の内容の表示、カーソルに合わせたスクロール、プレビューのダブルクリックでエディタの行へ移る）。取り決めは [AGENTS.md](AGENTS.md) の「Neovim との取り決め」にある。
+ファイルを作って確かめる手順、画面の操作、HTML への書き出しは [md-preview の使い方](docs/usage.md) にある。Neovim からは、[LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter) の `<leader>cp` で使う。
+
+## 外へ通信する場面
+
+- 本文が外部の URL の画像・動画・音声を指すとき、ブラウザがその URL から読む（書き出した HTML を開くときも同じ）
+- 利用者が `mdpreview install-style` を実行したとき、公式の CSS・フォント・ライセンスを取得する。`--check` は取得しない
+- 開発用の `tools/make-fixtures.mjs` を実行したとき、合成の Markdown だけを gitlab.com に送り、描画の見本を取得する。アプリからは呼ばれない
+
+これ以外は外へ通信しない。プレビューの表示と HTML への書き出しでは、公式スタイルやライブラリを取得しない。
 
 ## 描画エンジン
 
