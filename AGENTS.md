@@ -6,7 +6,7 @@ Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本
 
 ## 導入手順の正本
 
-AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/install.md) にある。導入スクリプトは `scripts/setup.mjs` に置く。導入の操作を変えたら、README と `docs/install.md` の案内を合わせる。項の見出しを変えたら、そこへリンクしている README・ほかの手順書・LazyVimStarter などのリンクも直す。
+AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/install.md)、使い方の手順の正本は [docs/usage.md](docs/usage.md) にある。設計は [docs/reference/readme.md](docs/reference/readme.md) にある。導入スクリプトは `scripts/setup.mjs` に置く。導入の操作を変えたら、README と `docs/install.md` の案内を合わせる。項の見出しを変えたら、そこへリンクしている README・ほかの手順書・LazyVimStarter などのリンクも直す。
 
 ## 守ること
 
