@@ -21,6 +21,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `mdtable/cli.py` — コマンド（list / export / import / edit）。`mdtable/__main__.py` は `python -m mdtable`、`mdtable/__init__.py` は版（`__version__`）
 - `scripts/setup-mdtable.py` — リポジトリ外の仮想環境への導入。`pyproject.toml` — パッケージの定義（`readme = "README.md"` なので、README はパッケージの説明にもなる）
 - `tests/` — unittest。`test_oracles.py` は環境変数を設定したときだけ、手元の文書と comrak で確かめる
+- `.github/workflows/test.yml` — GitHub Actions で `tests/` を動かす
 - `docs/install.md` — AlmaLinux 10・Windows 11 の導入・更新の手順
 - `docs/usage.md` — Markdown の表を Excel と往復する手順と、ブックを Excel で編集するときの注意
 - `docs/reference/readme.md` — 設計と変換の規則
@@ -34,6 +35,7 @@ python3 -B -m unittest discover -s tests -v
 ```
 
 - Windows では `python`。openpyxl のある Python で、リポジトリの直下で動かす
+- Pull Request と `main` への push では、GitHub Actions（`.github/workflows/test.yml`）が、ubuntu と windows の Python 3.9 と最新で同じテストを動かす。取り込む前に `gh pr checks` で結果を見る
 - comrak と突き合わせるときは `MDTABLE_COMRAK_DIR` に `node_modules/comrak` を持つフォルダー（Markdown の整形器 [md-format](https://github.com/ryo-aoki-pc/md-format) を導入した導入先。`%LOCALAPPDATA%\md-format`・`${XDG_DATA_HOME:-~/.local/share}/md-format` など）を、手元の文書で無編集の往復を確かめるときは `MDTABLE_CORPUS` に文書のフォルダーを設定する
 
 ## 書き方の規則
