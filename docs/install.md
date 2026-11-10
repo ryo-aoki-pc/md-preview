@@ -200,9 +200,9 @@
      if ([string]::IsNullOrWhiteSpace($env:USERPROFILE)) { throw "USERPROFILE が空です" }
      Push-Location -LiteralPath "$env:USERPROFILE\repos\md-preview" -ErrorAction Stop
      try {
+       "`n$([char]27)[7m 確認 $([char]27)[0m"
        node scripts/setup.mjs
        if ($LASTEXITCODE -ne 0) { return }
-       "`n$([char]27)[7m 確認 $([char]27)[0m"
        node scripts/setup.mjs --check
      } finally {
        Pop-Location

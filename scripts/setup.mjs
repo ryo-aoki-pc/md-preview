@@ -239,20 +239,26 @@ function processAlive(pid) {
 // 途中で止まった導入の後片づけ。導入先が無く、退避した前の導入 (<導入先>.old-<番号>) があれば、いちばん新しいものを戻す。
 // 残った作業用フォルダ (.new-*) と退避 (.old-*) は消す。
 function recover(installDir) {
-  const parent = path.dirname(installDir);
   const base = path.basename(installDir);
-  const leftovers = fs
-    .readdirSync(parent)
-    .filter((name) => name.startsWith(`${base}.old-`) || name.startsWith(`${base}.new-`))
-    .map((name) => path.join(parent, name));
-  const previous = leftovers
+  const found = leftovers(installDir);
+  const previous = found
     .filter((full) => path.basename(full).startsWith(`${base}.old-`))
     .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
   if (!fs.existsSync(installDir) && previous.length) {
     fs.renameSync(previous[0], installDir);
     console.log(`途中で止まった導入から、前の導入を戻しました: ${installDir}`);
   }
-  for (const full of leftovers) remove(full);
+  for (const full of found) remove(full);
+}
+
+// 導入先の隣に残っている、退避した前の導入 (.old-*) と作業用フォルダ (.new-*)。
+function leftovers(installDir) {
+  const parent = path.dirname(installDir);
+  const base = path.basename(installDir);
+  return fs
+    .readdirSync(parent)
+    .filter((name) => name.startsWith(`${base}.old-`) || name.startsWith(`${base}.new-`))
+    .map((name) => path.join(parent, name));
 }
 
 // 同時に 2 つの導入を動かさないための鍵 (<導入先>.lock)。中に導入しているプロセスの番号を書く。そのプロセスがもう無い
@@ -414,21 +420,34 @@ function install({ installDir, binDir }) {
       changedLaunchers.push({ ...launcher, before });
       console.log(`起動役を置きました: ${launcher.file}`);
     }
-    if (windows && !planned.some(({ file }) => file.endsWith('.cmd'))) {
+    const cmdLauncher = path.join(binDir, 'mdpreview.cmd');
+    if (windows && !planned.some(({ file }) => file === cmdLauncher)) {
+      // 前の導入が置いた cmd 用の起動役は、古い導入先を指したままになるので消す。
+      const before = launcherState(cmdLauncher);
+      if (before) {
+        fs.rmSync(cmdLauncher, { force: true });
+        changedLaunchers.push({ file: cmdLauncher, before });
+      }
       console.log(
         `注意: 導入先のパスに ASCII でない文字か % か " があるので、cmd 用の mdpreview.cmd は置きません（PowerShell と Git Bash からは使えます）`,
       );
     }
-    try {
-      remove(previous);
-    } catch {
-      console.log(`注意: 前の導入を消せませんでした。後で消してください: ${previous}`);
+    // 前の導入と、以前に戻せずに残った退避・作業用フォルダを消す (鍵を持っているので、ほかの導入のものではない)。
+    for (const full of leftovers(installDir)) {
+      try {
+        remove(full);
+      } catch {
+        console.log(`注意: 前の導入を消せませんでした。後で消してください: ${full}`);
+      }
     }
   } catch (error) {
     if (switched) {
       try {
         remove(installDir);
         if (fs.existsSync(previous)) fs.renameSync(previous, installDir);
+      } catch (restoreError) {
+        // 戻せなかったことは、元の誤りに足して知らせる (片づけの誤りで、元の誤りを置き換えない)。
+        error.message += `（前の導入を戻せませんでした: ${restoreError.code ?? restoreError.message}。前の導入は ${previous} に残っています）`;
       } finally {
         for (const launcher of changedLaunchers.reverse()) restoreLauncher(launcher);
       }
@@ -491,6 +510,10 @@ function check({ installDir, binDir }) {
     }
     if (actual === null) problems.push(`起動役がありません: ${file}`);
     else if (actual !== text) problems.push(`起動役の中身が導入先と合いません。導入し直してください: ${file}`);
+  }
+  const cmdLauncher = path.join(binDir, 'mdpreview.cmd');
+  if (windows && planned.length && !planned.some(({ file }) => file === cmdLauncher) && fs.existsSync(cmdLauncher)) {
+    problems.push(`古い起動役が残っています。導入し直してください: ${cmdLauncher}`);
   }
   if (!onPath(binDir))
     problems.push(`${binDir} が PATH にありません。PATH に足すか、起動役をフルパスで動かしてください`);

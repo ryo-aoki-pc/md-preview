@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import {
   cpSync,
   existsSync,
@@ -208,6 +209,54 @@ test('再導入は前のファイルを入れ替え、作業用フォルダー�
   assert.equal(existsSync(installed(space, 'stale.txt')), false);
   assert.deepEqual(leftovers(space), []);
 });
+
+test('成功した導入は、以前に残った退避と作業用フォルダーも片づける', (t) => {
+  const space = workspace(t);
+  success(setup(space));
+  mkdirSync(space.installDir + '.old-12345');
+  writeFileSync(path.join(space.installDir + '.old-12345', 'marker'), '戻せずに残った前の導入');
+  mkdirSync(space.installDir + '.new-12345');
+  success(setup(space));
+  assert.deepEqual(leftovers(space), []);
+});
+
+test('--check は、導入の記録の版が clone と違うことを知らせる', (t) => {
+  const space = workspace(t);
+  success(setup(space));
+  const record = installed(space, 'install.json');
+  writeFileSync(record, JSON.stringify({ ...JSON.parse(read(record)), version: '0.0.0-old' }));
+  const check = setup(space, '--check');
+  assert.equal(check.status, 1);
+  assert.match(check.stdout, /問題: 導入した版（0\.0\.0-old[^）]*）が clone（[^）]*）と違います/u);
+});
+
+test(
+  'Windows で導入先が使われていれば、入れ替えずに止め、前の導入を残す',
+  { skip: windows ? false : 'Windows で、使用中のフォルダーの名前を変えられないことに関する試験' },
+  async (t) => {
+    const space = workspace(t);
+    success(setup(space));
+    writeFileSync(installed(space, 'marker'), '前の導入');
+    // 導入先を作業フォルダーにしたプロセスがある間は、フォルダーの名前を変えられない。
+    const holder = spawn(process.execPath, ['-e', 'console.log("ready"); setInterval(() => {}, 1000)'], {
+      cwd: space.installDir,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    try {
+      await once(holder.stdout, 'data');
+      const failed = setup(space);
+      assert.equal(failed.status, 1, failed.stdout + failed.stderr);
+      assert.match(failed.stderr, /導入先を入れ替えられません/u);
+      assert.equal(read(installed(space, 'marker')), '前の導入');
+    } finally {
+      holder.kill();
+      await once(holder, 'exit');
+    }
+    assert.deepEqual(leftovers(space), []);
+    success(setup(space));
+    assert.equal(existsSync(installed(space, 'marker')), false);
+  },
+);
 
 test('--check はファイルの欠落とハッシュの違いを知らせる', (t) => {
   const space = workspace(t, { assets: true });
@@ -428,13 +477,22 @@ test(
   { skip: windows ? false : 'Windows のコードページに関する試験' },
   (t) => {
     const space = workspace(t);
+    // 先に ASCII のパスへ導入して、cmd 用の起動役がある状態にする。
+    success(setup(space));
+    const cmd = path.join(space.binDir, 'mdpreview.cmd');
+    const old = read(cmd);
     const installDir = path.join(space.root, '導入先/md-preview');
     const child = setup({ ...space, installDir });
     success(child);
     assert.match(child.stdout, /mdpreview\.cmd は置きません/u);
-    assert.equal(existsSync(path.join(space.binDir, 'mdpreview.cmd')), false);
+    assert.equal(existsSync(cmd), false, '古い導入先を指す cmd 用の起動役を消す');
     assert.ok(read(path.join(space.binDir, 'mdpreview.ps1')).includes(path.join(installDir, 'cli.mjs')));
     assert.ok(existsSync(path.join(space.binDir, 'mdpreview')));
+    // 古い cmd 用の起動役が戻ってきたら、--check が知らせる。
+    writeFileSync(cmd, old);
+    const check = setup({ ...space, installDir }, '--check');
+    assert.equal(check.status, 1);
+    assert.match(check.stdout, /問題: 古い起動役が残っています/u);
   },
 );
 
