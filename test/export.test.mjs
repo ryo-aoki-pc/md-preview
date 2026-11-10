@@ -9,7 +9,8 @@ import { fromHtml } from 'hast-util-from-html';
 import { toHtml } from 'hast-util-to-html';
 import { visit } from 'unist-util-visit';
 import { exportDocument, renderForExport } from '../lib/export.mjs';
-import { main } from '../cli.mjs';
+import { main as runMain } from '../cli.mjs';
+const main = (argv, io) => runMain([argv[0], '--no-plantuml', ...argv.slice(1)], io);
 import { temp } from './helpers.mjs';
 import { payloads, problems } from './export-xss-helper.mjs';
 
@@ -283,7 +284,7 @@ test('render の標準出力は HTML だけ、知らせと実行時の誤りは�
   const cli = new URL('../cli.mjs', import.meta.url);
   const result = spawnSync(
     process.execPath,
-    [cli.pathname.replace(/^\/(\w:)/, '$1'), 'render', '--root', f.root, f.file],
+    [cli.pathname.replace(/^\/(\w:)/, '$1'), 'render', '--no-plantuml', '--root', f.root, f.file],
     { encoding: 'utf8', timeout: 20000 },
   );
   assert.ifError(result.error);

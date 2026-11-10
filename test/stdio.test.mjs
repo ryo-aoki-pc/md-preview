@@ -6,9 +6,12 @@ import { join } from 'node:path';
 import { PassThrough, Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { main } from '../cli.mjs';
+import { main as runMain } from '../cli.mjs';
 import { MAX_LINE_BYTES, readLines } from '../lib/stdio.mjs';
 import { events, get, isolateUserData, temp, until } from './helpers.mjs';
+
+// この試験は、この PC にある plantuml の有無で振る舞いを変えない。
+const main = (argv, io) => runMain([...argv, '--no-plantuml'], io);
 
 isolateUserData();
 
@@ -16,7 +19,7 @@ const cli = fileURLToPath(new URL('../cli.mjs', import.meta.url));
 const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 function app(t) {
-  const child = spawn(process.execPath, [cli, '--stdio'], { cwd: fileURLToPath(new URL('../', import.meta.url)), windowsHide: true });
+  const child = spawn(process.execPath, [cli, '--stdio', '--no-plantuml'], { cwd: fileURLToPath(new URL('../', import.meta.url)), windowsHide: true });
   const messages = [];
   const invalid = [];
   let pending = '';

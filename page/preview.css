@@ -107,6 +107,14 @@ body {
 }
 
 /* ==== 本文のスタイル: ここから (HTML への書き出しでも使う。lib/export.mjs が、この印の間を切り出す) ==== */
+#gp-content .gp-plantuml {
+  max-width: 100%;
+  height: auto;
+  background: #fff;
+}
+#gp-content .gp-plantuml-error {
+  color: var(--gl-text-color, inherit);
+}
 #gp-page.file-holder {
   box-sizing: border-box;
   width: 100%;

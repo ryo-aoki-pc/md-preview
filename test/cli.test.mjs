@@ -5,8 +5,15 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { main, parseArgs, browserCommand } from '../cli.mjs';
+import { main as runMain, parseArgs, browserCommand } from '../cli.mjs';
 import { events, isolateUserData, temp, until } from './helpers.mjs';
+
+// 既存の試験は、この PC にある plantuml の有無で振る舞いを変えない。
+const main = (argv, io) =>
+  runMain(
+    argv.some((arg) => ['--help', '--version'].includes(arg)) || !argv.length ? argv : ['--no-plantuml', ...argv],
+    io,
+  );
 
 isolateUserData();
 

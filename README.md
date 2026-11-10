@@ -11,7 +11,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - 本文の相対リンクから別の Markdown へ移り、ブラウザの戻る・進むで行き来する。「一覧」でルート内の文書を選び、「見出し」で見出しの一覧を左に出し入れする
 - 「GitLab との違い」で、参照・図・提案・取り込み・絵文字・メディアの知らせを読み、本文の該当する行へ移る
 - `::include{file=…}` でルート内のファイルを取り込む。取り込むファイルの変更・削除・作成に合わせて描き直す
-- 数式（KaTeX）と図（mermaid）を、同梱のライブラリで描く
+- 数式（KaTeX）と図（mermaid）を、同梱のライブラリで描く。PlantUML の図は、`plantuml` コマンドが入っていれば、手元のそのコマンドで描く
 - Markdown を HTML に書き出す。スタイルと、文書に必要な数式・図のライブラリを埋め込み、サーバーを起こさずにブラウザで開ける形にする
 - ブラウザから印刷する。印刷用の表示では操作欄・見出し欄・知らせを隠す
 - 配色（システム・ライト・ダーク）と本文幅（全幅・固定幅）を切り替える。任意で GitLab の公式スタイルとフォントを取得し、プレビューに使う
@@ -27,6 +27,8 @@ Node.js 22 以上（npm を含む）と git が要る。ソースを clone し�
 | Windows 11 | [Windows 11 で md-preview を導入・更新する](docs/install.md#windows-11-で-md-preview-を導入更新する) |
 
 公式スタイルは任意。[AlmaLinux 10 の取得手順](docs/install.md#md-preview-の公式スタイルを取得する)・[Windows 11 の取得手順](docs/install.md#windows-11-で-md-preview-の公式スタイルを取得する)に従う。未導入なら同梱のスタイルで表示する。
+
+PlantUML の図も任意。Windows 11 は [Windows 11 で PlantUML を入れる](docs/install.md#windows-11-で-plantuml-を入れる)に従う。AlmaLinux 10 の導入の手順はまだ無い（`plantuml` コマンドが PATH にあれば使う）。`plantuml` コマンドが無ければ、図は原文のコードブロックで表示する。
 
 ## 使い方
 
@@ -50,7 +52,7 @@ mdpreview --help
 - 利用者が `mdpreview install-style` を実行したとき、公式の CSS・フォント・ライセンスを取得する。`--check` は取得しない
 - 開発用の `tools/make-fixtures.mjs` を実行したとき、合成の Markdown だけを gitlab.com に送り、描画の見本を取得する。アプリからは呼ばれない
 
-これ以外は外へ通信しない。プレビューの表示と HTML への書き出しでは、公式スタイルやライブラリを取得しない。
+これ以外は外へ通信しない。プレビューの表示と HTML への書き出しでは、公式スタイルやライブラリを取得しない。PlantUML の図は手元の `plantuml` コマンドで描き、図の中から URL を読む記法は止めている。
 
 ## 描画エンジン
 
@@ -83,8 +85,10 @@ const { html, headings, notices } = renderDocument('# 題\n\n- [x] 済み\n');
 - 消毒は GitLab と同じ許可リスト（html-pipeline の許可リストに GitLab の差分を重ねたもの）で行う。`<script>`、`on…` の属性、`javascript:` のリンクなどは出力に残らない
 - 写したフィルター: コードの言語、JSON の表、画像の幅と高さ、数式と mermaid の目印、色のチップ、動画と音声、目次、脚注、差分の記法、画像のリンク、外部リンク、タスク、文字の向き、コードの配色
 - `::include{file=…}` は、読み込みの関数を渡したときだけ、ルートの内側のファイルで展開する（32 個まで・再帰しない。GitLab のリポジトリの表示と同じ決まり）。URL は取り込まず、その URL へのリンクにする
-- 写していないもの（原文のまま出す）: `#123`・`@名前` などの参照、PlantUML、Kroki、提案（suggestion）、独自の絵文字
-- `notices` に、GitLab では別の見え方になる所（参照になりうる記法、PlantUML などの図、取り込めなかった include、文字のまま残った絵文字の短縮記法、手元に無い画像）を、原文の行と一緒に返す
+- PlantUML は、PATH の絶対パスの項目に `plantuml` があれば手元のコマンドで SVG にする。原文は標準入力に渡し、外部への通信とファイルの取り込みを `SANDBOX` で止める。無い場合と `--no-plantuml` を付けた場合、256 KiB を超える図は原文のコードブロックのまま出す。描画に失敗した場合も原文を表示する
+- HTML への書き出しでは、描けた PlantUML の SVG を画像として埋める。PlantUML のためのスクリプトは入れない
+- 写していないもの（原文のまま出す）: `#123`・`@名前` などの参照、Kroki、提案（suggestion）、独自の絵文字
+- `notices` に、GitLab では別の見え方になる所（参照になりうる記法、原文のまま残った図、取り込めなかった include、文字のまま残った絵文字の短縮記法、手元に無い画像）を、原文の行と一緒に返す
 - GitLab と違う所: 絵文字の短縮記法（`:smile:`）は `<gl-emoji>` で包まず文字にする。脚注の ID に乱数を付けない。外部の画像は GitLab の中継を通さず、元の URL から読む。コードの配色は highlight.js の字句を Rouge のクラス名に対応づけたもので、色分けは GitLab より粗い
 
 合成の Markdown 17 個を gitlab.com の API に送って保存した HTML（`test/fixtures/`）と、試験で比べている。上の違いと、GitLab のデータや設定が要る 11 か所（`test/fixtures.test.mjs` の「既知の差」）を除いて、要素・属性・文字が一致する。

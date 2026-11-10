@@ -482,6 +482,7 @@
     }
     updateBanner();
     rewriteUrls(tpl.content, m);
+    preparePlantuml(tpl.content);
     // コード配色は要素自身の背景も塗るので、body には付けずコードの範囲へ限定する。
     for (const highlight of tpl.content.querySelectorAll('.highlight')) {
       highlight.classList.add('code-syntax-highlight-theme');
@@ -589,6 +590,70 @@
   }
 
   // ---- 数式と図 -------------------------------------------------------------------
+
+  // 図の img。ふつうは ImageLink が包んだ a の中にある。利用者の a の中の図は包まれず、img が図の属性を持つ。
+  const PLANTUML_IMAGES = 'a[data-diagram="plantuml"] > img, img[data-diagram="plantuml"]';
+  // 図ごと置き換える要素 (包んだ a があればそれ、無ければ img)
+  const plantumlHolder = (img) =>
+    img.parentElement && img.parentElement.matches('a[data-diagram="plantuml"]') ? img.parentElement : img;
+
+  function preparePlantuml(fragment) {
+    const loaded = new Map();
+    for (const img of content.querySelectorAll(PLANTUML_IMAGES)) {
+      if (!img.complete || !img.naturalWidth) continue;
+      const same = loaded.get(img.src) || [];
+      same.push(img);
+      loaded.set(img.src, same);
+    }
+    for (let img of fragment.querySelectorAll(PLANTUML_IMAGES)) {
+      const old = loaded.get(img.src)?.shift();
+      if (old) {
+        const pos = img.getAttribute('data-sourcepos');
+        if (pos) old.setAttribute('data-sourcepos', pos);
+        else old.removeAttribute('data-sourcepos');
+        img.replaceWith(old);
+        continue;
+      }
+      img.classList.add('gp-plantuml');
+      img.alt = 'PlantUML の図';
+      img.loading = 'lazy';
+      img.addEventListener(
+        'error',
+        () => {
+          const holder = plantumlHolder(img);
+          let source = '';
+          try {
+            const encoded = holder.getAttribute('data-diagram-src') || '';
+            if (encoded.startsWith('data:text/plain;base64,'))
+              source = new TextDecoder('utf-8', { fatal: true }).decode(
+                Uint8Array.from(atob(encoded.slice('data:text/plain;base64,'.length)), (char) => char.charCodeAt(0)),
+              );
+          } catch {
+            // 壊れた埋め込みは HTML として解釈せず、原文を空にする。
+          }
+          const out = document.createElement('div');
+          out.className = 'gp-plantuml-error';
+          const pos = img.getAttribute('data-sourcepos');
+          if (pos) out.setAttribute('data-sourcepos', pos);
+          const label = document.createElement('p');
+          label.textContent = 'PlantUML の図を描けませんでした';
+          const pre = document.createElement('pre');
+          const code = document.createElement('code');
+          code.textContent = source;
+          pre.append(code);
+          out.append(label, pre);
+          holder.replaceWith(out);
+          queueLayout();
+        },
+        { once: true },
+      );
+    }
+  }
+
+  // 画面の外の図も、印刷のレイアウトを作る前に読み込みを始める。
+  window.addEventListener('beforeprint', () => {
+    for (const img of content.querySelectorAll('img.gp-plantuml')) img.loading = 'eager';
+  });
 
   function sourcepos(el) {
     if (el.hasAttribute('data-sourcepos')) return el.getAttribute('data-sourcepos');
@@ -779,7 +844,12 @@
   content.addEventListener('dblclick', (event) => {
     if (!jumpEnabled) return;
     const element = event.target instanceof Element ? event.target : event.target.parentElement;
-    if (!element || element.closest('a, summary, input, button, video, audio')) return;
+    if (
+      !element ||
+      element.closest('summary, input, button, video, audio') ||
+      (element.closest('a') && !element.closest('a[data-diagram="plantuml"]'))
+    )
+      return;
     const block = element.closest('[data-sourcepos]');
     if (!block || !content.contains(block)) return;
     const match = /^(\d+):\d+-\d+:\d+$/.exec(block.getAttribute('data-sourcepos'));
@@ -793,6 +863,13 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ line }),
     }).catch(() => {});
+  });
+  // PlantUML の図は、SVG へのリンクで包まれている (GitLab と同じ形)。ダブルクリックで行へ移れるときは、
+  // その 2 回のクリックで新しいタブが 2 つ開かないよう、図のクリックではリンクを開かない。
+  content.addEventListener('click', (event) => {
+    if (!jumpEnabled) return;
+    const element = event.target instanceof Element ? event.target : event.target.parentElement;
+    if (element && element.closest('a[data-diagram="plantuml"]')) event.preventDefault();
   });
 
   // ---- ページ内のリンク -------------------------------------------------------------

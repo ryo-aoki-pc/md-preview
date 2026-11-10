@@ -11,6 +11,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 ## 守ること
 
 - 描画と表示の経路から、外へ通信しない。本文を GitLab の API に送る処理、CDN からライブラリを読む処理を足さない
+- PlantUML の原文は手元のコマンドの標準入力だけに渡す。`PLANTUML_SECURITY_PROFILE=SANDBOX` を必ず指定し、PATH の絶対パスの項目だけから探す。SVG は img と sandbox 付きの応答だけで扱い、DOM に入れない。描けなかった場合は原文のコードブロックへ戻す
 - 公式スタイルの取得は、利用者が明示した `mdpreview install-style` だけで行う。起動と `--check` は通信しない。配信する資産はロック・導入情報・全ファイルの大きさと sha256 を確かめ、実パスを `resolve()` で保存先の内側に限り、検証したバイト列だけを許可リストで配る。失敗時は同梱スタイルへ戻す
 - `mdpreview render` は worker で60秒以内に描画し、消毒済みの `renderDocument.html` だけを本文に使う。公式資産は再配布せず、同梱スタイルと文書に必要な KaTeX・mermaid だけを埋める。スクリプトごとの sha256 を CSP に固定し、数式も図も無ければスクリプトを入れない。サーバーの token や端末の絶対パスを生成しない。出力は完成後に隣の一時ファイルから入れ替える
 - `lib/engine.mjs` の HTML は消毒していない。消毒を通す前の HTML を、ページにもファイルにも出さない
@@ -37,6 +38,8 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `lib/filters/` — GitLab のフィルターごとの木の変換。最後に `syntax-highlight.mjs` でコードを配色する
 - `lib/highlight.mjs` — highlight.js を遅延して読み、字句を Rouge のクラスと行ごとの木へ変換する
 - `lib/tree.mjs` — フィルターで共有する hast の操作
+- `lib/plantuml-source.mjs` — 図の原文の sha256 と、標準入力への開始・終了の補完。`lib/filters/plantuml.mjs` はコードブロックを図の img に変え、原文と ID を集める
+- `lib/plantuml.mjs` — PATH の検査、手元のコマンドの起動、直列の待ち行列・中止・出力制限と、成功した SVG のメモリーキャッシュ
 - `assets/`・`lib/assets.mjs` — 固定版の GitLab 公式スタイルの明示的な取得と、通信しない導入状態の検査。`assets.lock.json` は元の固定情報をバイト単位で保つ。保存先はアプリとは別の `md-preview-assets` で、直下に版ごとのフォルダーを置く
 - `lib/export.mjs` — 単一 HTML の書き出し。既存 worker の include・メディアの存在確認、ルート内の相対 URL の書き換え、本文と印刷用スタイル、必要なライブラリと woff2 の埋め込み、CSP のハッシュ、原子的な出力を扱う。知らせの件数は CLI が標準エラーへ出す
 - `cli.mjs` — 引数の解釈、ブラウザの起動、ファイルの監視と終了処理。実行コマンドは `mdpreview`。ファイル・フォルダー表示と `--stdio` の入口を切り替える
@@ -122,6 +125,7 @@ git diff --check
 - `test/stdio.test.mjs` — 実際の子プロセスで hello / ready、本文・スクロール、タブ数、休止・再開、ジャンプ、行の分割・上限、パイプと終了、別ルートへの切り替え時のファイル文書の reload を確かめる
 - `test/setup.test.mjs` — 偽の npm と手元の依存を使う、ネットワーク不要の導入試験。一時の clone と導入先を作業ツリー内に作り、コピー・ハッシュ・依存・起動役・PATH・失敗時の復元・中断後の回収・引数を確かめる。Windows では PowerShell の標準入力も確かめ、シェルが無ければ理由を付けて skip する
 - `test/helpers.mjs` — 作業ツリー内の一時ファイル、HTTP と SSE、非同期条件の試験用補助
+- `test/plantuml.test.mjs`・`test/plantuml-helper.mjs` — Node.js で作る偽の plantuml によるフィルター・コマンド探索・起動とプロセスの木の終了・共有とキャッシュ・session・HTTP・書き出し・CLI の試験。ページの表示・失敗・使い回しは `test/page.test.mjs` でも確かめる。本物の PlantUML と Java は使わない
 - Node.js 22 以上
 - 描画に関わる変更は、試験に例を足す。GitLab の出力と比べて確かめたことだけを「同じ」と書く
 

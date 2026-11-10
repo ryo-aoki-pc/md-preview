@@ -11,6 +11,7 @@ import { temp } from './helpers.mjs';
 import { assetFixture } from './assets-fixture.mjs';
 import { exportDocument } from '../lib/export.mjs';
 import { pathToFileURL } from 'node:url';
+import { fakePlantuml } from './plantuml-helper.mjs';
 
 const require = createRequire(import.meta.url);
 let chromium;
@@ -36,6 +37,67 @@ const skip = !chromium
   : !browserPath
     ? 'Edge / Chrome / Chromium が見つからない（EDGE_BIN または CHROME_BIN を指定できる）'
     : false;
+
+test('PlantUML の画像・失敗時の原文・読み込み済み画像の使い回しと印刷を確かめる', { skip }, async (t) => {
+  const fake = fakePlantuml(t);
+  let server;
+  const session = createSession({ plantuml: true, onRender: (data) => server?.broadcast('render', data) });
+  t.after(() => session.close());
+  const jumps = [];
+  server = await createServer({
+    session,
+    page: loadPage({ jump: true }),
+    plantuml: fake.renderer,
+    onJump: (value) => jumps.push(value),
+  });
+  t.after(() => server.close());
+  const markdown = (heading, source) => '# ' + heading + '\n\n```plantuml\n' + source + '\n```\n';
+  session.setDocument({ name: '図.md', text: markdown('最初', '日本語'), rev: 1 });
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const context = await browser.newContext();
+  t.after(() => context.close());
+  const outside = [];
+  await context.route('**/*', (route) => {
+    if (route.request().url().startsWith(server.url)) return route.continue();
+    outside.push(route.request().url());
+    return route.abort();
+  });
+  const page = await context.newPage();
+  await page.goto(server.url);
+  await page.waitForFunction(() => document.querySelector('img.gp-plantuml')?.naturalWidth > 0);
+  assert.equal(await page.locator('img.gp-plantuml').getAttribute('alt'), 'PlantUML の図');
+  assert.equal(await page.locator('img.gp-plantuml').getAttribute('loading'), 'lazy');
+  assert.equal(await page.locator('#gp-content svg').count(), 0);
+  // 行へ移れるときは、図のダブルクリックで行へ移り、SVG へのリンク (新しいタブ) は開かない。
+  const opened = [];
+  context.on('page', (other) => opened.push(other));
+  const jumped = page.waitForResponse(
+    (value) => value.url().endsWith('/_/jump') && value.request().method() === 'POST',
+  );
+  await page.locator('img.gp-plantuml').dblclick();
+  await jumped;
+  assert.deepEqual(jumps, [{ line: 3 }]);
+  assert.deepEqual(opened, []);
+  await page.evaluate(() => {
+    window.savedPlantuml = document.querySelector('img.gp-plantuml');
+  });
+  session.setDocument({ name: '図.md', text: markdown('次の見出し', '日本語'), rev: 2 });
+  await page.waitForFunction(() => document.querySelector('#gp-content h1')?.textContent.includes('次の見出し'));
+  assert.equal(await page.evaluate(() => window.savedPlantuml === document.querySelector('img.gp-plantuml')), true);
+  await page.evaluate(() => window.dispatchEvent(new Event('beforeprint')));
+  assert.equal(await page.locator('img.gp-plantuml').getAttribute('loading'), 'eager');
+  await page.emulateMedia({ media: 'print' });
+  assert.equal(await page.locator('img.gp-plantuml').isVisible(), true);
+  const source = 'plain 日本語 "><script>危険な原文</script>';
+  session.setDocument({ name: '図.md', text: markdown('失敗', source), rev: 3 });
+  await page.waitForSelector('.gp-plantuml-error');
+  assert.equal(await page.locator('.gp-plantuml-error p').textContent(), 'PlantUML の図を描けませんでした');
+  assert.equal(await page.locator('.gp-plantuml-error code').textContent(), source);
+  assert.equal(await page.locator('.gp-plantuml-error').getAttribute('data-sourcepos'), '3:1-5:3');
+  assert.equal(await page.locator('.gp-plantuml-error script').count(), 0);
+  assert.deepEqual(outside, []);
+});
 
 test('書き出した単一 HTML を file:// で開き、数式と図を外部要求と CSP 違反なしで描く', { skip }, async (t) => {
   const root = temp(t),

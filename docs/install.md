@@ -367,3 +367,94 @@
 </details>
 
 ---
+
+### Windows 11 で PlantUML を入れる
+
+- 任意で PlantUML を入れる。入れると、`plantuml` のコードブロックの図を、手元の `plantuml` コマンドで描いて表示する。scoop で Java・PlantUML・Graphviz を入れる（取得元へ通信する）
+- 前提: scoop が入っている（setup-notes の [アプリを入れる](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#アプリを入れる)の手順 2・3）。[Windows 11 で md-preview を導入・更新する](#windows-11-で-md-preview-を導入更新する)を通し、`mdpreview` が PATH にある
+- 実行場所: この PC のデスクトップの管理者ではない PowerShell 7。この項の手順 1 で開く
+- 入れた後に起こしたプレビューから効く。既に開いている窓とアプリ（Neovim など）は、開き直してから使う
+
+1. 管理者ではない PowerShell 7 を開く。
+
+   - スタートメニューで「PowerShell」を探し、クリックして開く（「Windows PowerShell」ではない。「管理者として実行」にはしない）
+   - 「PowerShell」が無ければ、[アプリを入れる](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#アプリを入れる)の手順 6〜9 を通す
+
+1. scoop に、`java` と `extras` のバケットを足す。
+
+   ```powershell
+   # java と extras のバケットを、無いときだけ足す
+   foreach ($bucket in 'java', 'extras') {
+     if (-not (scoop bucket list | Where-Object Name -eq $bucket)) { scoop bucket add $bucket }
+   }
+   "`n$([char]27)[7m 確認 $([char]27)[0m"
+   scoop bucket list
+   ```
+
+   - 一覧に `java` と `extras` の行が出ればよい
+
+1. Java・PlantUML・Graphviz を入れる。
+
+   ```powershell
+   scoop install temurin-lts-jre plantuml graphviz
+   ```
+
+   - `temurin-lts-jre`・`plantuml`・`graphviz` が、それぞれ `was installed successfully!` になればよい
+   - `is already installed.` と出たものは導入済みで、何も変えない
+
+1. PlantUML・Java・Graphviz の版を確かめる。
+
+   ```powershell
+   "`n$([char]27)[7m 確認 $([char]27)[0m"
+   plantuml -version | Select-Object -First 1
+   java -version
+   dot -V
+   ```
+
+   - `PlantUML version`・`openjdk version`・`dot - graphviz version` に続いて、それぞれの版が出ればよい
+   - コマンドが無いと出たら、PowerShell 7 を開き直してこの項の手順 4 を貼り直す
+
+1. 図を含む小さな Markdown を HTML に書き出し、図が入ったことを確かめる。
+
+   ```powershell
+   & {
+     # 図を含む試験用の Markdown を、専用のフォルダーに作って書き出す
+     $previewDirectory = Join-Path ([IO.Path]::GetTempPath()) ("md-preview-" + [guid]::NewGuid())
+     $fence = '`' * 3
+     try {
+       New-Item -ItemType Directory -Path $previewDirectory -ErrorAction Stop | Out-Null
+       Set-Content -LiteralPath "$previewDirectory\preview.md" -Value "# 図の確認`n`n${fence}plantuml`nAlice -> Bob: こんにちは`n$fence" -Encoding utf8 -ErrorAction Stop
+       "`n$([char]27)[7m 確認 $([char]27)[0m"
+       mdpreview render -o "$previewDirectory\preview.html" "$previewDirectory\preview.md"
+       # 書き出した HTML に入った SVG の図を数える
+       "SVG の図: " + ([regex]::Matches((Get-Content -LiteralPath "$previewDirectory\preview.html" -Raw), 'data:image/svg\+xml;base64,')).Count
+     } finally {
+       Remove-Item -LiteralPath $previewDirectory -Recurse -Force -ErrorAction SilentlyContinue
+     }
+   }
+   ```
+
+   - `SVG の図: 1` が出ればよい
+   - `mdpreview: 図: 1 件` と `SVG の図: 0` が出たら、`plantuml` が見つかっていないか、md-preview が古い。この項の手順 4 と、[Windows 11 で md-preview を導入・更新する](#windows-11-で-md-preview-を導入更新する)の更新を確かめる
+   - `mdpreview: PlantUML の図を描けませんでした（1 件）` が出たら、この項の手順 4 で Java が動くことを確かめる
+
+<details id="windows-11-で-plantuml-を入れる-の補足と注意点">
+  <summary>Windows 11 で PlantUML を入れる の補足と注意点</summary>
+
+**[Windows 11 で PlantUML を入れる](#windows-11-で-plantuml-を入れる)の手順 3**
+
+- Java は Eclipse Temurin の LTS の JRE。scoop が、利用者の環境変数 `JAVA_HOME` を設定し、Java の `bin` を PATH に足す
+- Graphviz は、クラス図などの配置に使う。PlantUML 1.2026.9 では、Graphviz が無くてもクラス図を描けた
+- 更新は、setup-notes の [scoop・winget・WSL を上げる](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/windows-setup.md#scoopwingetwsl-を上げる)で、ほかの scoop のアプリと一緒に上がる
+- `scoop uninstall plantuml` で外すと、図は原文のコードブロックの表示に戻る
+
+**[Windows 11 で PlantUML を入れる](#windows-11-で-plantuml-を入れる)の手順 5**
+
+- `mdpreview` は、PATH に `plantuml` があると、図の原文を標準入力で渡して SVG にする。本文と図の原文は外へ送らない
+- 図の中から手元のファイルを取り込む記法（`!include` など）と、URL を読む記法は使えない（PlantUML の `SANDBOX` で止める）。PlantUML に同梱の標準ライブラリ（`!include <C4/C4_Container>` など）は使える
+- 構文に誤りのある図は、PlantUML が誤りの場所を描いた図になる。SVG にならなかった図は、原文のコードブロックで表示する
+- `--no-plantuml` を付けると、`plantuml` があっても使わない
+
+</details>
+
+---
