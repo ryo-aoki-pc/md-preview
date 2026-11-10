@@ -15,7 +15,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -25,6 +24,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ryo-aoki-pc/md-preview/internal/documents"
+	"github.com/ryo-aoki-pc/md-preview/internal/fileopen"
 	"github.com/ryo-aoki-pc/md-preview/internal/pagefiles"
 	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
 	"github.com/ryo-aoki-pc/md-preview/internal/session"
@@ -510,7 +510,7 @@ func (s *Server) cached(conn net.Conn, r *http.Request, h http.Header, body []by
 var mimeTypes = map[string]string{"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "avif": "image/avif", "svg": "image/svg+xml", "bmp": "image/bmp", "ico": "image/x-icon", "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime", "mp3": "audio/mpeg", "ogg": "audio/ogg", "wav": "audio/wav", "pdf": "application/pdf", "txt": "text/plain; charset=utf-8", "md": "text/plain; charset=utf-8", "csv": "text/plain; charset=utf-8"}
 
 func (s *Server) file(conn net.Conn, r *http.Request, path string) {
-	f, e := os.Open(path)
+	f, e := fileopen.Open(path)
 	if e != nil {
 		send(conn, r, 404, nil, nil)
 		return

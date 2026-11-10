@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ryo-aoki-pc/md-preview/internal/fileopen"
 	"github.com/ryo-aoki-pc/md-preview/internal/pagefiles"
 	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
 	"github.com/ryo-aoki-pc/md-preview/internal/server"
@@ -209,7 +210,7 @@ func Run(ctx context.Context, args []string, streams IO, deps Dependencies) int 
 		}
 	}
 	read := func() (string, error) {
-		b, e := os.ReadFile(path)
+		b, e := fileopen.ReadFile(path)
 		return strings.TrimPrefix(resolve.DecodeUTF8(string(b)), "\ufeff"), e
 	}
 	text := ""

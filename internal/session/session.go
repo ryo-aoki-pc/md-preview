@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ryo-aoki-pc/md-preview/internal/documents"
+	"github.com/ryo-aoki-pc/md-preview/internal/fileopen"
 	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
 	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
 	"github.com/ryo-aoki-pc/md-preview/internal/watch"
@@ -496,7 +497,7 @@ func (s *Session) refresh(e *entry) {
 			readErr = os.ErrNotExist
 		} else {
 			var f *os.File
-			f, readErr = os.Open(r.path)
+			f, readErr = fileopen.Open(r.path)
 			if readErr == nil {
 				var st os.FileInfo
 				st, readErr = f.Stat()

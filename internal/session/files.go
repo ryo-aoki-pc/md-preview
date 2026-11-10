@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ryo-aoki-pc/md-preview/internal/documents"
+	"github.com/ryo-aoki-pc/md-preview/internal/fileopen"
 	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
 	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
 )
@@ -34,7 +35,7 @@ func FileContext(root, file, dir string, plantuml bool) pipeline.Context {
 		if !ok {
 			return pipeline.IncludeRead{Kind: pipeline.IncludeMissing}
 		}
-		f, e := os.Open(path)
+		f, e := fileopen.Open(path)
 		if e != nil {
 			return pipeline.IncludeRead{Kind: pipeline.IncludeNotReadable}
 		}

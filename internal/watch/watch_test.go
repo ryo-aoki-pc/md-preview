@@ -70,6 +70,38 @@ func TestReplace(t *testing.T) {
 	_ = os.WriteFile(file, []byte("置き換え後の変更"), 0644)
 	until(t, func() bool { return count.Load() == 2 })
 }
+
+// 更新時刻の刻みの中で、同じ大きさに書き換えられても気づく。書き換えられていなければ通知しない。
+func TestSameSizeSameTime(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "a.md")
+	quiet := filepath.Join(root, "b.md")
+	_ = os.WriteFile(file, []byte("最初の文"), 0644)
+	_ = os.WriteFile(quiet, []byte("変えない"), 0644)
+	before, e := os.Stat(file)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var count, silent atomic.Int32
+	// 最初の確認までに書き換えを終えるよう、確認の間を空ける。
+	stop, done := FileWithDone(file, func() { count.Add(1) }, Options{Interval: 400 * time.Millisecond})
+	defer func() { stop(); <-done }()
+	stopQuiet, doneQuiet := FileWithDone(quiet, func() { silent.Add(1) }, Options{Interval: 400 * time.Millisecond})
+	defer func() { stopQuiet(); <-doneQuiet }()
+	_ = os.WriteFile(file, []byte("保存の後"), 0644)
+	if e := os.Chtimes(file, time.Time{}, before.ModTime()); e != nil {
+		t.Fatal(e)
+	}
+	after, e := os.Stat(file)
+	if e != nil || !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() || !os.SameFile(before, after) {
+		t.Fatal("同じ大きさ・同じ更新時刻にできない", e)
+	}
+	until(t, func() bool { return count.Load() == 1 })
+	time.Sleep(900 * time.Millisecond)
+	if count.Load() != 1 || silent.Load() != 0 {
+		t.Fatal(count.Load(), silent.Load())
+	}
+}
 func TestIncludePath(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"../bad.md", ".git/a.md", "a\\b.md"} {
