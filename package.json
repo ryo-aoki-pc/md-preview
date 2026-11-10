@@ -1,0 +1,9 @@
+{
+  "name": "md-preview",
+  "version": "0.1.0",
+  "description": "Markdown を GitLab の描画でプレビューするアプリ（mdpreview）。GitLab に送らずに手元で描く",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test test/*.test.mjs" }
+}

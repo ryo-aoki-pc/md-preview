@@ -1,0 +1,26 @@
+# GitLab の Markdown の gem (gitlab-glfm-markdown) の glfm.rs・formatter.rs を、
+# Ruby の橋渡し (magnus) 無しで WebAssembly にするための crate。
+# 版と依存は gem に合わせる (engine.lock.json と build.sh が照合する)。
+[package]
+name = "glfm-markdown-wasm"
+version = "0.0.45"
+edition = "2021"
+description = "gitlab-glfm-markdown の描画を WebAssembly から呼ぶ入口"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+comrak = { version = "=0.56.0", default-features = false, features = ["shortcodes"] }
+regex = "1.11.1"
+serde = { version = "1.0.219", features = ["serde_derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
