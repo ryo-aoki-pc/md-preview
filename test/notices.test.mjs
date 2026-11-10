@@ -10,10 +10,12 @@ const notices=(text,context={})=>renderDocument(text,context).notices;
 const ofKind=(text,kind,context={})=>notices(text,context).filter(n=>n.kind===kind);
 const directive=file=>'::include{file='+file+'}';
 const tick=String.fromCharCode(96);
-for(const reference of ['#123','!123','&123','$123','@alice','@group/sub','~bug','~"multi word"','~不具合','%v1.0','%"release 1"','group/project#123','group/sub/project!123','group/project$1','group/project~"multi word"','[issue:123]','[merge_request:123]','[epic:123]','[snippet:123]']) test('参照候補を拾う: '+reference,()=>{
+for(const reference of ['#123','!123','&123','@alice','@group/sub','~bug','~"multi word"','~不具合','%v1.0','%"release 1"','group/project#123','group/sub/project!123','group/project$1','group/project~"multi word"','[issue:123]','[merge_request:123]','[epic:123]','[snippet:123]']) test('参照候補を拾う: '+reference,()=>{
   assert.deepEqual(ofKind('前 '+reference+' 後','reference'),[{kind:'reference',line:1,text:reference}]);
 });
-for(const source of ['abcdef1 abcdef1234567890abcdef1234567890abcdef12','# 見出し\n\n## 二','$x$ $'+tick+'x'+tick+'$ $$ x $$','$5 $10 $1.99 $1,000 $123.45 $123,456','$123USD $123円','#F00 #ff0000 #123abc','mail@example.com user@host.invalid','foo#123 foo!123 foo@alice','100%done %20','[リンク #123 @alice :tanuki:](https://example.com)','![#123](image.png)',tick+'#123 @alice :tanuki:'+tick,'~~~text\n#123 @alice :tanuki:\n~~~','\\#123 \\!123 \\&123 \\$123 \\@alice \\~bug \\%v1.0','<span data-escaped-char>#123</span>','~"閉じない %"閉じない','#0 !0 &0']) test('参照候補を拾わない: '+JSON.stringify(source),()=>{
+for(const source of ['abcdef1 abcdef1234567890abcdef1234567890abcdef12','# 見出し\n\n## 二','$x$ $'+tick+'x'+tick+'$ $$ x $$','$5 $10 $1.99 $1,000 $123.45 $123,456','$123USD $123円','#F00 #ff0000 #123abc','mail@example.com user@host.invalid','foo#123 foo!123 foo@alice','100%done %20','[リンク #123 @alice :tanuki:](https://example.com)','![#123](image.png)',tick+'#123 @alice :tanuki:'+tick,'~~~text\n#123 @alice :tanuki:\n~~~','\\#123 \\!123 \\&123 \\$123 \\@alice \\~bug \\%v1.0','<span data-escaped-char>#123</span>','~"閉じない %"閉じない','#0 !0 &0',
+  // 金額と区別できない裸の $、環境変数、書式、数字の無い名前、文字参照の中の #
+  '$123 $100 $1000','%PATH% %LOCALAPPDATA% %TEMP%/x','%d %s %5d %milestone','&amp;#123; と &amp;#999;']) test('参照候補を拾わない: '+JSON.stringify(source),()=>{
   assert.deepEqual(ofKind(source,'reference'),[]);
 });
 test('強調の中を拾い、語やメールの途中ではタグをまたいでも拾わない',()=>{
@@ -135,4 +137,14 @@ test('正規化やパーセントの復元で現れるWindowsの絶対パスも 
     const found = ofKind(source, 'missing', {exists(){assert.fail('ドライブの絶対パスを渡してはいけない');}});
     assert.equal(found.length, 1, source);
   }
+});
+
+test('記号の無い長い行でも、行の長さの 2 乗の時間は掛からない', () => {
+  // 上限の無い正規表現だと、20 万文字の 1 行で数十秒かかる。ここでは 10 秒を超えたら落とす。
+  const started = performance.now();
+  for (const source of ['a'.repeat(200000), 'a/'.repeat(100000), 'a.b-'.repeat(50000) + 'c', '~"'.repeat(50000), 'a'.repeat(200000) + ' #1']) {
+    renderDocument(source + '\n');
+  }
+  assert.ok(performance.now() - started < 10000, '長い行の走査に 10 秒以上かかった');
+  assert.deepEqual(ofKind('a'.repeat(1000) + ' #1', 'reference'), [{ kind: 'reference', line: 1, text: '#1' }]);
 });
