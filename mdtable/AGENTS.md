@@ -27,7 +27,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `docs/usage.md` — Markdown の表を Excel と往復する手順と、ブックを Excel で編集するときの注意
 - `docs/reference/readme.md` — 設計と変換の規則
 - 非公開側の検証記録の `readme.md` — 検証記録と、Excel の実機での確認の手順
-- `docs/verification/` — `multi-tables.md`（`tests/test_workbook.py` が読む）と `excel-check.md`（Excel の確認に使う）の見本の文書だけを置く
+- `docs/verification/` — `multi-tables.md`（`tests/test_workbook.py` が読む）、`excel-check.md`（Excel の確認に使う）、`complex-cells.md`（セルの中に複雑な Markdown がある表の、`convert` と Excel の往復の確認に使う）の見本の文書だけを置く
 
 ## テスト
 
