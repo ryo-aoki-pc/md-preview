@@ -4,6 +4,9 @@
   "description": "Markdown を GitLab の描画でプレビューするアプリ（mdpreview）。GitLab に送らずに手元で描く",
   "private": true,
   "type": "module",
+  "bin": {
+    "mdpreview": "cli.mjs"
+  },
   "engines": {
     "node": ">=22"
   },
@@ -17,6 +20,8 @@
     "hast-util-to-html": "9.0.6",
     "hast-util-to-string": "3.0.1",
     "highlight.js": "11.12.0",
+    "katex": "0.19.1",
+    "mermaid": "12.3.0",
     "unist-util-visit": "5.2.0",
     "unist-util-visit-parents": "6.1.0"
   }

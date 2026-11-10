@@ -1,0 +1,712 @@
+/* 公式スタイルが未導入のときだけ使う、従来の近似スタイル。
+   配色はページの操作欄と同じ gl-dark クラスに従う。 */
+
+:root {
+  color-scheme: light dark;
+  --gp-bg: #ffffff;
+  --gp-fg: #333238;
+  --gp-muted: #626168;
+  --gp-border: #dcdcde;
+  --gp-subtle: #fbfafd;
+  --gp-strong: #ececef;
+  --gp-link: #1068bf;
+  --gp-code-bg: #ececef;
+  --gp-pre-bg: #fbfafd;
+  --gp-add: #c3e6cd;
+  --gp-del: #fac5cd;
+  --gp-note: #1f75cb;
+  --gp-tip: #108548;
+  --gp-important: #7b58cf;
+  --gp-warning: #ab6100;
+  --gp-caution: #dd2b0e;
+  --gp-banner-bg: #fdf1dd;
+  --gp-banner-fg: #5c3900;
+  --gp-font: "GitLab Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", Ubuntu, Cantarell,
+    "Helvetica Neue", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans JP", sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --gp-mono: "GitLab Mono", "JetBrains Mono", "HackGen Console NF", Menlo, "DejaVu Sans Mono", "Liberation Mono",
+    Consolas, "Ubuntu Mono", "Courier New", monospace;
+  /* md-table-sticky の操作欄と、body に移る全幅パネルにもページの配色を渡す。 */
+  --gl-background-color-default: var(--gp-bg);
+  --gl-text-color-default: var(--gp-fg);
+  --gl-text-color-subtle: var(--gp-muted);
+  --gl-border-color-default: var(--gp-border);
+}
+
+:root.gl-dark {
+  --gp-bg: #1f1e24;
+  --gp-fg: #ececef;
+  --gp-muted: #a4a3a8;
+  --gp-border: #434248;
+  --gp-subtle: #28272d;
+  --gp-strong: #333238;
+  --gp-link: #63a6e9;
+  --gp-code-bg: #333238;
+  --gp-pre-bg: #28272d;
+  --gp-add: #24663b;
+  --gp-del: #8d1300;
+  --gp-note: #63a6e9;
+  --gp-tip: #52b87a;
+  --gp-important: #ac93e6;
+  --gp-warning: #e9be74;
+  --gp-caution: #fc9d8f;
+  --gp-banner-bg: #5c3900;
+  --gp-banner-fg: #fdf1dd;
+}
+
+html {
+  background: var(--gp-bg);
+}
+
+body {
+  margin: 0;
+  background: var(--gp-bg);
+  color: var(--gp-fg);
+  font-family: var(--gp-font);
+}
+
+/* ---- ページの枠 (ファイル名・描画の方式・バナー) ---- */
+
+#gp-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 6px 16px;
+  background: var(--gp-subtle);
+  border-bottom: 1px solid var(--gp-border);
+  font-size: 13px;
+}
+
+#gp-file {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+#gp-mode {
+  color: var(--gp-muted);
+  white-space: nowrap;
+}
+
+#gp-mode[data-mode="fallback"] {
+  color: var(--gp-warning);
+  font-weight: 600;
+}
+
+#gp-banner {
+  position: sticky;
+  top: 31px;
+  z-index: 9;
+  padding: 6px 16px;
+  background: var(--gp-banner-bg);
+  color: var(--gp-banner-fg);
+  font-size: 13px;
+}
+
+#gp-banner[hidden] {
+  display: none;
+}
+
+/* ---- 本文 ---- */
+
+#gp-content.md {
+  box-sizing: border-box;
+  max-width: none;
+  margin: 0 auto;
+  padding: 16px 24px 50vh; /* 末尾の行でも、カーソルの高さに合わせてスクロールできるように */
+  font-size: 1rem;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md a {
+  color: var(--gp-link);
+  text-decoration: none;
+}
+
+.md a:hover {
+  text-decoration: underline;
+}
+
+.md p,
+.md ul,
+.md ol,
+.md dl,
+.md table,
+.md pre,
+.md blockquote,
+.md details,
+.md .markdown-alert {
+  margin: 0 0 16px;
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  position: relative;
+  margin: 24px 0 16px;
+  font-weight: 600;
+  line-height: 1.25;
+  scroll-margin-top: 48px;
+}
+
+.md h1 {
+  font-size: 1.75em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--gp-border);
+}
+
+.md h2 {
+  font-size: 1.5em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--gp-border);
+}
+
+.md h3 {
+  font-size: 1.3em;
+}
+
+.md h4 {
+  font-size: 1.2em;
+}
+
+.md h5 {
+  font-size: 1em;
+}
+
+.md h6 {
+  font-size: 0.95em;
+  color: var(--gp-muted);
+}
+
+/* 見出しの左に、カーソルを載せたときだけリンクの印を出す */
+.md a.anchor {
+  position: absolute;
+  left: -1.1em;
+  width: 1em;
+  text-decoration: none;
+  opacity: 0;
+  scroll-margin-top: 48px;
+}
+
+.md a.anchor::before {
+  content: "#";
+  color: var(--gp-muted);
+}
+
+.md h1:hover a.anchor,
+.md h2:hover a.anchor,
+.md h3:hover a.anchor,
+.md h4:hover a.anchor,
+.md h5:hover a.anchor,
+.md h6:hover a.anchor {
+  opacity: 1;
+}
+
+.md [id] {
+  scroll-margin-top: 48px;
+}
+
+.md ul,
+.md ol {
+  padding-left: 2em;
+}
+
+.md li + li,
+.md li > ul,
+.md li > ol {
+  margin-top: 0.25em;
+}
+
+.md li > ul,
+.md li > ol {
+  margin-bottom: 0;
+}
+
+.md hr {
+  height: 1px;
+  margin: 24px 0;
+  border: 0;
+  background: var(--gp-border);
+}
+
+.md blockquote {
+  padding: 0 1em;
+  color: var(--gp-muted);
+  border-left: 3px solid var(--gp-border);
+}
+
+.md blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.md img,
+.md video {
+  max-width: 100%;
+  height: auto;
+}
+
+.md kbd {
+  display: inline-block;
+  padding: 2px 5px;
+  font: 0.8em var(--gp-mono);
+  line-height: 1;
+  border: 1px solid var(--gp-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--gp-subtle);
+}
+
+/* ---- 表 ---- */
+
+.md table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+}
+
+.md th,
+.md td {
+  padding: 8px 16px;
+  border: 1px solid var(--gp-border);
+}
+
+.md th {
+  font-weight: 600;
+  background: var(--gp-subtle);
+}
+
+/* ---- コード ---- */
+
+.md code {
+  padding: 2px 4px;
+  font-family: var(--gp-mono);
+  font-size: 90%;
+  border-radius: 4px;
+  background: var(--gp-code-bg);
+}
+
+.md pre {
+  padding: 12px 16px;
+  overflow: auto;
+  font-family: var(--gp-mono);
+  font-size: 90%;
+  line-height: 1.6;
+  border: 1px solid var(--gp-border);
+  border-radius: 4px;
+  background: var(--gp-pre-bg);
+}
+
+.md pre code {
+  padding: 0;
+  font-size: 100%;
+  background: none;
+  border-radius: 0;
+}
+
+.md .markdown-code-block {
+  position: relative;
+}
+
+/* GitLab のフロントエンド用の要素 (コピーのボタン・タスクの操作)。ここでは使わない */
+.md copy-code,
+.md task-button,
+.md insert-code-snippet {
+  display: none;
+}
+
+/* ---- GLFM ---- */
+
+.md .markdown-alert {
+  padding: 8px 16px;
+  border-left: 4px solid var(--gp-alert);
+  background: color-mix(in srgb, var(--gp-alert) 6%, transparent);
+  border-radius: 0 4px 4px 0;
+}
+
+.md .markdown-alert > :last-child {
+  margin-bottom: 0;
+}
+
+.md .markdown-alert-title {
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--gp-alert);
+}
+
+.md .markdown-alert-note {
+  --gp-alert: var(--gp-note);
+}
+
+.md .markdown-alert-tip {
+  --gp-alert: var(--gp-tip);
+}
+
+.md .markdown-alert-important {
+  --gp-alert: var(--gp-important);
+}
+
+.md .markdown-alert-warning {
+  --gp-alert: var(--gp-warning);
+}
+
+.md .markdown-alert-caution {
+  --gp-alert: var(--gp-caution);
+}
+
+.md .task-list,
+.md ul.task-list,
+.md ol.task-list {
+  list-style: none;
+  padding-left: 1.6em;
+}
+
+.md .task-list-item-checkbox {
+  margin: 0 0.35em 0.2em -1.5em;
+  vertical-align: middle;
+}
+
+.md .task-list-item.inapplicable > s,
+.md .task-list-item.inapplicable > p > s {
+  color: var(--gp-muted);
+}
+
+.md .idiff.addition {
+  background: var(--gp-add);
+}
+
+.md .idiff.deletion {
+  background: var(--gp-del);
+}
+
+.md .idiff.left {
+  border-radius: 3px 0 0 3px;
+}
+
+.md .idiff.right {
+  border-radius: 0 3px 3px 0;
+}
+
+.md .gfm-color_chip {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin: 0 0 0.1em 0.3em;
+  vertical-align: middle;
+  border: 1px solid var(--gp-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.md .gfm-color_chip > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.md ul.section-nav {
+  padding-left: 1.4em;
+}
+
+.md .footnotes,
+.md section[data-footnotes] {
+  margin-top: 32px;
+  padding-top: 8px;
+  font-size: 0.875em;
+  color: var(--gp-muted);
+  border-top: 1px solid var(--gp-border);
+}
+
+.md hr.footnotes-sep {
+  display: none;
+}
+
+.md dt {
+  margin-top: 12px;
+  font-weight: 600;
+}
+
+.md dd {
+  margin-left: 1.5em;
+}
+
+.md summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.md details > :not(summary):last-child {
+  margin-bottom: 0;
+}
+
+.md gl-emoji {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", sans-serif;
+  font-style: normal;
+}
+
+/* ---- 数式・図・エラー ---- */
+
+.md .gp-math-display,
+.md .gp-mermaid {
+  margin: 0 0 16px;
+  overflow-x: auto;
+}
+
+.md .gp-mermaid {
+  text-align: center;
+}
+
+.md .gp-error {
+  display: block;
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  font: 90% var(--gp-mono);
+  white-space: pre-wrap;
+  color: var(--gp-caution);
+  border: 1px dashed var(--gp-caution);
+  border-radius: 4px;
+}
+
+.md .gp-raw {
+  white-space: pre-wrap;
+}
+
+/* ---- コードの色 (GitLab は Rouge で色分けし、Pygments と同じクラス名を付ける) ---- */
+
+.md .highlight .c,
+.md .highlight .ch,
+.md .highlight .cm,
+.md .highlight .c1,
+.md .highlight .cs,
+.md .highlight .cd {
+  color: #998;
+  font-style: italic;
+}
+
+.md .highlight .cp,
+.md .highlight .cpf {
+  color: #999;
+  font-weight: 600;
+}
+
+.md .highlight .err {
+  color: #a61717;
+  background: #e3d2d2;
+}
+
+.md .highlight .gd {
+  background: #fdd;
+}
+
+.md .highlight .gi {
+  background: #dfd;
+}
+
+.md .highlight .gh,
+.md .highlight .gu {
+  color: #999;
+}
+
+.md .highlight .ge {
+  font-style: italic;
+}
+
+.md .highlight .gs {
+  font-weight: 600;
+}
+
+.md .highlight .k,
+.md .highlight .kc,
+.md .highlight .kd,
+.md .highlight .kn,
+.md .highlight .kp,
+.md .highlight .kr,
+.md .highlight .kv,
+.md .highlight .o,
+.md .highlight .ow {
+  font-weight: 600;
+}
+
+.md .highlight .kt,
+.md .highlight .nc {
+  color: #458;
+  font-weight: 600;
+}
+
+.md .highlight .m,
+.md .highlight .mb,
+.md .highlight .mf,
+.md .highlight .mh,
+.md .highlight .mi,
+.md .highlight .il,
+.md .highlight .mo,
+.md .highlight .mx {
+  color: #099;
+}
+
+.md .highlight .s,
+.md .highlight .sa,
+.md .highlight .sb,
+.md .highlight .sc,
+.md .highlight .dl,
+.md .highlight .sd,
+.md .highlight .s2,
+.md .highlight .se,
+.md .highlight .sh,
+.md .highlight .si,
+.md .highlight .sx,
+.md .highlight .s1 {
+  color: #d14;
+}
+
+.md .highlight .sr {
+  color: #009926;
+}
+
+.md .highlight .ss {
+  color: #990073;
+}
+
+.md .highlight .na,
+.md .highlight .no,
+.md .highlight .nv,
+.md .highlight .vc,
+.md .highlight .vg,
+.md .highlight .vi {
+  color: #008080;
+}
+
+.md .highlight .nb,
+.md .highlight .bp {
+  color: #0086b3;
+}
+
+.md .highlight .nd {
+  color: #3c5d5d;
+  font-weight: 600;
+}
+
+.md .highlight .ne,
+.md .highlight .nf,
+.md .highlight .fm,
+.md .highlight .nl {
+  color: #900;
+  font-weight: 600;
+}
+
+.md .highlight .nn {
+  color: #555;
+}
+
+.md .highlight .nt {
+  color: #000080;
+}
+
+.md .highlight .w {
+  color: #bbb;
+}
+
+:root.gl-dark .md .highlight .c,
+:root.gl-dark .md .highlight .ch,
+:root.gl-dark .md .highlight .cm,
+:root.gl-dark .md .highlight .c1,
+:root.gl-dark .md .highlight .cs,
+:root.gl-dark .md .highlight .cd,
+:root.gl-dark .md .highlight .cp,
+:root.gl-dark .md .highlight .cpf,
+:root.gl-dark .md .highlight .gh,
+:root.gl-dark .md .highlight .gu,
+:root.gl-dark .md .highlight .w {
+  color: #8b949e;
+}
+
+:root.gl-dark .md .highlight .err {
+  color: #ffa198;
+  background: none;
+}
+
+:root.gl-dark .md .highlight .gd {
+  background: rgba(248, 81, 73, 0.2);
+}
+
+:root.gl-dark .md .highlight .gi {
+  background: rgba(46, 160, 67, 0.2);
+}
+
+:root.gl-dark .md .highlight .k,
+:root.gl-dark .md .highlight .kc,
+:root.gl-dark .md .highlight .kd,
+:root.gl-dark .md .highlight .kn,
+:root.gl-dark .md .highlight .kp,
+:root.gl-dark .md .highlight .kr,
+:root.gl-dark .md .highlight .kv,
+:root.gl-dark .md .highlight .o,
+:root.gl-dark .md .highlight .ow {
+  color: #ff7b72;
+}
+
+:root.gl-dark .md .highlight .kt,
+:root.gl-dark .md .highlight .nc,
+:root.gl-dark .md .highlight .nn {
+  color: #ffa657;
+}
+
+:root.gl-dark .md .highlight .m,
+:root.gl-dark .md .highlight .mb,
+:root.gl-dark .md .highlight .mf,
+:root.gl-dark .md .highlight .mh,
+:root.gl-dark .md .highlight .mi,
+:root.gl-dark .md .highlight .il,
+:root.gl-dark .md .highlight .mo,
+:root.gl-dark .md .highlight .mx,
+:root.gl-dark .md .highlight .na,
+:root.gl-dark .md .highlight .nb,
+:root.gl-dark .md .highlight .bp,
+:root.gl-dark .md .highlight .no,
+:root.gl-dark .md .highlight .nv,
+:root.gl-dark .md .highlight .vc,
+:root.gl-dark .md .highlight .vg,
+:root.gl-dark .md .highlight .vi {
+  color: #79c0ff;
+}
+
+:root.gl-dark .md .highlight .s,
+:root.gl-dark .md .highlight .sa,
+:root.gl-dark .md .highlight .sb,
+:root.gl-dark .md .highlight .sc,
+:root.gl-dark .md .highlight .dl,
+:root.gl-dark .md .highlight .sd,
+:root.gl-dark .md .highlight .s2,
+:root.gl-dark .md .highlight .se,
+:root.gl-dark .md .highlight .sh,
+:root.gl-dark .md .highlight .si,
+:root.gl-dark .md .highlight .sx,
+:root.gl-dark .md .highlight .s1,
+:root.gl-dark .md .highlight .sr,
+:root.gl-dark .md .highlight .ss {
+  color: #a5d6ff;
+}
+
+:root.gl-dark .md .highlight .nd,
+:root.gl-dark .md .highlight .ne,
+:root.gl-dark .md .highlight .nf,
+:root.gl-dark .md .highlight .fm,
+:root.gl-dark .md .highlight .nl {
+  color: #d2a8ff;
+}
+
+:root.gl-dark .md .highlight .nt {
+  color: #7ee787;
+}
