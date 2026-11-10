@@ -342,9 +342,9 @@ func TestSSE(t *testing.T) {
 		t.Fatal("別文書へ描画を流した")
 	}
 	_ = s.Close("exit")
-	if !active.has("stop", "exit") {
-		t.Fatal("終了イベントが無い")
-	}
+	// Close は、サーバーの側の書き込みが終わるまでしか待たない。受ける側が読み終わるのを待って確かめる
+	// (届かなければ、ここで時間切れになる)。
+	eventually(t, func() bool { return active.has("stop", "exit") })
 	if s.ClientCount() != 0 {
 		t.Fatal(s.ClientCount())
 	}
