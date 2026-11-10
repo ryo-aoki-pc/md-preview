@@ -1,0 +1,95 @@
+{
+  "schema": 1,
+  "source": "https://gitlab.com/api/v4/markdown",
+  "request": {
+    "gfm": true,
+    "project": null
+  },
+  "fixtures": {
+    "alerts-quotes": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "basics": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "code": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "footnotes": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "frontmatter": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "frontmatter-toml": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "html": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "include": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "inline-glfm": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60bc9db3d13",
+      "fetched": "2026-11-10"
+    },
+    "japanese": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "json-table": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "lists": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "math-diagrams": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "media": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "tables": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "toc": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    },
+    "toc-bracket": {
+      "gitlab": "19.6.0-pre",
+      "revision": "60779ceee02",
+      "fetched": "2026-11-10"
+    }
+  }
+}
