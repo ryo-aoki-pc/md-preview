@@ -50,7 +50,12 @@ function workspace(t, { assets = false } = {}) {
     'package-lock.json',
   ]) {
     mkdirSync(path.dirname(path.join(clone, name)), { recursive: true });
-    cpSync(path.join(repository, name), path.join(clone, name), { recursive: true });
+    cpSync(path.join(repository, name), path.join(clone, name), {
+      recursive: true,
+      // ブラウザ用の大きなライブラリは、導入の試験では使わないので写さない
+      // (写したばかりの大きな .js は、最初に読むときのウイルス対策の検査に数秒かかる)。
+      filter: (source) => !/[\\/]page[\\/]lib[\\/](?:katex|mermaid)$/u.test(source),
+    });
   }
   // 配布しないものも試験用 clone に置いて、選んだファイルだけを写すことを確かめる。
   for (const name of [

@@ -6,3 +6,6 @@ engine/licenses/** -text -whitespace
 test/fixtures/*.gitlab.html -text -whitespace
 # 見本の入力は、行末の空白 (ハードな改行) などの記法そのものを含む
 test/fixtures/*.md -whitespace
+
+# ブラウザ用ライブラリとライセンスの写しは、原文のバイトを保つ
+page/lib/** -text -whitespace
