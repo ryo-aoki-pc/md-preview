@@ -5,6 +5,16 @@ Markdown を GitLab の描画でプレビューするアプリ（`mdpreview`）�
 AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/install.md)、使い方の手順は [docs/usage.md](docs/usage.md) にある。
 設計は [docs/reference/readme.md](docs/reference/readme.md) にある。
 
+## 画面
+
+同じ Markdown（[docs/images/sample.md](docs/images/sample.md)）のプレビュー。左は同梱のスタイル、右は GitLab の公式スタイル（任意。`mdpreview install-style` で取得すると、次に起こしたプレビューから使う）。
+
+| 同梱のスタイル | GitLab の公式スタイル |
+| --- | --- |
+| <img src="docs/images/preview-bundled.png" alt="同梱のスタイルで表示したプレビュー" width="380"> | <img src="docs/images/preview-official.png" alt="GitLab の公式スタイルで表示したプレビュー" width="380"> |
+
+どちらも Windows 11 の Edge で、ライトの配色で撮った。日本語の字形は、OS に入っているフォントで変わる。
+
 ## できること
 
 - Markdown を GitLab に送らず、手元で描いてブラウザに表示する。ファイルの保存に合わせて描き直す。Neovim からは未保存の内容も表示する
