@@ -164,7 +164,7 @@ func TestPageAndLibraries(t *testing.T) {
 	if r.status != 200 || r.header.Get("Content-Security-Policy") != CSP || r.header.Get("Cache-Control") != "no-store" || strings.Contains(r.body, "{{CONFIG}}") || !strings.Contains(r.body, `"assets":null`) {
 		t.Fatal(r)
 	}
-	for _, rel := range []string{"_/preview.js", "_/edit.js", "_/preview.css", "_/fallback.css"} {
+	for _, rel := range []string{"_/preview.js", "_/edit-grid.js", "_/edit.js", "_/preview.css", "_/fallback.css"} {
 		r := request(t, s, "GET", rel, "", nil)
 		if r.status != 200 || r.body == "" {
 			t.Fatal(rel, r)

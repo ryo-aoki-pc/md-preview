@@ -23,6 +23,12 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: Node.js を用意
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: 表の範囲と写しを検証
+        run: node --test test/edit-grid.test.mjs
       - name: 整形を確認
         if: runner.os == 'Linux'
         run: |

@@ -436,7 +436,7 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 		send(conn, r, 200, h, []byte(s.opts.Page.Configure(config)))
 		return
 	}
-	for route, item := range map[string]struct{ body, mime string }{"_/preview.js": {s.opts.Page.JS, "text/javascript; charset=utf-8"}, "_/edit.js": {s.opts.Page.EditJS, "text/javascript; charset=utf-8"}, "_/preview.css": {s.opts.Page.CSS, "text/css; charset=utf-8"}, "_/fallback.css": {s.opts.Page.Fallback, "text/css; charset=utf-8"}} {
+	for route, item := range map[string]struct{ body, mime string }{"_/preview.js": {s.opts.Page.JS, "text/javascript; charset=utf-8"}, "_/edit-grid.js": {s.opts.Page.EditGridJS, "text/javascript; charset=utf-8"}, "_/edit.js": {s.opts.Page.EditJS, "text/javascript; charset=utf-8"}, "_/preview.css": {s.opts.Page.CSS, "text/css; charset=utf-8"}, "_/fallback.css": {s.opts.Page.Fallback, "text/css; charset=utf-8"}} {
 		if rel == route {
 			send(conn, r, 200, content(item.mime, "no-store"), []byte(item.body))
 			return
