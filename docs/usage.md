@@ -13,7 +13,7 @@
 **参照**
 
 - 設計は [md-preview の設計](reference/readme.md) にある
-- Neovim からは [LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter) の `<leader>cp` で使う。未保存の内容の表示、カーソルに合わせたスクロール、本文のダブルクリックでエディタの行へ移る操作を扱う
+- Neovim からは [LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter) の `<leader>cp` で使う。未保存の内容の表示、カーソルに合わせたスクロール、本文のダブルクリックでエディタの行へ移る操作、プレビューの画面の「編集」で直した内容のバッファへの反映を扱う
 - Neovim の導入は、setup-notes の [LazyVim の GitLab プレビューを導入する](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/neovim.md#lazyvim-の-gitlab-プレビューを導入する)・[Windows 11 で LazyVim の GitLab プレビューを導入する](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/neovim.md#windows-11-で-lazyvim-の-gitlab-プレビューを導入する)に従う
 - 外へ通信する場面は [README](../README.md#外へ通信する場面) にある
 - `mdpreview --licenses` で、同梱しているもののライセンスの原文を出す。一覧は [licenses/manifest.json](../licenses/manifest.json) にある
@@ -155,6 +155,7 @@
 **[mdpreview のプレビューで表を編集する](#mdpreview-のプレビューで表を編集する)の手順 1**
 
 - 自分の文書には `mdpreview --edit README.md`、フォルダーには `mdpreview --edit docs` を使う。フォルダーでは一覧から文書を選ぶ。`--edit` がなければ編集ボタンも書き込みもない
+- Neovim から使うとき（LazyVimStarter の `<leader>cp`）は、`--edit` は要らない。「編集」で直した内容は Neovim のバッファへ入り、ファイルには書かない（保存は `:w`、取り消しは `u`。画面に「元に戻す」「やり直し」は出ない）。編集できるのは、Neovim で開いている文書だけ。Neovim の側でバッファを変えた直後や、変更できないバッファでは、編集を断って理由を知らせる。`vim.g.gitlab_preview_edit = false` で無効にできる
 - 画面の編集は直ちにファイルへ書く。BOM とファイルの権限を保ち、隣の一時ファイルから入れ替えるため、ハードリンクは切れ、同じ実体を指していた別名には反映しない
 - 取り込んだ include 先・JSON から作った表・入れ子の表・対応を確かめられない表は編集できない。UTF-8 でないファイル・単独の CR で行の対応がずれる文書・16 MiB を超える文書も対象外
 - セル用 Markdown を同じ描画に書き戻せない内容、壊れた HTML の原文、表の外へはみ出す貼り付けなどは書かず、理由を知らせる。ファイルを外で変えた場合も上書きしない
@@ -419,6 +420,7 @@
 **[Windows 11 の mdpreview のプレビューで表を編集する](#windows-11-の-mdpreview-のプレビューで表を編集する)の手順 2**
 
 - 自分の文書には `mdpreview --edit README.md`、フォルダーには `mdpreview --edit docs` を使う。フォルダーでは一覧から文書を選ぶ。`--edit` がなければ編集ボタンも書き込みもない
+- Neovim から使うとき（LazyVimStarter の `<leader>cp`）は、`--edit` は要らない。「編集」で直した内容は Neovim のバッファへ入り、ファイルには書かない（保存は `:w`、取り消しは `u`。画面に「元に戻す」「やり直し」は出ない）。編集できるのは、Neovim で開いている文書だけ。Neovim の側でバッファを変えた直後や、変更できないバッファでは、編集を断って理由を知らせる。`vim.g.gitlab_preview_edit = false` で無効にできる
 - 画面の編集は直ちにファイルへ書く。BOM とファイルの権限を保ち、隣の一時ファイルから入れ替えるため、ハードリンクは切れ、同じ実体を指していた別名には反映しない
 - include 先・JSON の表・入れ子の表・原文と対応を確かめられない表は編集できない。UTF-8 でないファイル・単独の CR で行の対応がずれる文書・16 MiB を超える文書も対象外
 - セル用 Markdown を同じ描画に書き戻せない内容、壊れた HTML の原文、表の外へはみ出す貼り付けなどは書かず、理由を知らせる。外で変わったファイルも上書きしない

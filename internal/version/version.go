@@ -2,4 +2,4 @@
 package version
 
 // Version は -ldflags "-X github.com/ryo-aoki-pc/md-preview/internal/version.Version=..." で変更する。
-var Version = "0.2.0"
+var Version = "0.3.0"
