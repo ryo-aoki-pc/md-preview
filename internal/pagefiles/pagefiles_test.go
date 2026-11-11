@@ -70,3 +70,22 @@ func TestPageConfig(t *testing.T) {
 		t.Fatal("設定の埋め込みが正しくない")
 	}
 }
+
+func TestEditConfig(t *testing.T) {
+	for _, c := range []struct {
+		value any
+		want  string
+	}{{nil, ""}, {false, `"edit":false`}, {map[string]any{"scope": "all", "undo": true}, `"edit":{"scope":"all","undo":true}`}} {
+		p, err := Load(Options{Edit: c.value})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.want == "" {
+			if strings.Contains(p.HTML, `"edit":`) {
+				t.Fatal("編集を指定せず設定が増えた")
+			}
+		} else if !strings.Contains(p.HTML, c.want) {
+			t.Fatal("編集の設定が無い", c.want)
+		}
+	}
+}

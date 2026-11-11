@@ -14,6 +14,7 @@ import (
 
 	mdpreview "github.com/ryo-aoki-pc/md-preview"
 	"github.com/ryo-aoki-pc/md-preview/internal/assets"
+	"github.com/ryo-aoki-pc/md-preview/internal/edit"
 	exporthtml "github.com/ryo-aoki-pc/md-preview/internal/export"
 	"github.com/ryo-aoki-pc/md-preview/internal/fileopen"
 	"github.com/ryo-aoki-pc/md-preview/internal/pagefiles"
@@ -47,6 +48,29 @@ type App struct {
 	Session *session.Session
 	URL     string
 	Close   func() error
+}
+
+// liveFile は画面からの書き込みと見張りの通知を同じ本文で重ねて描かない。
+type liveFile struct {
+	mu    sync.Mutex
+	rev   uint64
+	text  string
+	state *session.Session
+	path  string
+}
+
+func (f *liveFile) set(text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.rev != 0 && text == f.text {
+		return nil
+	}
+	f.rev++
+	if err := f.state.SetDocument(session.Document{Path: f.path, Name: filepath.Base(f.path), Text: text, Rev: f.rev}); err != nil {
+		return err
+	}
+	f.text = text
+	return nil
 }
 
 func BrowserCommand(url, browser, platform string, env map[string]string) (string, []string) {
@@ -278,12 +302,27 @@ func Run(ctx context.Context, args []string, streams IO, deps Dependencies) int 
 		return 2
 	}
 	defer state.Close()
-	p, e := pagefiles.Load(pagefiles.Options{Directory: directory})
+	live := &liveFile{state: state, path: path}
+	var editor *edit.Service
+	pageOptions := pagefiles.Options{Directory: directory}
+	if o.Edit {
+		options := edit.Options{Host: state, Mode: edit.File}
+		if !directory {
+			options.Written = func(_ session.Source, text string) { _ = live.set(text) }
+		}
+		editor = edit.New(options)
+		pageOptions.Edit = editor.Config()
+	}
+	p, e := pagefiles.Load(pageOptions)
 	if e != nil {
 		report("ファイルまたはサーバーを開けません")
 		return 2
 	}
-	httpServer, e := server.New(server.Options{Session: state, Page: p, Port: o.Port, Plantuml: plantuml, Assets: assets, AssetsNotice: notice})
+	serverOptions := server.Options{Session: state, Page: p, Port: o.Port, Plantuml: plantuml, Assets: assets, AssetsNotice: notice}
+	if editor != nil {
+		serverOptions.Edit = editor
+	}
+	httpServer, e := server.New(serverOptions)
 	if e != nil {
 		if isAddressInUse(e) {
 			report("指定したポートは使用中です")
@@ -294,9 +333,8 @@ func Run(ctx context.Context, args []string, streams IO, deps Dependencies) int 
 	}
 	defer httpServer.Close("exit")
 	state.SetCallbacks(func(d session.Data) { _ = httpServer.Broadcast("render", d) }, func(d session.Data) { _ = httpServer.Broadcast("scroll", d) })
-	var rev uint64 = 1
 	if !directory {
-		if state.SetDocument(session.Document{Path: path, Name: filepath.Base(path), Text: text, Rev: rev}) != nil {
+		if live.set(text) != nil {
 			report("ファイルまたはサーバーを開けません")
 			return 2
 		}
@@ -309,8 +347,7 @@ func Run(ctx context.Context, args []string, streams IO, deps Dependencies) int 
 		stop, watchDone = watch.FileWithDone(path, func() {
 			next, err := read()
 			if err == nil {
-				rev++
-				_ = state.SetDocument(session.Document{Path: path, Name: filepath.Base(path), Text: next, Rev: rev})
+				_ = live.set(next)
 			} else if !errors.Is(err, os.ErrNotExist) && appCtx.Err() == nil {
 				report("ファイルの変更を読めません")
 			}
