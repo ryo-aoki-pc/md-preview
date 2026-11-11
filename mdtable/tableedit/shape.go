@@ -44,6 +44,14 @@ func (d *Document) shape(t Target, index int, side Side, count int, rows, insert
 		}
 		return nil, fault("unsupported", "最後の 1 列は削除できない")
 	}
+	// 複製した結合を含む範囲は一度に消し、途中の穴へのセルの移動を避ける。
+	if rows && !insert && r.Kind == "html" && count > 1 && copyBounds(r, index, 0, count, m.Cols) == nil {
+		lines, expected, err := table.DeleteHTMLRowBlock(r, index, count)
+		if err != nil {
+			return nil, fault("unsupported", err.Error())
+		}
+		return d.apply(r, lines, expected, true, false, nil)
+	}
 	current := d
 	var result *Result
 	// 列の操作では全行を組み直すので、見出しより多いセルは最初の 1 個目で消える。

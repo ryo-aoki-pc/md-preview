@@ -119,28 +119,8 @@ func shapeColumn(m *model.TableModel, at int, insert bool) *model.TableModel {
 
 // InsertPipeRow は見出しより下の位置 at に空の行を差し込む。
 func InsertPipeRow(r *Region, at int) ([]string, *model.TableModel, error) {
-	m := r.Model()
-	if at < 0 || at > m.Rows {
-		return nil, nil, fmt.Errorf("行の位置が表の範囲外")
-	}
-	if at == 0 {
-		return nil, nil, fmt.Errorf("見出しの上には行を追加できない")
-	}
-	n := shapeRow(m, at, true)
-	for col := 0; col < n.Cols; col++ {
-		c := model.NewCell(at, col, "")
-		c.Align = r.Pipe.Alignments[col]
-		n.Cells = append(n.Cells, c)
-	}
-	n = model.New(n.Kind, n.Rows, n.Cols, n.Cells, n.Holes)
-	lines := make([]string, len(r.Bodies))
-	for i, b := range r.Bodies {
-		lines[i] = r.Prefixes[i] + b
-	}
-	pos := at + 1
-	line := r.ContPrefix + formatRow(make([]string, n.Cols), r.Pipe)
-	lines = append(append(append([]string{}, lines[:pos]...), line), lines[pos:]...)
-	return lines, n, nil
+	lines, n, _, err := InsertPipeRows(r, at, []string{formatRow(make([]string, r.Model().Cols), r.Pipe)})
+	return lines, n, err
 }
 
 func DeletePipeRow(r *Region, row int) ([]string, *model.TableModel, error) {
@@ -184,31 +164,12 @@ func pipeColumn(r *Region, at int, insert bool) ([]string, *model.TableModel, er
 		}
 		return append(cells[:at], cells[at+1:]...)
 	}
-	var delimiter []string
-	for _, c := range blocks.ParseTableRow(r.Pipe.DelimiterBody + "\n").Cells {
-		delimiter = append(delimiter, blocks.StripASCIISpace(c.Raw))
-	}
+	delimiter := pipeDelimiterCells(r)
 	delimiter = alter(delimiter)
 	if insert {
 		delimiter[at] = "---"
 	}
-	format := *r.Pipe
-	format.SpacedCells = r.Pipe.DelimiterSpaced
-	if n.Cols == 1 && !format.LeadingPipe && !format.TrailingPipe {
-		format.LeadingPipe = true
-	}
-	delim := r.Pipe.DelimiterPrefix + formatRow(delimiter, &format)
-	var lines []string
-	for i, row := range append([]*PipeRow{r.Pipe.Header}, r.Pipe.Rows...) {
-		rowFormat := *r.Pipe
-		if n.Cols == 1 && !rowFormat.LeadingPipe && !rowFormat.TrailingPipe {
-			rowFormat.LeadingPipe = true
-		}
-		lines = append(lines, row.Prefix+formatRow(alter(row.RawCells), &rowFormat))
-		if i == 0 {
-			lines = append(lines, delim)
-		}
-	}
+	lines, _ := rebuildPipeColumns(r, n, func(_ int, raw []string) []string { return alter(raw) }, delimiter)
 	return lines, n, nil
 }
 
@@ -218,3 +179,15 @@ func InsertPipeColumn(r *Region, at int) ([]string, *model.TableModel, error) {
 func DeletePipeColumn(r *Region, col int) ([]string, *model.TableModel, error) {
 	return pipeColumn(r, col, false)
 }
+
+// pipeDelimiterCells は区切り行の原文を取り出す。
+func pipeDelimiterCells(r *Region) []string {
+	cells := []string{}
+	for _, c := range blocks.ParseTableRow(r.Pipe.DelimiterBody + "\n").Cells {
+		cells = append(cells, blocks.StripASCIISpace(c.Raw))
+	}
+	return cells
+}
+
+// PipeDelimiterCells は区切り行の原文を取り出す。
+func PipeDelimiterCells(r *Region) []string { return pipeDelimiterCells(r) }

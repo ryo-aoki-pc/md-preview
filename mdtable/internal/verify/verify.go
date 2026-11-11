@@ -129,6 +129,9 @@ func Check(md *table.MarkdownFile, newText string, replacements []*table.Replace
 			problems = append(problems, fmt.Sprintf("表 %d: 書き戻すと表の場所（%s）が変わる", r.Number, location))
 			continue
 		}
+		if repl.Expect != nil {
+			problems = append(problems, checkSources(r, again, repl)...)
+		}
 		if repl.TargetKind != "" {
 			if !again.Model().SameContent(repl.Model) {
 				changes := changes.CompareModels(repl.Model, again.Model())

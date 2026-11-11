@@ -25,28 +25,9 @@ func ShapeLocks(r *Region) (rows, cols string) {
 			rows = "</td>・</th> が省略されているので、行・列は変えられない"
 			cols = rows
 		}
-		for _, key := range []string{"rowspan", "colspan"} {
-			seen := false
-			for _, a := range c.StartToken.Attributes {
-				if a.Name != key {
-					continue
-				}
-				value := strings.TrimSpace(attrValue(a))
-				n, e := strconv.Atoi(value)
-				valid := value != ""
-				for _, ch := range value {
-					valid = valid && ch >= '0' && ch <= '9'
-				}
-				span := c.Colspan
-				if key == "rowspan" {
-					span = c.Rowspan
-				}
-				if seen || !valid || e != nil || n < 1 || span != n {
-					rows = "結合の値が 0・数字以外・区画の終わりで切られた値なので、行・列は変えられない"
-					cols = rows
-				}
-				seen = true
-			}
+		if !spanAttributesValid(c) {
+			rows = "結合の値が 0・数字以外・区画の終わりで切られた値なので、行・列は変えられない"
+			cols = rows
 		}
 	}
 	if cols == "" && len(t.Colgroups) > 0 {
@@ -105,15 +86,7 @@ func spanEdit(c *HTMLCell, name string, value int) htmlEdit {
 }
 
 func emptyHTMLCell(header bool, align string) string {
-	tag := "td"
-	if header {
-		tag = "th"
-	}
-	attrs := ""
-	if align != "" {
-		attrs = " align=\"" + align + "\""
-	}
-	return "<" + tag + attrs + "></" + tag + ">"
+	return newHTMLCell(header, align, "", 1, 1)
 }
 
 // ownHTMLRange は要素の前後が空白だけなら、要素を含む行全体の境界を返す。
@@ -138,6 +111,12 @@ func ownHTMLRow(t *HTMLTable, row *HTMLRow) (start, end int, indent string, own 
 // besideHTMLCell は隣のセルが行を占めていれば、同じ字下げの行として差し込む。
 // 行頭への幅 0 の差し込みを避け、元の行のコンテナ接頭辞を残す。
 func besideHTMLCell(t *HTMLTable, neighbor *HTMLCell, before bool, raw string) (htmlEdit, bool) {
+	return besideHTMLCells(t, neighbor, before, []string{raw})
+}
+
+// besideHTMLCells は複数のセルを隣と同じ字下げで並べる。
+func besideHTMLCells(t *HTMLTable, neighbor *HTMLCell, before bool, raws []string) (htmlEdit, bool) {
+	raw := strings.Join(raws, "")
 	start, end, indent, own := ownHTMLRange(t, neighbor.StartToken.Start, neighbor.EndToken.End)
 	pos := neighbor.EndToken.End
 	if before {
@@ -152,7 +131,7 @@ func besideHTMLCell(t *HTMLTable, neighbor *HTMLCell, before bool, raw string) (
 		} else {
 			pos = end
 		}
-		raw = "\n" + indent + raw
+		raw = "\n" + indent + strings.Join(raws, "\n"+indent)
 	}
 	return htmlEdit{pos, pos, raw}, own
 }
@@ -192,24 +171,7 @@ func InsertHTMLRow(r *Region, row int, after bool) ([]string, *model.TableModel,
 	}
 	newRow := "<tr>" + cells.String() + "</tr>"
 	base := t.Rows[row]
-	start, end, indent, own := ownHTMLRow(t, base)
-	pos := base.Token.Start
-	if after {
-		pos = base.EndToken.End
-	}
-	if own {
-		if after {
-			pos = end
-			newRow = "\n" + indent + newRow
-		} else if start > 0 {
-			pos = start - 1
-			newRow = "\n" + indent + newRow
-		} else {
-			pos = start
-			newRow += "\n" + indent
-		}
-	}
-	edits = append(edits, htmlEdit{pos, pos, newRow})
+	edits = append(edits, placeHTMLRows(t, base, after, []string{newRow}))
 	lines, e := applyHTMLEdits(r, t, edits)
 	return lines, model.New(n.Kind, n.Rows, n.Cols, n.Cells, n.Holes), e
 }
@@ -309,28 +271,15 @@ func htmlColumn(r *Region, at int, insert bool) ([]string, *model.TableModel, er
 			if n.CellAt(row, at) != nil {
 				continue
 			}
-			pos := base.Token.End
-			var left *HTMLCell
 			header := len(base.Cells) > 0
 			for _, c := range base.Cells {
 				header = header && c.Tag == "th"
-				if c.Col+c.Colspan <= at {
-					pos = c.EndToken.End
-					left = c
-				}
 			}
 			c := model.NewCell(row, at, "")
 			c.Header = header
 			n.Cells = append(n.Cells, c)
 			raw := emptyHTMLCell(header, "")
-			insertion := htmlEdit{pos, pos, raw}
-			if left != nil {
-				insertion, _ = besideHTMLCell(t, left, false, raw)
-			} else if len(base.Cells) > 0 {
-				if before, own := besideHTMLCell(t, base.Cells[0], true, raw); own {
-					insertion = before
-				}
-			}
+			insertion := htmlColumnInsertion(t, base, at, []string{raw})
 			edits = append(edits, insertion)
 		}
 	}
@@ -343,4 +292,67 @@ func InsertHTMLColumn(r *Region, at int) ([]string, *model.TableModel, error) {
 }
 func DeleteHTMLColumn(r *Region, col int) ([]string, *model.TableModel, error) {
 	return htmlColumn(r, col, false)
+}
+
+// spanAttributesValid は ShapeLocks から取り出した結合の属性の検査。
+func spanAttributesValid(c *HTMLCell) bool {
+	for _, key := range []string{"rowspan", "colspan"} {
+		seen := false
+		for _, a := range c.StartToken.Attributes {
+			if a.Name != key {
+				continue
+			}
+			value := strings.TrimSpace(attrValue(a))
+			n, e := strconv.Atoi(value)
+			valid := value != ""
+			for _, ch := range value {
+				valid = valid && ch >= '0' && ch <= '9'
+			}
+			span := c.Colspan
+			if key == "rowspan" {
+				span = c.Rowspan
+			}
+			if seen || !valid || e != nil || n < 1 || span != n {
+				return false
+			}
+			seen = true
+		}
+	}
+	return true
+}
+
+// CopyLock は写しの結合の値を検査する。
+func CopyLock(r *Region) string {
+	if r.HTML != nil {
+		for _, c := range r.HTML.Cells {
+			if !spanAttributesValid(c) {
+				return "結合の値が不正なので、原文を保った写しを作れない"
+			}
+		}
+	}
+	return ""
+}
+
+// placeHTMLRows は InsertHTMLRow の挿入位置と字下げの処理。
+func placeHTMLRows(t *HTMLTable, base *HTMLRow, after bool, texts []string) htmlEdit {
+	start, end, indent, own := ownHTMLRow(t, base)
+	pos := base.Token.Start
+	if after {
+		pos = base.EndToken.End
+	}
+	raw := strings.Join(texts, "")
+	if own {
+		raw = strings.Join(texts, "\n"+indent)
+		if after {
+			pos = end
+			raw = "\n" + indent + raw
+		} else if start > 0 {
+			pos = start - 1
+			raw = "\n" + indent + raw
+		} else {
+			pos = start
+			raw += "\n" + indent
+		}
+	}
+	return htmlEdit{pos, pos, raw}
 }

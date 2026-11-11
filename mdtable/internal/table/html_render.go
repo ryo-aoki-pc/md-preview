@@ -112,28 +112,43 @@ func applyHTMLEdits(r *Region, t *HTMLTable, edits []htmlEdit) ([]string, error)
 
 // html_table._patch に対応する形を変えないセルの差し替え。
 func patchHTML(r *Region, m *model.TableModel, warnings *[]string) ([]string, error) {
+	lines, _, err := PatchHTMLValues(r, m, warnings)
+	return lines, err
+}
+
+// PatchHTMLValues は patchHTML の編集と、その編集から求めた原文の期待値を返す。
+func PatchHTMLValues(r *Region, m *model.TableModel, warnings *[]string) ([]string, *Expectation, error) {
 	t := r.HTML
+	expect := SourceExpectation(r)
 	reuse := innerSources(t)
 	var edits []htmlEdit
 	anchors := m.Anchors()
 	for _, cell := range t.Cells {
 		new := anchors[model.Position{Row: cell.Row, Col: cell.Col}]
 		oldAlign, byStyle := cellAlign(cell)
+		startRaw := cell.StartToken.Text
+		endRaw := ""
+		if cell.EndToken != nil {
+			endRaw = cell.EndToken.Text
+		}
+		innerRaw := t.Text[cell.ContentStart:cell.ContentEnd]
 		tag := "td"
 		if new.Header {
 			tag = "th"
 		}
 		if tag != cell.Tag || new.Align != oldAlign {
 			start := startTag(cell.StartToken.Attributes, tag, new.Align, t.AlignStyle || byStyle, 0, 0, true)
+			startRaw = start
 			edits = append(edits, htmlEdit{cell.StartToken.Start, cell.StartToken.End, start})
 			if cell.EndToken != nil && tag != cell.Tag {
-				edits = append(edits, htmlEdit{cell.EndToken.Start, cell.EndToken.End, "</" + tag + ">"})
+				endRaw = "</" + tag + ">"
+				edits = append(edits, htmlEdit{cell.EndToken.Start, cell.EndToken.End, endRaw})
 			}
 		}
 		if new.Text != cell.Text {
 			inner, block, reused, e := reusableInner(new.Text, reuse, warnings, new.Row, new.Col)
 			if e != nil {
-				return nil, e
+				return nil, nil, e
 			}
 			block = block || reused && strings.Contains(inner, "\n")
 			start, end := cell.ContentStart, cell.ContentEnd
@@ -145,10 +160,13 @@ func patchHTML(r *Region, m *model.TableModel, warnings *[]string) ([]string, er
 					inner += "\n"
 				}
 			}
+			innerRaw = inner
 			edits = append(edits, htmlEdit{start, end, inner})
 		}
+		expect.Cells[model.Position{Row: cell.Row, Col: cell.Col}] = startRaw + innerRaw + endRaw
 	}
-	return applyHTMLEdits(r, t, edits)
+	lines, err := applyHTMLEdits(r, t, edits)
+	return lines, expect, err
 }
 
 // html_table._row_signature に対応する衝突しないセル列の符号化。

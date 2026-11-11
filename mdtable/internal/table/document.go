@@ -383,6 +383,7 @@ type Replacement struct {
 	Lines      []string
 	Model      *model.TableModel
 	TargetKind string
+	Expect     *Expectation
 }
 
 // document.apply_replacements に対応する元の改行を保った置換。

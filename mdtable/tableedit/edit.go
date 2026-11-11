@@ -53,13 +53,32 @@ func renderError(r *table.Region, err error) error {
 // apply は読み直した結果だけを公開する。元の Document は変更しない。
 // notes は操作で起きたことの知らせ。結果の警告には、読み直した表の警告を続ける。
 func (d *Document) apply(r *table.Region, lines []string, expected *model.TableModel, shape, source bool, notes []string) (*Result, error) {
+	return d.applyEdits([]regionEdit{{region: r, lines: lines, expected: expected, shape: shape, source: source}}, notes)
+}
+
+type regionEdit struct {
+	region        *table.Region
+	lines         []string
+	expected      *model.TableModel
+	expect        *table.Expectation
+	shape, source bool
+}
+
+func (d *Document) applyEdits(edits []regionEdit, notes []string) (*Result, error) {
 	warnings := append([]string{}, notes...)
-	repl := &table.Replacement{Region: r, Lines: lines, Model: expected}
-	if shape {
-		repl.TargetKind = r.Kind
+	replacements := make([]*table.Replacement, 0, len(edits))
+	source := false
+	for _, e := range edits {
+		repl := &table.Replacement{Region: e.region, Lines: e.lines, Model: e.expected, Expect: e.expect}
+		if e.shape || e.expect != nil {
+			repl.TargetKind = e.region.Kind
+		}
+		source = source || e.source
+		replacements = append(replacements, repl)
 	}
-	text := table.ApplyReplacements(d.md, []*table.Replacement{repl})
-	out := verify.Check(d.md, text, []*table.Replacement{repl}, verify.Options{KeepHoles: true, SkipStability: source || text == d.text})
+	text := table.ApplyReplacements(d.md, replacements)
+	out := verify.Check(d.md, text, replacements, verify.Options{KeepHoles: true, SkipStability: source || text == d.text})
+
 	if len(out.Problems) > 0 {
 		problems := make([]string, len(out.Problems))
 		for i, p := range out.Problems {
@@ -74,29 +93,41 @@ func (d *Document) apply(r *table.Region, lines []string, expected *model.TableM
 		return nil, err
 	}
 	// 入れ子の表を編集したときも、その HTML の親が対象外になっていないことを確かめる。
-	parent := d.snapshot(r).Parent
-	for parent != 0 {
-		old := d.regions[parent-1]
-		var again *table.Region
-		for _, candidate := range out.Regions {
-			if candidate.Kind == "html" && candidate.Start == old.Start {
-				again = candidate
-				break
+	shiftedStart := func(line int) int {
+		shift := 0
+		for _, e := range edits {
+			if e.region.End < line {
+				shift += len(e.lines) - e.region.LineCount()
 			}
 		}
-		if again == nil {
-			return nil, fault("verify", "編集すると、親の HTML の表を読み直せない")
-		}
-		if old.Excluded == "" && again.Excluded != "" {
-			return nil, fault("verify", again.Excluded)
-		}
-		parent = d.snapshot(old).Parent
+		return line + shift
 	}
-	if out.Again[0] != nil && loosenedList(r, out.Again[0]) {
-		warnings = append(warnings, "セルの空行で、詰めたリストの項目の間隔が広がる")
-	}
-	if out.Again[0] != nil {
-		warnings = append(warnings, out.Again[0].Warnings...)
+	for index, edit := range edits {
+		r := edit.region
+		parent := d.snapshot(r).Parent
+		for parent != 0 {
+			old := d.regions[parent-1]
+			var again *table.Region
+			for _, candidate := range out.Regions {
+				if candidate.Kind == "html" && candidate.Start == shiftedStart(old.Start) {
+					again = candidate
+					break
+				}
+			}
+			if again == nil {
+				return nil, fault("verify", "編集すると、親の HTML の表を読み直せない")
+			}
+			if old.Excluded == "" && again.Excluded != "" {
+				return nil, fault("verify", again.Excluded)
+			}
+			parent = d.snapshot(old).Parent
+		}
+		if out.Again[index] != nil && loosenedList(r, out.Again[index]) {
+			warnings = append(warnings, "セルの空行で、詰めたリストの項目の間隔が広がる")
+		}
+		if out.Again[index] != nil {
+			warnings = append(warnings, out.Again[index].Warnings...)
+		}
 	}
 	next := &Document{text: text, md: out.Markdown, regions: out.Regions}
 	return &Result{Text: text, Changed: text != d.text, Warnings: editWarnings(warnings), Document: next}, nil
@@ -126,6 +157,10 @@ func (d *Document) unchanged(r *table.Region) (*Result, error) {
 }
 
 func (d *Document) setCells(r *table.Region, edits []CellEdit) (*Result, error) {
+	return d.setCellsChecked(r, edits, false, nil)
+}
+
+func (d *Document) setCellsChecked(r *table.Region, edits []CellEdit, strict bool, notes []string) (*Result, error) {
 	m := clone(r.Model())
 	seen := map[model.Position]bool{}
 	changed := false
@@ -156,19 +191,32 @@ func (d *Document) setCells(r *table.Region, edits []CellEdit) (*Result, error) 
 		}
 	}
 	if !changed {
+		if strict {
+			return d.applyEdits([]regionEdit{{region: r, lines: append([]string{}, d.md.Lines[r.Start:r.End+1]...), expected: m, expect: table.SourceExpectation(r)}}, notes)
+		}
 		return d.unchanged(r)
 	}
 	// 表の今の警告は、読み直した表から取る。ここでは書き戻しで出た知らせだけを集める。
-	warnings := []string{}
+	warnings := append([]string{}, notes...)
 	var lines []string
 	var err error
-	if r.Kind == "pipe" {
+	var expect *table.Expectation
+	if strict {
+		if r.Kind == "pipe" {
+			lines, expect, err = table.PatchPipeValues(r, m, &warnings)
+		} else {
+			lines, expect, err = table.PatchHTMLValues(r, m, &warnings)
+		}
+	} else if r.Kind == "pipe" {
 		lines, err = table.PatchPipeCells(r, m, &warnings)
 	} else {
 		lines, err = table.RenderHTML(r, m, &warnings)
 	}
 	if err != nil {
 		return nil, renderError(r, err)
+	}
+	if strict {
+		return d.applyEdits([]regionEdit{{region: r, lines: lines, expected: m, expect: expect}}, warnings)
 	}
 	return d.apply(r, lines, m, false, false, warnings)
 }

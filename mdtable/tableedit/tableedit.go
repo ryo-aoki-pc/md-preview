@@ -35,6 +35,9 @@ type Section struct {
 	Rows     int    `json:"rows"`
 }
 type Table struct {
+	RowTags    []string     `json:"row_tags"`
+	Delimiters []string     `json:"delimiters"`
+	CopyLocked string       `json:"copy_locked"`
 	Number     int          `json:"number"`
 	Kind       Kind         `json:"kind"`
 	StartLine  int          `json:"start_line"`
@@ -60,6 +63,8 @@ type TagPosition struct {
 	End     int `json:"end"`
 }
 type Cell struct {
+	CopyLocked      string `json:"copy_locked"` // 原文を保った写しとして受け取れない理由。
+	Tag             string `json:"tag"`
 	Row             int    `json:"row"`
 	Col             int    `json:"col"`
 	Rowspan         int    `json:"rowspan"`
@@ -68,7 +73,7 @@ type Cell struct {
 	Align           string `json:"align"`
 	Text            string `json:"text"` // セル用 Markdown（Excel 側の Markdown）。
 	Line            int    `json:"line"`
-	Source          string `json:"source"` // HTML の開始・終了タグの間の原文。
+	Source          string `json:"source"` // HTML はタグの間、パイプは縦棒の間の原文。
 	Complex         bool   `json:"complex"`
 	LinkDefinitions bool   `json:"link_definitions"`
 }
@@ -225,7 +230,7 @@ func (d *Document) bytePosition(r *table.Region, pos int) int {
 }
 
 func (d *Document) snapshot(r *table.Region) *Table {
-	t := &Table{Number: r.Number, Kind: Kind(r.Kind), StartLine: r.Start, EndLine: r.End, Location: r.Location, Heading: r.Heading, Excluded: regionExclusion(r), Warnings: editWarnings(r.Warnings), SourceHash: r.SourceHash(), Cells: []Cell{}, Holes: []Position{}, Sections: []Section{}}
+	t := &Table{Number: r.Number, Kind: Kind(r.Kind), StartLine: r.Start, EndLine: r.End, Location: r.Location, Heading: r.Heading, Excluded: regionExclusion(r), Warnings: editWarnings(r.Warnings), SourceHash: r.SourceHash(), Cells: []Cell{}, Holes: []Position{}, Sections: []Section{}, RowTags: []string{}, Delimiters: []string{}}
 	for _, other := range d.regions {
 		if other != r && other.Kind == "html" && other.Start <= r.Start && other.End >= r.End {
 			if t.Parent == 0 || other.LineCount() < d.regions[t.Parent-1].LineCount() {
@@ -234,16 +239,32 @@ func (d *Document) snapshot(r *table.Region) *Table {
 		}
 	}
 	if t.Excluded != "" {
-		t.RowsLocked, t.ColsLocked = t.Excluded, t.Excluded
+		t.RowsLocked, t.ColsLocked, t.CopyLocked = t.Excluded, t.Excluded, t.Excluded
 		return t
 	}
 	m := r.Model()
 	t.Rows, t.Cols = m.Rows, m.Cols
 	t.RowsLocked, t.ColsLocked = table.ShapeLocks(r)
+	t.CopyLocked = table.CopyLock(r)
+	if r.Kind == "pipe" {
+		t.Delimiters = table.PipeDelimiterCells(r)
+	} else {
+		for _, row := range r.HTML.Rows {
+			tag := ""
+			if row.Token != nil {
+				tag = row.Token.Text
+			}
+			t.RowTags = append(t.RowTags, tag)
+		}
+	}
 	for _, c := range m.Cells {
 		v := Cell{Row: c.Row, Col: c.Col, Rowspan: c.Rowspan, Colspan: c.Colspan, Header: c.Header, Align: c.Align, Text: c.Text}
 		if r.Kind == "pipe" {
 			v.Line = r.Start
+			rows := append([]*table.PipeRow{r.Pipe.Header}, r.Pipe.Rows...)
+			if c.Col < len(rows[c.Row].RawCells) {
+				v.Source = rows[c.Row].RawCells[c.Col]
+			}
 			if c.Row > 0 {
 				v.Line += c.Row + 1
 			}
@@ -251,14 +272,12 @@ func (d *Document) snapshot(r *table.Region) *Table {
 			h := r.HTML.CellAt[model.Position{Row: c.Row, Col: c.Col}]
 			v.Line, _ = r.Locate(h.StartToken.Start)
 			v.Source = r.HTML.Text[h.ContentStart:h.ContentEnd]
+			v.Tag = h.StartToken.Text
 			v.LinkDefinitions = h.LinkDefinitions
-			out, err := cellsyntax.ToHTMLCell(c.Text)
-			generated := out.Text
-			if out.Kind != "inline" {
-				generated = "\n\n" + strings.Join(out.Lines, "\n") + "\n\n"
-			}
-			chunk := strings.HasPrefix(strings.TrimLeft(v.Source, " \t"), "\n\n") && strings.HasSuffix(strings.TrimRight(v.Source, " \t"), "\n\n")
-			v.Complex = err != nil || h.LinkDefinitions || (out.Kind != "inline") != chunk || strings.TrimSpace(generated) != strings.TrimSpace(v.Source)
+			v.Complex = complexCell(c.Text, v.Source, h.LinkDefinitions)
+		}
+		if t.CopyLocked == "" {
+			v.CopyLocked = cellCopyLock(t.Kind, v)
 		}
 		t.Cells = append(t.Cells, v)
 	}
@@ -334,4 +353,14 @@ func WriteFile(ctx context.Context, path, text string, bom bool) (err error) {
 		return failure
 	}
 	return nil
+}
+
+func complexCell(text, source string, links bool) bool {
+	out, err := cellsyntax.ToHTMLCell(text)
+	generated := out.Text
+	if out.Kind != "inline" {
+		generated = "\n\n" + strings.Join(out.Lines, "\n") + "\n\n"
+	}
+	chunk := strings.HasPrefix(strings.TrimLeft(source, " \t"), "\n\n") && strings.HasSuffix(strings.TrimRight(source, " \t"), "\n\n")
+	return err != nil || links || (out.Kind != "inline") != chunk || strings.TrimSpace(generated) != strings.TrimSpace(source)
 }
