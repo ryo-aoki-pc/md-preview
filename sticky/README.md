@@ -114,3 +114,7 @@ node tools/render-gitlab.mjs
 `PRIVATE-TOKEN` ヘッダーで送り、`test/fixtures/sample.gitlab.html` を作り直す。`data-sourcepos` は取り除く。トークンはコマンドの引数やファイルに書かない。ブックマークレット自体は通信せず、外部のスクリプトも読み込まない。
 
 設計は [docs/reference/design.md](docs/reference/design.md)。実機での検証記録は `repos/md-table-sticky/docs/verification/readme.md` に置く。
+
+## ライセンス
+
+md-table-sticky は [MIT ライセンス](LICENSE)。

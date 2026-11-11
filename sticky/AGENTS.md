@@ -24,6 +24,7 @@ Windows 11 の Edge での登録と更新の手順は [docs/install.md](docs/ins
 - `docs/usage.md` — Windows 11 の Edge で GitLab の表を固定し、折り返し・幅・検索・コピーを使う手順
 - `AGENTS.md`・`CLAUDE.md` — エージェントへの指示と Claude Code の入口
 - `package.json`・`.gitignore` — Node.js のスクリプトと、リポジトリへ含めないもの
+- `LICENSE` — md-table-sticky の MIT ライセンス
 - 検証記録は、Forgejo の非公開リポジトリ `setup-notes-verification` の `repos/md-table-sticky/docs/verification/` に置く。このリポジトリには利用者の GitLab の URL・ホスト名を書かない。このリポジトリから検証記録へは URL で指さず、「`<検証記録のパス>` の「<見出し>」」と文字で書く（見出しを指さないときは、同じ名前の文書の記録なら「検証記録」とだけ書き、ほかの記録はパスを添える）
 
 ## テスト
