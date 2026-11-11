@@ -46,6 +46,7 @@
   let busy = null;
   let failed = null;
   let externalVersion = 0;
+  let late = null;
   let observedRender = preview.current()?.render;
   const queue = [];
   const drafts = new Map();
@@ -214,14 +215,26 @@
   }
 
   function focusInput() { input.focus({ preventScroll: true }); }
+  // セルを、ページのヘッダーと下の操作欄の後ろへ入れずに見える位置へ出す。
+  // ページの余白は動かす間だけ付ける（見出しへの移動などの位置を変えない）。全幅パネルの中は CSS が同じ変数を読む。
+  function reveal(element) {
+    const bottom = Math.ceil(Math.max(0, innerHeight - bar.getBoundingClientRect().top) + 8) + 'px';
+    root.style.setProperty('--gp-edit-bottom', bottom);
+    const top = root.style.scrollPaddingTop, low = root.style.scrollPaddingBottom;
+    if (!top) root.style.scrollPaddingTop = Math.ceil(document.getElementById('gp-header').getBoundingClientRect().bottom) + 'px';
+    if (!low) root.style.scrollPaddingBottom = bottom;
+    element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (!top) root.style.scrollPaddingTop = '';
+    if (!low) root.style.scrollPaddingBottom = '';
+  }
   function select(cell, focus = true) {
     selected = pointOf(cell);
     input.hidden = false;
     if (!editor) input.value = '';
-    cell.element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    if (focus) focusInput();
     bar.hidden = false;
     updateButtons();
+    reveal(cell.element);
+    if (focus) focusInput();
     if (models[cell.table].info.warnings?.length) notice(models[cell.table].info.warnings.join(' ／ '));
     cancelAnimationFrame(animation);
     position();
@@ -268,18 +281,20 @@
       top = Math.max(top, document.getElementById('gp-header').getBoundingClientRect().bottom);
     return { top, left, right, bottom };
   }
-  function place(element, cell, height = null) {
+  // size を渡した要素（入力欄）は、セルより右と下へ大きく出す。固定した行・列に隠れる上と左だけを切る。
+  function place(element, cell, size = null) {
     const rect = cell.getBoundingClientRect();
     const clip = bounds(cell);
-    const h = height ?? rect.height;
+    const w = size?.width ?? rect.width;
+    const h = size?.height ?? rect.height;
     const visible = rect.width > 0 && rect.height > 0 && rect.right > clip.left && rect.left < clip.right &&
       rect.bottom > clip.top && rect.top < clip.bottom && cell.getClientRects().length;
     element.style.left = rect.left + 'px';
     element.style.top = rect.top + 'px';
-    element.style.width = rect.width + 'px';
+    element.style.width = w + 'px';
     element.style.height = h + 'px';
-    element.style.clipPath = 'inset(' + [Math.max(0, clip.top - rect.top), Math.max(0, rect.right - clip.right),
-      Math.max(0, rect.top + h - clip.bottom), Math.max(0, clip.left - rect.left)].map((n) => n + 'px').join(' ') + ')';
+    element.style.clipPath = 'inset(' + [Math.max(0, clip.top - rect.top), size ? 0 : Math.max(0, rect.right - clip.right),
+      size ? 0 : Math.max(0, rect.bottom - clip.bottom), Math.max(0, clip.left - rect.left)].map((n) => n + 'px').join(' ') + ')';
     element.style.visibility = visible ? 'visible' : 'hidden';
     return rect;
   }
@@ -294,14 +309,18 @@
     input.style.left = rect.left + 'px';
     input.style.top = rect.top + 'px';
     if (editor) {
-      const css = getComputedStyle(cell.element);
-      input.style.fontFamily = css.fontFamily;
-      input.style.fontSize = css.fontSize;
-      input.style.fontWeight = css.fontWeight;
-      input.style.lineHeight = css.lineHeight;
-      input.style.width = rect.width + 'px';
-      input.style.height = '0px';
-      place(input, cell.element, Math.max(rect.height, input.scrollHeight + 4));
+      // 狭いセルでも読めるように、入力欄は右へ広げる（画面の右端まで）。原文は長いので、さらに広くする。
+      const width = Math.max(rect.width, Math.min((editor.source ? 24 : 10) * editor.em, innerWidth - rect.left - 8));
+      // 中身の高さは、入力か幅が変わったときだけ測り直す（毎フレームの測り直しでレイアウトを強制しない）。
+      if (editor.resize || editor.width !== width) {
+        input.style.width = width + 'px';
+        input.style.height = '0px';
+        editor.content = input.scrollHeight + 4;
+        editor.width = width;
+        editor.resize = false;
+      }
+      const height = Math.min(Math.max(rect.height, editor.content), Math.max(rect.height, innerHeight - rect.top - 8));
+      place(input, cell.element, { width, height });
     } else {
       input.style.width = input.style.height = '1px';
       input.style.clipPath = '';
@@ -341,8 +360,16 @@
     editor.original = original;
     input.value = value ?? (replace ? '' : draft?.value ?? original);
     editor.value = input.value;
+    // 文字の大きさと行間は、編集を始めるときに 1 回だけセルに合わせる。
+    const css = getComputedStyle(cell.element);
+    input.style.fontFamily = css.fontFamily;
+    input.style.fontSize = css.fontSize;
+    input.style.fontWeight = css.fontWeight;
+    input.style.lineHeight = css.lineHeight;
+    editor.em = parseFloat(css.fontSize) || 16;
+    editor.resize = true;
     layer.dataset.typing = 'on';
-    cell.element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    reveal(cell.element);
     if (!composition) {
       focusInput();
       input.setSelectionRange(input.value.length, input.value.length);
@@ -405,6 +432,7 @@
   function enqueue(item, first = false) {
     operationStart();
     item.tableElement = models[item.point?.table]?.table;
+    item.version = externalVersion;
     if (first) queue.unshift(item);
     else queue.push(item);
     addMask(item);
@@ -443,6 +471,13 @@
   }
   async function pump() {
     if (busy || failed || stopped || !queue.length || infoRender !== preview.current()?.render) return;
+    // 並べた後に文書が外で変わっていたら、行や列がずれているかもしれない古い位置へ書かない。
+    if (queue[0].version !== externalVersion) {
+      discardQueue();
+      notice('文書が変わったので、もう一度操作してください', true);
+      updateButtons();
+      return;
+    }
     const item = queue.shift();
     const target = !item.history && models[item.point.table];
     if (!item.history && (!target?.editable || target.table !== item.tableElement ||
@@ -466,6 +501,8 @@
         item.mask?.remove();
         busy = null;
         if (response.status === 409) {
+          // 文書が外で変わっている。開いている入力も、古い位置のまま確定させない。
+          externalVersion++;
           discardQueue();
           saveDraft();
           if (item.value !== undefined) drafts.set(keyOf(item.point), { ...item });
@@ -474,6 +511,8 @@
         } else if (response.status === 422) {
           reopen(item);
           notice(messageOf(data) || 'この操作では書き込めませんでした', true);
+          // 入力欄を開き直さなかったとき（行・列の操作、編集モードの外）は、並んでいる送信を続ける。
+          if (!failed) void pump();
         } else {
           discardQueue();
           reopen(item);
@@ -487,7 +526,9 @@
       if (data.unchanged) { finishSend(); void loadTables(); return; }
       completeSend();
       if (busy?.item === item) busy.timer = setTimeout(() => {
-        notice('書き込み後の表示が届きません。表の情報を読み直します', true);
+        // 遅れて届くこの書き込みの描画を、外の変更と数えない。
+        if (!busy.seen) late = busy.render;
+        if (!stopped) notice('書き込み後の表示が届きません。表の情報を読み直します', true);
         infoRender = 0;
         finishSend();
         void loadTables();
@@ -585,7 +626,7 @@
     mode = want && allowed();
     toggle.setAttribute('aria-pressed', String(mode));
     if (mode) root.dataset.edit = 'on';
-    else { delete root.dataset.edit; clearSelection(); }
+    else { delete root.dataset.edit; root.style.removeProperty('--gp-edit-bottom'); clearSelection(); }
     preview.holdScroll(mode);
     preview.setEditing(mode);
     preview.rememberAppearance('edit', mode);
@@ -643,7 +684,8 @@
     if (ignored(event.target)) return;
     const table = event.target.closest?.('table');
     const model = models.find((item) => item.table === table);
-    if (model && !model.editable) notice(model.reason, true);
+    // 載せただけの知らせは数秒で消し、出ている誤りの知らせは上書きしない。
+    if (model && !model.editable && (status.hidden || status.dataset.kind !== 'error')) notice(model.reason);
   }, true);
   window.addEventListener('keydown', (event) => {
     if (!mode || stopped || document.activeElement !== input || !selected ||
@@ -656,6 +698,8 @@
       } else if (key === 'Enter' && event.altKey) {
         event.preventDefault();
         input.setRangeText('\n', input.selectionStart, input.selectionEnd, 'end');
+        editor.resize = true;
+        saveDraft();
       } else if (key === 'Tab' || (key === 'Enter' && (!editor.source || event.ctrlKey))) {
         event.preventDefault();
         endEdit(true);
@@ -690,6 +734,7 @@
     if (event.target !== input || !mode || !selected) return;
     if (!editor) beginEdit({ replace: true, value: input.value, composition: event.isComposing });
     if (event.isComposing) composing = true;
+    editor.resize = true;
     saveDraft();
   }, true);
   window.addEventListener('paste', (event) => {
@@ -715,8 +760,14 @@
     event.clipboardData.setData('text/plain', cell.raw ? cell.source : cell.text);
   }, true);
   document.addEventListener('gp:render', () => {
-    if (!busy && preview.current()?.render !== observedRender) externalVersion++;
-    observedRender = preview.current()?.render;
+    const render = preview.current()?.render;
+    if (render !== observedRender) {
+      // 自分の書き込みの描画は、送信ごとに最初の 1 回だけ（時間切れの後に遅れて届く 1 回を含む）。ほかは外の変更と数える。
+      if (busy && !busy.seen && render > busy.render) busy.seen = true;
+      else if (late !== null && render > late) late = null;
+      else externalVersion++;
+    }
+    observedRender = render;
     stopped = false;
     toggle.hidden = !allowed();
     if (!allowed()) { setMode(false); return; }
@@ -727,6 +778,9 @@
     fetching?.abort();
     saveDraft();
     editor = null;
+    // 止まっている間に並べた送信は持ち越さない。文字は下書きに残す。
+    discardQueue();
+    busy?.item.mask?.remove();
     clearSelection();
     updateButtons();
   });

@@ -471,6 +471,65 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     assert.equal(readFileSync(file, 'utf8'), pipe.replace('| りんご | 1 | 赤 |', '| 応答待ち | 次の入力 | 赤 |'));
   });
 
+  await t.test('断られた行の操作の後も並んだ送信を続け、外で変わった後は並んだ送信を捨てる', async (t) => {
+    const { page, file, server } = await editablePage(t, browser, pipe);
+    let releaseFirst, releaseSecond;
+    const first = new Promise((resolve) => { releaseFirst = resolve; });
+    const second = new Promise((resolve) => { releaseSecond = resolve; });
+    t.after(() => { releaseFirst(); releaseSecond(); });
+    let sent = 0;
+    await page.route('**/_/edit', async (route) => {
+      if (++sent !== 1) return route.continue();
+      await first;
+      await route.fulfill({ status: 422, contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'range', message: '試験で断った行の操作' } }) });
+    });
+    const cells = page.locator('#gp-content td');
+    await cells.first().click();
+    await page.locator('#gp-edit-row-after').click();
+    await cells.nth(1).click();
+    await page.keyboard.insertText('並んだ入力');
+    await page.keyboard.press('Enter');
+    assert.equal(sent, 1);
+    releaseFirst();
+    await editIdle(page);
+    assert.equal(sent, 2);
+    assert.equal(readFileSync(file, 'utf8'), pipe.replace('| りんご | 1 |', '| りんご | 並んだ入力 |'));
+    assert.match(await page.locator('#gp-edit-status').textContent(), /試験で断った行の操作/);
+
+    // 応答を待つ間に外で変わったら、並べた入力は、ずれたかもしれない位置へ書かずに下書きへ戻す。
+    await page.unroute('**/_/edit');
+    let held = false;
+    await page.route('**/_/edit', async (route) => {
+      if (held) return route.continue();
+      held = true;
+      const response = await route.fetch();
+      await second;
+      await route.fulfill({ response });
+    });
+    const before = await page.evaluate(() => window.gpPreview.current().render);
+    await cells.first().click();
+    await page.keyboard.insertText('先の入力');
+    await page.keyboard.press('Tab');
+    await page.keyboard.insertText('後の入力');
+    await page.keyboard.press('Tab');
+    await page.waitForFunction((before) => window.gpPreview.current().render > before, before);
+    const external = readFileSync(file, 'utf8').replace('みかん', '外のみかん');
+    assert.match(external, /先の入力/);
+    writeFileSync(file, external);
+    await server.setDocument({ path: file, text: external, rev: 30 });
+    await page.waitForFunction(() => window.gpPreview.current().rev === 30);
+    releaseSecond();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-status').textContent.includes('文書が変わった'));
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), external);
+    // 捨てた入力は、同じ中身のままのセルを開くと戻る。
+    await cells.nth(1).click();
+    await page.keyboard.press('F2');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '後の入力');
+    await page.keyboard.press('Escape');
+  });
+
   await t.test('表の数やセルの結合の照合が失敗したら書き込まない', async (t) => {
     const { page, file } = await editablePage(t, browser, pipe);
     for (const mismatch of ['count', 'span']) {
@@ -531,6 +590,40 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     await locked.page.locator('#gp-content td').first().click();
     assert.equal(await locked.page.locator('#gp-edit-row-after').isDisabled(), true);
     assert.ok(await locked.page.locator('#gp-edit-row-after').getAttribute('title'));
+  });
+
+  await t.test('選んだセルをヘッダーと操作欄の後ろへ入れず、狭いセルの入力欄を広げる', async (t) => {
+    const rows = Array.from({ length: 60 }, (_, i) => `| ${i + 1} | 品目 ${i + 1} |`).join('\n');
+    const { page } = await editablePage(t, browser, '| 番 | 名前 |\n| --- | --- |\n' + rows + '\n');
+    await page.setViewportSize({ width: 900, height: 500 });
+    const place = () => page.evaluate(() => {
+      const frame = document.querySelector('#gp-edit-selection').getBoundingClientRect();
+      return { top: frame.top, bottom: frame.bottom, header: document.querySelector('#gp-header').getBoundingClientRect().bottom,
+        bar: document.querySelector('#gp-edit-actions').getBoundingClientRect().top };
+    });
+    const settle = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.locator('#gp-content td').first().click();
+    for (let i = 0; i < 40; i++) await page.keyboard.press('ArrowDown');
+    await settle();
+    let at = await place();
+    assert.ok(at.bottom <= at.bar + 1 && at.top >= at.header - 1, JSON.stringify(at));
+    for (let i = 0; i < 35; i++) await page.keyboard.press('ArrowUp');
+    await settle();
+    at = await place();
+    assert.ok(at.top >= at.header - 1 && at.bottom <= at.bar + 1, JSON.stringify(at));
+    // 余白は動かす間だけ付け、ページに残さない（見出しへの移動の位置を変えない）。
+    assert.equal(await page.evaluate(() => document.documentElement.style.scrollPaddingTop + document.documentElement.style.scrollPaddingBottom), '');
+    await page.keyboard.press('F2');
+    await settle();
+    const size = await page.evaluate(() => {
+      const input = document.querySelector('#gp-edit-input');
+      return { input: input.getBoundingClientRect().width, cell: document.querySelector('#gp-edit-selection').getBoundingClientRect().width,
+        em: parseFloat(getComputedStyle(input).fontSize) };
+    });
+    assert.ok(size.cell < size.em * 10 && size.input >= size.em * 10 - 1, JSON.stringify(size));
+    await page.keyboard.press('Escape');
+    await page.locator('#gp-edit-toggle').click();
+    assert.equal(await page.evaluate(() => document.documentElement.style.getPropertyValue('--gp-edit-bottom')), '');
   });
 
   await t.test('引用符内の改行とタブを貼り付け、範囲外ではファイルを変えない', async (t) => {

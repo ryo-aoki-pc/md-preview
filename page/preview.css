@@ -334,6 +334,10 @@ body {
 #gp-edit-layer [hidden] {
   display: none !important;
 }
+/* 全幅表示の中で選んだセルを、下の操作欄の後ろへ入れない（scrollIntoView が読む余白。配置は変わらない） */
+:root[data-edit='on'] [data-md-table-sticky-float-panel] * {
+  scroll-padding-bottom: var(--gp-edit-bottom, 64px);
+}
 #gp-edit-selection,
 #gp-edit-input,
 .gp-edit-pending {

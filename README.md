@@ -35,10 +35,10 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 
 Go の単体の実行ファイルを、GitHub Releases から取得して置く。利用する端末に Go・Node.js・git は要らない。取得したファイルは sha256 で確かめる。
 
-| OS | 導入・更新の手順 | 表の編集を試す |
-| --- | --- | --- |
-| AlmaLinux 10 | [md-preview を導入・更新する](docs/install.md#md-preview-を導入更新する) | [プレビューで表を編集する](docs/usage.md#mdpreview-のプレビューで表を編集する) |
-| Windows 11 | [Windows 11 で md-preview を導入・更新する](docs/install.md#windows-11-で-md-preview-を導入更新する) | [プレビューで表を編集する](docs/usage.md#windows-11-の-mdpreview-のプレビューで表を編集する) |
+| OS | 導入・更新の手順 |
+| --- | --- |
+| AlmaLinux 10 | [md-preview を導入・更新する](docs/install.md#md-preview-を導入更新する) |
+| Windows 11 | [Windows 11 で md-preview を導入・更新する](docs/install.md#windows-11-で-md-preview-を導入更新する) |
 
 公式スタイルは任意。[AlmaLinux 10 の取得手順](docs/install.md#md-preview-の公式スタイルを取得する)・[Windows 11 の取得手順](docs/install.md#windows-11-で-md-preview-の公式スタイルを取得する)に従う。未導入なら同梱のスタイルで表示する。
 
