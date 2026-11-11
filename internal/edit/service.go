@@ -3,6 +3,7 @@ package edit
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"sync"
 	"unicode/utf8"
@@ -56,9 +57,15 @@ type Service struct {
 	opts    Options
 	cache   map[string]*mapping
 	history histories
+	secret  [32]byte
 }
 
-func New(o Options) *Service { return &Service{opts: o, cache: map[string]*mapping{}} }
+func New(o Options) *Service {
+	s := &Service{opts: o, cache: map[string]*mapping{}}
+	// Go 1.24 以降の crypto/rand.Read は常に全体を埋める。
+	_, _ = rand.Read(s.secret[:])
+	return s
+}
 func (s *Service) Config() map[string]any {
 	if s.opts.Mode == Buffer {
 		return map[string]any{"scope": "current", "undo": false}
@@ -94,17 +101,21 @@ func (s *Service) Tables(ctx context.Context, doc *string, render uint64) (any, 
 		return nil, e
 	}
 	result := m.response
+	result.Origin = s.origin(src)
 	if s.opts.Mode == File {
 		result.Undo = s.history.status(pathKey(src.Path), text)
 	}
 	if fileErr != nil {
 		result.Undo = undoState{}
+		result.Origin = ""
 		result.Document = documentState{false, fileErr.Message}
 		result.Tables = append([]tableInfo{}, result.Tables...)
 		for i := range result.Tables {
 			result.Tables[i].Editable = false
 			result.Tables[i].Reason = fileErr.Message
 			result.Tables[i].Cells = []cellInfo{}
+			result.Tables[i].Hash, result.Tables[i].CopyLocked = "", ""
+			result.Tables[i].RowTags, result.Tables[i].Delimiters = []string{}, []string{}
 		}
 	}
 	return result, nil
@@ -175,7 +186,20 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 			if !t.Editable {
 				return nil, fault(422, "excluded", t.Reason)
 			}
-			result, applyErr := r.operation.apply(ctx, m.document, tableedit.Target{Number: t.Number, SourceHash: m.models[r.table].SourceHash})
+			source := func(f moveSource) (tableedit.Target, *Error) {
+				if f.origin != s.origin(src) || f.render != r.render {
+					return tableedit.Target{}, fault(409, "stale", "切り取った後に文書が変わりました。もう一度切り取ってください。")
+				}
+				if f.table >= len(m.response.Tables) {
+					return tableedit.Target{}, fault(422, "range", "切り取った表がありません。")
+				}
+				info := m.response.Tables[f.table]
+				if !info.Editable {
+					return tableedit.Target{}, fault(422, "excluded", info.Reason)
+				}
+				return tableedit.Target{Number: info.Number, SourceHash: f.hash}, nil
+			}
+			result, applyErr := r.operation.apply(ctx, m.document, tableedit.Target{Number: t.Number, SourceHash: m.models[r.table].SourceHash}, source)
 			if applyErr != nil {
 				return nil, tableError(applyErr)
 			}

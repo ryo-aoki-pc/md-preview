@@ -20,15 +20,17 @@ type documentState struct {
 	Reason   string `json:"reason"`
 }
 type cellInfo struct {
-	Row     int    `json:"row"`
-	Col     int    `json:"col"`
-	Rowspan int    `json:"rowspan"`
-	Colspan int    `json:"colspan"`
-	Header  bool   `json:"header"`
-	Align   string `json:"align"`
-	Text    string `json:"text"`
-	Raw     bool   `json:"raw"`
-	Source  string `json:"source"`
+	Row        int    `json:"row"`
+	Col        int    `json:"col"`
+	Rowspan    int    `json:"rowspan"`
+	Colspan    int    `json:"colspan"`
+	Header     bool   `json:"header"`
+	Align      string `json:"align"`
+	Text       string `json:"text"`
+	Raw        bool   `json:"raw"`
+	Source     string `json:"source"`
+	Tag        string `json:"tag"`
+	CopyLocked string `json:"copyLocked"`
 }
 type tableInfo struct {
 	Index      int            `json:"index"`
@@ -42,12 +44,17 @@ type tableInfo struct {
 	ColsLocked string         `json:"colsLocked"`
 	Warnings   []string       `json:"warnings"`
 	Cells      []cellInfo     `json:"cells"`
+	Hash       string         `json:"hash"`
+	RowTags    []string       `json:"rowTags"`
+	Delimiters []string       `json:"delimiters"`
+	CopyLocked string         `json:"copyLocked"`
 }
 type tablesResponse struct {
 	Render   uint64        `json:"render"`
 	Document documentState `json:"document"`
 	Undo     undoState     `json:"undo"`
 	Tables   []tableInfo   `json:"tables"`
+	Origin   string        `json:"origin"`
 }
 type mapping struct {
 	response tablesResponse
@@ -148,7 +155,7 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 		if ctx.Err() != nil {
 			return nil, fault(422, "cancelled", "表の対応の確認を取り消しました。")
 		}
-		info := tableInfo{Index: i, Reason: "原文の表と対応づけられない", Warnings: []string{}, Cells: []cellInfo{}}
+		info := tableInfo{Index: i, Reason: "原文の表と対応づけられない", Warnings: []string{}, Cells: []cellInfo{}, RowTags: []string{}, Delimiters: []string{}}
 		t := m.models[i]
 		if t != nil {
 			info.Number, info.Kind, info.Rows, info.Cols = t.Number, t.Kind, t.Rows, t.Cols
@@ -165,12 +172,11 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 				info.Reason = "描画した表と原文のセルの形が違う"
 			default:
 				info.Editable, info.Reason = true, ""
+				info.Hash, info.CopyLocked = t.SourceHash, t.CopyLocked
+				info.RowTags = append(info.RowTags, t.RowTags...)
+				info.Delimiters = append(info.Delimiters, t.Delimiters...)
 				for _, c := range t.Cells {
-					source := ""
-					if t.Kind == "html" {
-						source = c.Source
-					}
-					info.Cells = append(info.Cells, cellInfo{c.Row, c.Col, c.Rowspan, c.Colspan, c.Header, c.Align, c.Text, c.Complex, source})
+					info.Cells = append(info.Cells, cellInfo{Row: c.Row, Col: c.Col, Rowspan: c.Rowspan, Colspan: c.Colspan, Header: c.Header, Align: c.Align, Text: c.Text, Raw: c.Complex, Source: c.Source, Tag: c.Tag, CopyLocked: c.CopyLocked})
 				}
 			}
 		} else if htmltree.Has(n, "data-table-fields") {

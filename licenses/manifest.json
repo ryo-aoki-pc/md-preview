@@ -34,7 +34,7 @@
   },
   {
     "name": "github.com/ryo-aoki-pc/md-table-excel",
-    "version": "v0.7.0",
+    "version": "v0.8.0",
     "license": "MIT",
     "files": [
       "licenses/go/github.com/ryo-aoki-pc/md-table-excel/LICENSE"
