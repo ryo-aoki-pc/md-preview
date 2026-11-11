@@ -40,9 +40,15 @@ var frontMatterPattern = regexp.MustCompile(`\A([^\r\n]*coding:[^\r\n]*` + rubyL
 
 // FrontMatter は front matter を、行数を保つコードブロックへ変える。
 func FrontMatter(text string) string {
+	converted, _ := frontMatter(text)
+	return converted
+}
+
+// frontMatter は変換した本文と、変換前の一致の終わりを返す。
+func frontMatter(text string) (string, int) {
 	m := frontMatterPattern.FindStringSubmatchIndex(text)
 	if m == nil {
-		return text
+		return text, 0
 	}
 	group := func(i int) string {
 		if m[2*i] < 0 {
@@ -58,7 +64,7 @@ func FrontMatter(text string) string {
 	if group(1) != "" {
 		prefix = "\n"
 	}
-	return prefix + group(2) + "```" + language + ":frontmatter\n" + group(5) + "```\n" + text[m[1]:]
+	return prefix + group(2) + "```" + language + ":frontmatter\n" + group(5) + "```\n" + text[m[1]:], m[1]
 }
 func stringValue(p *string) string {
 	if p == nil {
@@ -87,7 +93,8 @@ func (r *Renderer) render(ctx context.Context, text string, c Context) (result R
 			return include.Read{Kind: include.Kind(v.Kind), Text: v.Text}
 		}
 	}
-	expansion, err := include.Expand(ctx, FrontMatter(original), stringValue(c.File), reader)
+	converted, frontEnd := frontMatter(original)
+	expansion, err := include.Expand(ctx, converted, stringValue(c.File), reader)
 	if err != nil {
 		return Result{}, err
 	}
@@ -114,7 +121,7 @@ func (r *Renderer) render(ctx context.Context, text string, c Context) (result R
 	if err = filters.After(ctx, tree, state); err != nil {
 		return Result{}, err
 	}
-	result = Result{Headings: []Heading{}, Includes: []Include{}, Notices: []Notice{}, Diagrams: []Diagram{}}
+	result = Result{Source: sourceMap(text, original, converted, frontEnd, expansion), Headings: []Heading{}, Includes: []Include{}, Notices: []Notice{}, Diagrams: []Diagram{}}
 	headings, err := t.Elements(ctx, tree, func(n *html.Node) bool {
 		return len(n.Data) == 2 && n.Data[0] == 'h' && n.Data[1] >= '1' && n.Data[1] <= '6'
 	})

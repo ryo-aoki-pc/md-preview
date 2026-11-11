@@ -59,6 +59,21 @@ func (e Expansion) OriginalLine(line int) int {
 	}
 	return line - shift
 }
+
+// ExpandedLine は、原文の行に対応する展開後の先頭の行を返す。
+func (e Expansion) ExpandedLine(original int) int {
+	if original < 1 {
+		return 0
+	}
+	shift := 0
+	for _, s := range e.spans {
+		if original <= e.Includes[s.index].Line {
+			break
+		}
+		shift += s.newlines
+	}
+	return original + shift
+}
 func (e Expansion) IsIncludedLine(line int) bool {
 	shift := 0
 	for _, s := range e.spans {

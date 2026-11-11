@@ -79,6 +79,7 @@ type Diagram struct {
 
 // Result は、描画の結果。HTML は消毒済み。
 type Result struct {
+	Source   SourceMap `json:"-"`
 	HTML     string    `json:"html"`
 	Headings []Heading `json:"headings"`
 	Includes []Include `json:"includes"`
