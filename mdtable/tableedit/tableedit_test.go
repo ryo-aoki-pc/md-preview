@@ -377,7 +377,7 @@ func TestSourceSafetyAndParent(t *testing.T) {
 }
 
 func TestConcurrentDocument(t *testing.T) {
-	d := tableedit.Parse("<table><tr><td>a</td><td>b</td></tr></table>")
+	d := tableedit.Parse("<table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>")
 	var wg sync.WaitGroup
 	for i := 0; i < 12; i++ {
 		wg.Go(func() {
@@ -388,6 +388,25 @@ func TestConcurrentDocument(t *testing.T) {
 				result, err := d.SetCells(tableedit.Target{Number: 1}, []tableedit.CellEdit{{Row: 0, Col: 0, Text: "変更"}})
 				if err != nil || !result.Changed {
 					t.Errorf("並行の編集: %v", err)
+				}
+				if _, err := d.Copy(tableedit.Target{Number: 1}, tableedit.Rect{Rows: 1, Cols: 2}); err != nil {
+					t.Errorf("並行の写し: %v", err)
+				}
+				for _, op := range []func() (*tableedit.Result, error){
+					func() (*tableedit.Result, error) { return d.DuplicateRows(tableedit.Target{Number: 1}, 0, 1) },
+					func() (*tableedit.Result, error) {
+						return d.MoveRows(tableedit.Target{Number: 1}, 0, 1, tableedit.Target{Number: 1}, 1, tableedit.After)
+					},
+					func() (*tableedit.Result, error) {
+						return d.MoveColumns(tableedit.Target{Number: 1}, 0, 1, tableedit.Target{Number: 1}, 1, tableedit.After)
+					},
+					func() (*tableedit.Result, error) {
+						return d.MoveCells(tableedit.Target{Number: 1}, tableedit.Rect{Rows: 1, Cols: 1}, tableedit.Target{Number: 1}, 0, 1)
+					},
+				} {
+					if _, err := op(); err != nil {
+						t.Errorf("並行の複製・移動: %v", err)
+					}
 				}
 			}
 		})

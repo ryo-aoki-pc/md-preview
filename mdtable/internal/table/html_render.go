@@ -47,6 +47,11 @@ type htmlEdit struct {
 
 // html_table._apply_edits に対応する元の行の接頭辞を保った差し替え。
 func applyHTMLEdits(r *Region, t *HTMLTable, edits []htmlEdit) ([]string, error) {
+	return applyHTMLEditsMapped(r, t, edits, nil)
+}
+
+// moved は移した行の新しい本文位置から、元のコンテナ接頭辞への対応。
+func applyHTMLEditsMapped(r *Region, t *HTMLTable, edits []htmlEdit, moved map[int]int) ([]string, error) {
 	text := t.Text
 	var lineStarts []int
 	position := 0
@@ -86,6 +91,9 @@ func applyHTMLEdits(r *Region, t *HTMLTable, edits []htmlEdit) ([]string, error)
 			}
 			survivors[start+delta] = index
 		}
+	}
+	for position, index := range moved {
+		survivors[position] = index
 	}
 	for i := len(edits) - 1; i >= 0; i-- {
 		e := edits[i]
