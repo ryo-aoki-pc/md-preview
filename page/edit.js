@@ -103,7 +103,15 @@
         element.checked = pending ? pending.checked : element.hasAttribute('checked');
       }
     }
+    // 切り替えたチェックボックスは、描き直しで別の要素になる。フォーカスがあったなら、また押せるようになったときに戻す。
+    if (refocus && mode && infoRender === preview.current()?.render) {
+      const element = refocus.parent.isConnected && refocus.parent.children[refocus.index];
+      if (checkboxOf(element) && !element.disabled && (document.activeElement === document.body || !document.activeElement?.isConnected))
+        element.focus({ preventScroll: true });
+      refocus = null;
+    }
   }
+  let refocus = null;
   function cancelSource() {
     sourceNumber++;
     sourceFetching?.abort();
@@ -798,8 +806,10 @@
   }
   toggle.addEventListener('click', () => setMode(!mode));
 
+  // ページと md-table-sticky の操作欄、本文の入力の部品は触らない。表のセルの中の入力（表の中のタスクのチェックボックス）は、セルの操作として扱う。
   const ignored = (element) => !element || window.__mdTableSticky?.picking ||
-    element.closest('#gp-controls, #gp-header, #gp-notices, #gp-outline, input, textarea, select, button, [contenteditable], [data-md-table-sticky-bar], [data-md-table-sticky-search], [data-md-table-sticky-columns]');
+    element.closest('#gp-controls, #gp-header, #gp-notices, #gp-outline, [data-md-table-sticky-bar], [data-md-table-sticky-search], [data-md-table-sticky-columns]') ||
+    (!element.closest('td, th') && element.closest('input, textarea, select, button, [contenteditable]'));
   let down = null;
   let dragged = false;
   // 登録は一度だけ。全幅表示を開いたときに登録される Esc の受け手より先に動かす。
@@ -819,8 +829,10 @@
       event.stopPropagation();
       if (editor) endEdit(true);
       clearSelection();
+      const index = Array.prototype.indexOf.call(checkbox.parentElement.children, checkbox);
+      if (document.activeElement === checkbox) refocus = { parent: checkbox.parentElement, index };
       enqueue({ point: { range: checkbox.getAttribute('data-checkbox-sourcepos') }, checkbox,
-        checkboxParent: checkbox.parentElement, checkboxIndex: Array.prototype.indexOf.call(checkbox.parentElement.children, checkbox),
+        checkboxParent: checkbox.parentElement, checkboxIndex: index,
         checked: checkbox.checked, originalChecked: !checkbox.checked });
       return;
     }
@@ -831,7 +843,8 @@
     const element = event.target.closest?.('td, th');
     const cell = element && byCell.get(element);
     // 編集モードでは、原文を直せるブロックの中のリンクで移動しない（ページ内の移動も。ダブルクリックで直すため）。
-    if (event.target.closest?.('a') && blockOf(event.target)) {
+    // Ctrl・Shift などを押しながらのクリック（新しいタブで開く）は、ブラウザに任せる。
+    if (!(event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) && event.target.closest?.('a') && blockOf(event.target)) {
       event.preventDefault();
       event.stopPropagation();
     }

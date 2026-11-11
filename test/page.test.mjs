@@ -1058,6 +1058,15 @@ test('ブロックの原文とタスクを画面で編集し、ファイルの�
     await page.keyboard.press('Space');
     await editIdle(page);
     assert.equal(readFileSync(file, 'utf8'), original);
+    // 切り替えで要素が入れ替わっても、フォーカスは同じチェックボックスへ戻る（キーで続けて操作できる）。
+    await page.waitForFunction(() => document.activeElement?.matches('input.task-list-item-checkbox[data-checkbox-sourcepos]'));
+    await page.keyboard.press('Space');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original.replace('[ ]', '[x]'));
+    await page.waitForFunction(() => document.activeElement?.matches('input.task-list-item-checkbox[data-checkbox-sourcepos]'));
+    await page.keyboard.press('Space');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original);
     const excluded = page.locator('#gp-content input[data-inapplicable]');
     assert.equal(await excluded.isDisabled(), true);
     await excluded.dispatchEvent('click');
@@ -1215,8 +1224,13 @@ test('ブロックの原文とタスクを画面で編集し、ファイルの�
     assert.equal(await page.locator('#gp-edit-input').inputValue(), malicious);
     assert.equal(await page.locator('#gp-edit-input').isVisible(), true);
     assert.equal(await page.locator('#gp-edit-status img').count(), 0);
-    await page.keyboard.press('Escape');
+    // 断られて開き直した入力を直して確定すると、そのまま送られる。
     await page.unroute('**/_/edit');
+    await page.locator('#gp-edit-input').fill('直した入力。');
+    await page.keyboard.press('Control+Enter');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '直した入力。\n');
+    assert.equal(await page.locator('#gp-edit-input').isVisible(), false);
     await open(page, page.locator('#gp-content p'));
     await page.locator('#gp-edit-input').fill('画面の変更');
     writeFileSync(file, '外の変更。\n');
@@ -1233,6 +1247,46 @@ test('ブロックの原文とタスクを画面で編集し、ファイルの�
     await page.waitForFunction(() => window.gpPreview.current().rev === 21);
     await page.keyboard.press('Control+Enter');
     assert.equal(readFileSync(file, 'utf8'), 'もう一度外の変更。\n');
+  });
+
+  await t.test('ブロックの確定とチェックを順に送り、表の中のチェックボックスはセルを選び、修飾キーのリンクは止めない', async (t) => {
+    // 開いた入力欄がチェックボックスに重ならないよう、間に段落を置く。
+    const original = '段落と[リンク](#x)。\n\n間の段落 1。\n\n間の段落 2。\n\n- [ ] 作業\n\n<table><tr><td>\n\n- [x] 済み\n\n</td></tr></table>\n';
+    const { page, file } = await editablePage(t, browser, original);
+    const sent = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/_/edit')) sent.push(request.postDataJSON());
+    });
+    // 開いたブロックの入力は、チェックボックスを押したときに確定し、続けてチェックを送る。
+    await open(page, page.locator('#gp-content > p').first(), '段落と[リンク](#x)。');
+    await page.locator('#gp-edit-input').fill('直した段落と[リンク](#x)。');
+    await page.locator('#gp-content > ul li input').click();
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original.replace('段落と', '直した段落と').replace('- [ ]', '- [x]'));
+    assert.deepEqual(sent.map((body) => (body.range ? 'range' : body.checkbox ? 'checkbox' : 'table')), ['range', 'checkbox']);
+    assert.ok(sent[1].render > sent[0].render);
+    // 表のセルの中のチェックボックスは切り替えの対象にせず、押すとセルを選ぶ（セルの編集で直す）。
+    const inCell = page.locator('#gp-content td input');
+    assert.equal(await inCell.count(), 1, '表のセルにチェックボックスが描かれる');
+    assert.equal(await inCell.isDisabled(), true);
+    await inCell.dispatchEvent('click');
+    assert.equal(await page.locator('#gp-edit-selection').isVisible(), true);
+    assert.equal(sent.length, 2);
+    await page.keyboard.press('Escape');
+    // 編集モードでは段落の中のリンクで移動しないが、Ctrl を押しながらのクリックはブラウザに任せる。
+    await page.evaluate(() => {
+      window.linkClicks = [];
+      window.addEventListener('click', (event) => {
+        if (!event.target.closest?.('#gp-content a')) return;
+        window.linkClicks.push(event.ctrlKey + ':' + event.defaultPrevented);
+        event.preventDefault();
+      });
+    });
+    const link = page.locator('#gp-content > p a').first();
+    await link.click();
+    await link.click({ modifiers: ['Control'] });
+    assert.deepEqual(await page.evaluate(() => window.linkClicks), ['true:false']);
+    assert.equal(new URL(page.url()).hash, '');
   });
 
   await t.test('修飾キー・文字の選択・編集指定なしではブロックの原文を開かない', async (t) => {
