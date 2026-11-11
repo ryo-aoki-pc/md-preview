@@ -116,6 +116,40 @@ func TestBufferOperations(t *testing.T) {
 	}
 }
 
+func TestBufferFragmentOperations(t *testing.T) {
+	e := testEngine(t)
+	for _, kind := range []string{"duplicateRows", "moveRows"} {
+		t.Run(kind, func(t *testing.T) {
+			text := pipeTable + "\n間の段落\n\n" + pipeTable
+			s, h, sent := bufferService(t, e, text)
+			info := getTables(t, s, h)
+			op := map[string]any{"type": kind, "row": 1, "count": 1}
+			table := 0
+			want := pipeTable + "| 本文 | 値 |\n\n間の段落\n\n" + pipeTable
+			if kind == "moveRows" {
+				table = 1
+				delete(op, "count")
+				op["side"] = "after"
+				op["from"] = moveFrom(info, 0, map[string]any{"row": 1, "count": 1})
+				want = "| 見出し | 二列 |\n| :--- | ---: |\n\n間の段落\n\n" + pipeTable + "| 本文 | 値 |\n"
+			}
+			_, err := s.Apply(context.Background(), nil, jsonObject(t, map[string]any{"render": 1, "table": table, "op": op}))
+			if err != nil || len(*sent) != 1 {
+				t.Fatal(err, *sent)
+			}
+			r := (*sent)[0]
+			lines := bufferLines(text)
+			lines = append(append(append([]string{}, lines[:r.Start]...), r.Lines...), lines[r.End:]...)
+			if strings.Join(lines, "\n")+"\n" != want {
+				t.Fatalf("置換=%+v、期待=%q", r, want)
+			}
+			if kind == "moveRows" && r.End-r.Start < 5 {
+				t.Fatal("表の間を含む一個の置換でない")
+			}
+		})
+	}
+}
+
 func TestBufferUnchangedAndRejection(t *testing.T) {
 	e := testEngine(t)
 	for _, c := range []struct{ text, body string }{

@@ -2,6 +2,7 @@ package edit
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -35,6 +36,61 @@ func TestInvalidRequestsDoNotWrite(t *testing.T) {
 		}
 	}
 	if disk(t, h) != pipeTable {
+		t.Fatal("不正な要求を書き込んだ")
+	}
+}
+
+func TestInvalidFragmentRequestsDoNotWrite(t *testing.T) {
+	e := testEngine(t)
+	s, h := testService(t, e, pipeTable, nil)
+	f, err := tableedit.ValuesFragment([][]string{{"値"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := jsonObject(t, f)
+	mutations := []func(map[string]any){
+		func(m map[string]any) { m["unknown"] = true },
+		func(m map[string]any) { m["rows"] = "1" },
+		func(m map[string]any) { m["rows"] = 0 },
+		func(m map[string]any) { m["rows"] = 1001 },
+		func(m map[string]any) { m["cols"] = 1001 },
+		func(m map[string]any) { m["rows"], m["cols"] = 73, 137 },
+		func(m map[string]any) { m["row_tags"] = []any{"<tr>", "<tr>"} },
+		func(m map[string]any) { m["delimiters"] = []any{true} },
+		func(m map[string]any) { m["cells"] = true },
+		func(m map[string]any) { m["cells"].([]any)[0].(map[string]any)["unknown"] = true },
+		func(m map[string]any) { m["cells"].([]any)[0].(map[string]any)["row"] = false },
+		func(m map[string]any) { m["cells"].([]any)[0].(map[string]any)["source"] = 3 },
+	}
+	for i, mutate := range mutations {
+		m := jsonObject(t, valid)
+		mutate(m)
+		_, err := s.Apply(context.Background(), nil, jsonObject(t, map[string]any{"render": 1, "table": 0, "op": map[string]any{"type": "pasteFragment", "row": 1, "col": 0, "fragment": m}}))
+		if err == nil || err.Status != 400 {
+			t.Errorf("写し%d: %v", i, err)
+		}
+	}
+	from := `{"table":0,"row":1,"count":1,"render":1,"hash":"` + strings.Repeat("a", 64) + `","origin":"` + strings.Repeat("b", 32) + `"}`
+	for _, op := range []string{
+		`{"type":"duplicateRows","row":0,"count":0}`,
+		`{"type":"duplicateColumns","col":0,"count":1001}`,
+		`{"type":"insertRowsFrom","row":0,"side":"over","values":[["x"]]}`,
+		`{"type":"insertRowsFrom","row":0,"side":"after","values":[["x"]],"fragment":{}}`,
+		`{"type":"insertColumnsFrom","col":0,"side":"before","fragment":false}`,
+		`{"type":"pasteFragment","row":0,"col":0,"fragment":"{}"}`,
+		`{"type":"moveRows","row":1,"side":"after","from":` + strings.Replace(from, `"hash":"`+strings.Repeat("a", 64)+`",`, "", 1) + `}`,
+		`{"type":"moveRows","row":1,"side":"after","from":` + strings.Replace(from, strings.Repeat("a", 64), strings.Repeat("a", 63), 1) + `}`,
+		`{"type":"moveRows","row":1,"side":"after","from":` + strings.Replace(from, strings.Repeat("b", 32), strings.Repeat("z", 32), 1) + `}`,
+		`{"type":"moveRows","row":1,"side":"after","from":` + strings.Replace(from, `"count":1`, `"count":1001`, 1) + `}`,
+		`{"type":"moveRows","row":1,"side":"after","from":` + strings.Replace(from, `"table":0`, `"table":0,"unknown":true`, 1) + `}`,
+		`{"type":"moveCells","row":0,"col":0,"from":{"table":0,"row":0,"col":0,"rows":101,"cols":100,"render":1,"hash":"` + strings.Repeat("a", 64) + `","origin":"` + strings.Repeat("b", 32) + `"}}`,
+		`{"type":"insertRowsFrom","row":0,"side":"after","values":[` + strings.TrimSuffix(strings.Repeat(`["x"],`, 1001), ",") + `]}`,
+	} {
+		if _, err := applyJSON(t, s, h, fmt.Sprintf(`{"table":0,"op":%s}`, op)); err == nil || err.Status != 400 {
+			t.Errorf("%s: %v", op, err)
+		}
+	}
+	if disk(t, h) != pipeTable || len(s.history.documents) != 0 {
 		t.Fatal("不正な要求を書き込んだ")
 	}
 }
@@ -116,7 +172,7 @@ func TestTableErrorStatuses(t *testing.T) {
 	for _, c := range []struct {
 		code   string
 		status int
-	}{{"stale", 409}, {"invalid", 422}, {"internal", 500}, {"write", 500}} {
+	}{{"stale", 409}, {"invalid", 422}, {"merged", 422}, {"range", 422}, {"unsupported", 422}, {"excluded", 422}, {"verify", 422}, {"internal", 500}, {"write", 500}} {
 		e := tableError(&tableedit.Error{Code: c.code, Message: "日本語の誤り"})
 		if e.Status != c.status || e.Code != c.code || e.Message != "日本語の誤り" {
 			t.Fatal(e)

@@ -33,6 +33,8 @@ type operation struct {
 	cells           []tableedit.CellEdit
 	values          [][]string
 	source          string
+	fragment        *tableedit.Fragment
+	from            moveSource
 }
 
 func integer(v any, min int) (int, bool) {
@@ -168,28 +170,87 @@ func parseOperation(m map[string]any) (operation, *Error) {
 		}
 		o.row = get("row", 0)
 		o.col = get("col", 0)
-		rows, valid := m["values"].([]any)
-		if !valid {
+		var e *Error
+		o.values, e = parseValues(m["values"])
+		if e != nil {
+			return o, e
+		}
+	case "duplicateRows", "duplicateColumns":
+		axis := "row"
+		if o.kind == "duplicateColumns" {
+			axis = "col"
+		}
+		if !fields(m, "type", axis, "count") {
 			return o, invalid()
 		}
-		total := 0
-		for _, value := range rows {
-			row, valid := value.([]any)
-			if !valid {
+		if axis == "row" {
+			o.row = get(axis, 0)
+		} else {
+			o.col = get(axis, 0)
+		}
+		o.count = get("count", 1)
+		ok = ok && o.count <= maxOperationCount
+	case "insertRowsFrom", "insertColumnsFrom", "pasteFragment", "moveRows", "moveColumns", "moveCells":
+		names := []string{"type"}
+		if o.kind != "insertColumnsFrom" && o.kind != "moveColumns" {
+			names = append(names, "row")
+			o.row = get("row", 0)
+		}
+		if o.kind != "insertRowsFrom" && o.kind != "moveRows" {
+			names = append(names, "col")
+			o.col = get("col", 0)
+		}
+		if o.kind != "pasteFragment" && o.kind != "moveCells" {
+			names = append(names, "side")
+			switch m["side"] {
+			case "before":
+				o.side = tableedit.Before
+			case "after":
+				o.side = tableedit.After
+			default:
 				return o, invalid()
 			}
-			out := []string{}
-			for _, item := range row {
-				text, valid := stringValue(item)
-				if !valid {
-					return o, invalid()
+		}
+		var e *Error
+		switch o.kind {
+		case "moveRows", "moveColumns", "moveCells":
+			names = append(names, "from")
+			if !fields(m, names...) {
+				return o, invalid()
+			}
+			o.from, e = parseFrom(m["from"], o.kind)
+		default:
+			name := "fragment"
+			if _, exists := m["values"]; exists && o.kind != "pasteFragment" {
+				name = "values"
+			}
+			names = append(names, name)
+			if !fields(m, names...) {
+				return o, invalid()
+			}
+			if name == "fragment" {
+				o.fragment, e = parseFragment(m[name])
+			} else {
+				o.values, e = parseValues(m[name])
+				if e == nil {
+					if len(o.values) == 0 || !fragmentDimensions(len(o.values), len(o.values[0])) {
+						return o, invalid()
+					}
+					for _, row := range o.values {
+						if len(row) > maxOperationCount {
+							return o, invalid()
+						}
+					}
+					var err error
+					o.fragment, err = tableedit.ValuesFragment(o.values)
+					if err != nil {
+						e = tableError(err)
+					}
 				}
-				out = append(out, text)
 			}
-			o.values = append(o.values, out)
-			if total += len(out); total > maxOperationCells {
-				return o, invalid()
-			}
+		}
+		if e != nil {
+			return o, e
 		}
 	case "setSource":
 		if !fields(m, "type", "row", "col", "source") {
@@ -238,8 +299,11 @@ func parseOperation(m map[string]any) (operation, *Error) {
 	}
 	return o, nil
 }
-func (o operation) apply(ctx context.Context, d *tableedit.Document, t tableedit.Target) (*tableedit.Result, error) {
-	if o.count > 0 {
+func (o operation) apply(ctx context.Context, d *tableedit.Document, t tableedit.Target, source func(moveSource) (tableedit.Target, *Error)) (*tableedit.Result, error) {
+	if ctx.Err() != nil {
+		return nil, fault(422, "cancelled", "表の編集を取り消しました。")
+	}
+	if o.count > 0 && (o.kind == "insertRows" || o.kind == "insertColumns" || o.kind == "deleteRows" || o.kind == "deleteColumns") {
 		// 公開の表操作は途中の取り消しを受けないため、1 個ずつ呼んで期限も確認する。
 		var result *tableedit.Result
 		warnings := []string{}
@@ -256,7 +320,7 @@ func (o operation) apply(ctx context.Context, d *tableedit.Document, t tableedit
 				one.col += i
 			}
 			var err error
-			result, err = one.apply(ctx, d, t)
+			result, err = one.apply(ctx, d, t, source)
 			if err != nil {
 				return nil, err
 			}
@@ -296,6 +360,29 @@ func (o operation) apply(ctx context.Context, d *tableedit.Document, t tableedit
 		return d.DeleteColumns(t, o.col, 1)
 	case "setSource":
 		return d.SetCellSource(t, o.row, o.col, o.source)
+	case "duplicateRows":
+		return d.DuplicateRows(t, o.row, o.count)
+	case "duplicateColumns":
+		return d.DuplicateColumns(t, o.col, o.count)
+	case "insertRowsFrom":
+		return d.InsertRowsFrom(t, o.row, o.side, o.fragment)
+	case "insertColumnsFrom":
+		return d.InsertColumnsFrom(t, o.col, o.side, o.fragment)
+	case "pasteFragment":
+		return d.PasteFragment(t, o.row, o.col, o.fragment)
+	case "moveRows", "moveColumns", "moveCells":
+		from, e := source(o.from)
+		if e != nil {
+			return nil, e
+		}
+		switch o.kind {
+		case "moveRows":
+			return d.MoveRows(from, o.from.row, o.from.count, t, o.row, o.side)
+		case "moveColumns":
+			return d.MoveColumns(from, o.from.col, o.from.count, t, o.col, o.side)
+		case "moveCells":
+			return d.MoveCells(from, tableedit.Rect{Row: o.from.row, Col: o.from.col, Rows: o.from.rows, Cols: o.from.cols}, t, o.row, o.col)
+		}
 	}
 	return nil, invalid()
 }

@@ -10,6 +10,8 @@ github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUq
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
 github.com/ryo-aoki-pc/md-table-excel v0.7.0 h1:1g9g7siFOtQb4BScQMNz0mve4idFHheljtj1PcRmrnI=
 github.com/ryo-aoki-pc/md-table-excel v0.7.0/go.mod h1:6L9Kvkb5kx17uUd7aVsutE0zjNDU5sDxXHDg/U0RSIM=
+github.com/ryo-aoki-pc/md-table-excel v0.8.0 h1:9S0dmveOGORmKpO2JcslCehX+GpLiB/BUXrv+UqmPYw=
+github.com/ryo-aoki-pc/md-table-excel v0.8.0/go.mod h1:6L9Kvkb5kx17uUd7aVsutE0zjNDU5sDxXHDg/U0RSIM=
 github.com/tetratelabs/wazero v1.12.0 h1:DuWcpNu/FzgEXgGBDp8J1Spc+CWOvvtvVyjKlaZopYU=
 github.com/tetratelabs/wazero v1.12.0/go.mod h1:LvKtzl2RqO4gyF27BiXU+nKAjcV8f38U+kP/q2vgxh0=
 golang.org/x/net v0.62.0 h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY=

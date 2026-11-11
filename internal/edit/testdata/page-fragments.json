@@ -1,0 +1,1998 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "パイプ全体",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "pipe",
+        "editable": true,
+        "reason": "",
+        "rows": 2,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "left",
+            "text": "見出し",
+            "raw": false,
+            "source": "見出し",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "right",
+            "text": "二列",
+            "raw": false,
+            "source": "二列",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "left",
+            "text": "本文",
+            "raw": false,
+            "source": "本文",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "right",
+            "text": "値",
+            "raw": false,
+            "source": "値",
+            "tag": "",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
+        "rowTags": [],
+        "delimiters": [
+          ":---",
+          "---:"
+        ],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 0,
+        "col": 0,
+        "rows": 2,
+        "cols": 2
+      },
+      "shape": "table",
+      "fragment": {
+        "version": 1,
+        "kind": "pipe",
+        "shape": "table",
+        "rows": 2,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "見出し"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "二列"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "本文"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "値"
+          }
+        ],
+        "row_tags": [],
+        "delimiters": [
+          ":---",
+          "---:"
+        ]
+      }
+    },
+    {
+      "name": "パイプデータ行",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "pipe",
+        "editable": true,
+        "reason": "",
+        "rows": 2,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "left",
+            "text": "見出し",
+            "raw": false,
+            "source": "見出し",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "right",
+            "text": "二列",
+            "raw": false,
+            "source": "二列",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "left",
+            "text": "本文",
+            "raw": false,
+            "source": "本文",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "right",
+            "text": "値",
+            "raw": false,
+            "source": "値",
+            "tag": "",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
+        "rowTags": [],
+        "delimiters": [
+          ":---",
+          "---:"
+        ],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 1,
+        "col": 0,
+        "rows": 1,
+        "cols": 2
+      },
+      "shape": "rows",
+      "fragment": {
+        "version": 1,
+        "kind": "pipe",
+        "shape": "rows",
+        "rows": 1,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "本文"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "値"
+          }
+        ],
+        "row_tags": [],
+        "delimiters": [
+          ":---",
+          "---:"
+        ]
+      }
+    },
+    {
+      "name": "パイプ一列",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "pipe",
+        "editable": true,
+        "reason": "",
+        "rows": 2,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "left",
+            "text": "見出し",
+            "raw": false,
+            "source": "見出し",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "right",
+            "text": "二列",
+            "raw": false,
+            "source": "二列",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "left",
+            "text": "本文",
+            "raw": false,
+            "source": "本文",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "right",
+            "text": "値",
+            "raw": false,
+            "source": "値",
+            "tag": "",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
+        "rowTags": [],
+        "delimiters": [
+          ":---",
+          "---:"
+        ],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 0,
+        "col": 1,
+        "rows": 2,
+        "cols": 1
+      },
+      "shape": "cols",
+      "fragment": {
+        "version": 1,
+        "kind": "pipe",
+        "shape": "cols",
+        "rows": 2,
+        "cols": 1,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "二列"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "値"
+          }
+        ],
+        "row_tags": [],
+        "delimiters": [
+          "---:"
+        ]
+      }
+    },
+    {
+      "name": "パイプ一セル",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "pipe",
+        "editable": true,
+        "reason": "",
+        "rows": 2,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "left",
+            "text": "見出し",
+            "raw": false,
+            "source": "見出し",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "right",
+            "text": "二列",
+            "raw": false,
+            "source": "二列",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "left",
+            "text": "本文",
+            "raw": false,
+            "source": "本文",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "right",
+            "text": "値",
+            "raw": false,
+            "source": "値",
+            "tag": "",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
+        "rowTags": [],
+        "delimiters": [
+          ":---",
+          "---:"
+        ],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 1,
+        "col": 1,
+        "rows": 1,
+        "cols": 1
+      },
+      "shape": "cells",
+      "fragment": {
+        "version": 1,
+        "kind": "pipe",
+        "shape": "cells",
+        "rows": 1,
+        "cols": 1,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "値"
+          }
+        ],
+        "row_tags": [],
+        "delimiters": [
+          "---:"
+        ]
+      }
+    },
+    {
+      "name": "引用の中",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "pipe",
+        "editable": true,
+        "reason": "",
+        "rows": 2,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "left",
+            "text": "見出し",
+            "raw": false,
+            "source": "見出し",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "right",
+            "text": "二列",
+            "raw": false,
+            "source": "二列",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "left",
+            "text": "本文",
+            "raw": false,
+            "source": "本文",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "right",
+            "text": "値",
+            "raw": false,
+            "source": "値",
+            "tag": "",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
+        "rowTags": [],
+        "delimiters": [
+          ":---",
+          "---:"
+        ],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 0,
+        "col": 0,
+        "rows": 2,
+        "cols": 2
+      },
+      "shape": "table",
+      "fragment": {
+        "version": 1,
+        "kind": "pipe",
+        "shape": "table",
+        "rows": 2,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "見出し"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "二列"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "本文"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "値"
+          }
+        ],
+        "row_tags": [],
+        "delimiters": [
+          ":---",
+          "---:"
+        ]
+      }
+    },
+    {
+      "name": "リストの中",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "pipe",
+        "editable": true,
+        "reason": "",
+        "rows": 2,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "left",
+            "text": "見出し",
+            "raw": false,
+            "source": "見出し",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "right",
+            "text": "二列",
+            "raw": false,
+            "source": "二列",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "left",
+            "text": "本文",
+            "raw": false,
+            "source": "本文",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "right",
+            "text": "値",
+            "raw": false,
+            "source": "値",
+            "tag": "",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
+        "rowTags": [],
+        "delimiters": [
+          ":---",
+          "---:"
+        ],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 0,
+        "col": 0,
+        "rows": 2,
+        "cols": 2
+      },
+      "shape": "table",
+      "fragment": {
+        "version": 1,
+        "kind": "pipe",
+        "shape": "table",
+        "rows": 2,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "見出し"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "二列"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "本文"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "値"
+          }
+        ],
+        "row_tags": [],
+        "delimiters": [
+          ":---",
+          "---:"
+        ]
+      }
+    },
+    {
+      "name": "CRLF",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "pipe",
+        "editable": true,
+        "reason": "",
+        "rows": 2,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "left",
+            "text": "見出し",
+            "raw": false,
+            "source": "見出し",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "right",
+            "text": "二列",
+            "raw": false,
+            "source": "二列",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "left",
+            "text": "本文",
+            "raw": false,
+            "source": "本文",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "right",
+            "text": "値",
+            "raw": false,
+            "source": "値",
+            "tag": "",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
+        "rowTags": [],
+        "delimiters": [
+          ":---",
+          "---:"
+        ],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 0,
+        "col": 0,
+        "rows": 2,
+        "cols": 2
+      },
+      "shape": "table",
+      "fragment": {
+        "version": 1,
+        "kind": "pipe",
+        "shape": "table",
+        "rows": 2,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "見出し"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "二列"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "本文"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "値"
+          }
+        ],
+        "row_tags": [],
+        "delimiters": [
+          ":---",
+          "---:"
+        ]
+      }
+    },
+    {
+      "name": "HTML属性区画結合原文",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "html",
+        "editable": true,
+        "reason": "",
+        "rows": 3,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "A",
+            "raw": false,
+            "source": "A",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "B",
+            "raw": false,
+            "source": "B",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "**複雑**",
+            "raw": true,
+            "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
+            "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "B\u0026C",
+            "raw": true,
+            "source": "B\u0026amp;C",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "*後*",
+            "raw": true,
+            "source": "\u003cem\u003e後\u003c/em\u003e",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
+        "rowTags": [
+          "\u003ctr class='見出し'\u003e",
+          "\u003ctr data-x=\"行\"\u003e",
+          "\u003ctr\u003e"
+        ],
+        "delimiters": [],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 0,
+        "col": 0,
+        "rows": 3,
+        "cols": 2
+      },
+      "shape": "table",
+      "fragment": {
+        "version": 1,
+        "kind": "html",
+        "shape": "table",
+        "rows": 3,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003cth\u003e",
+            "source": "A"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003cth\u003e",
+            "source": "B"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
+            "source": "\u003cstrong\u003e複雑\u003c/strong\u003e"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd\u003e",
+            "source": "B\u0026amp;C"
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd\u003e",
+            "source": "\u003cem\u003e後\u003c/em\u003e"
+          }
+        ],
+        "row_tags": [
+          "\u003ctr class='見出し'\u003e",
+          "\u003ctr data-x=\"行\"\u003e",
+          "\u003ctr\u003e"
+        ],
+        "delimiters": []
+      }
+    },
+    {
+      "name": "HTML結合の行",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "html",
+        "editable": true,
+        "reason": "",
+        "rows": 3,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "A",
+            "raw": false,
+            "source": "A",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "B",
+            "raw": false,
+            "source": "B",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "**複雑**",
+            "raw": true,
+            "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
+            "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "B\u0026C",
+            "raw": true,
+            "source": "B\u0026amp;C",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "*後*",
+            "raw": true,
+            "source": "\u003cem\u003e後\u003c/em\u003e",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
+        "rowTags": [
+          "\u003ctr class='見出し'\u003e",
+          "\u003ctr data-x=\"行\"\u003e",
+          "\u003ctr\u003e"
+        ],
+        "delimiters": [],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 1,
+        "col": 0,
+        "rows": 2,
+        "cols": 2
+      },
+      "shape": "rows",
+      "fragment": {
+        "version": 1,
+        "kind": "html",
+        "shape": "rows",
+        "rows": 2,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
+            "source": "\u003cstrong\u003e複雑\u003c/strong\u003e"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd\u003e",
+            "source": "B\u0026amp;C"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd\u003e",
+            "source": "\u003cem\u003e後\u003c/em\u003e"
+          }
+        ],
+        "row_tags": [
+          "\u003ctr data-x=\"行\"\u003e",
+          "\u003ctr\u003e"
+        ],
+        "delimiters": []
+      }
+    },
+    {
+      "name": "HTML引用の中",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "html",
+        "editable": true,
+        "reason": "",
+        "rows": 3,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "A",
+            "raw": false,
+            "source": "A",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "B",
+            "raw": false,
+            "source": "B",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "**複雑**",
+            "raw": true,
+            "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
+            "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "B\u0026C",
+            "raw": true,
+            "source": "B\u0026amp;C",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "*後*",
+            "raw": true,
+            "source": "\u003cem\u003e後\u003c/em\u003e",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
+        "rowTags": [
+          "\u003ctr class='見出し'\u003e",
+          "\u003ctr data-x=\"行\"\u003e",
+          "\u003ctr\u003e"
+        ],
+        "delimiters": [],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 0,
+        "col": 0,
+        "rows": 3,
+        "cols": 2
+      },
+      "shape": "table",
+      "fragment": {
+        "version": 1,
+        "kind": "html",
+        "shape": "table",
+        "rows": 3,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003cth\u003e",
+            "source": "A"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003cth\u003e",
+            "source": "B"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
+            "source": "\u003cstrong\u003e複雑\u003c/strong\u003e"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd\u003e",
+            "source": "B\u0026amp;C"
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd\u003e",
+            "source": "\u003cem\u003e後\u003c/em\u003e"
+          }
+        ],
+        "row_tags": [
+          "\u003ctr class='見出し'\u003e",
+          "\u003ctr data-x=\"行\"\u003e",
+          "\u003ctr\u003e"
+        ],
+        "delimiters": []
+      }
+    },
+    {
+      "name": "HTMLリストの中",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "html",
+        "editable": true,
+        "reason": "",
+        "rows": 3,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "A",
+            "raw": false,
+            "source": "A",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "B",
+            "raw": false,
+            "source": "B",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "**複雑**",
+            "raw": true,
+            "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
+            "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "B\u0026C",
+            "raw": true,
+            "source": "B\u0026amp;C",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "*後*",
+            "raw": true,
+            "source": "\u003cem\u003e後\u003c/em\u003e",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
+        "rowTags": [
+          "\u003ctr class='見出し'\u003e",
+          "\u003ctr data-x=\"行\"\u003e",
+          "\u003ctr\u003e"
+        ],
+        "delimiters": [],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 0,
+        "col": 0,
+        "rows": 3,
+        "cols": 2
+      },
+      "shape": "table",
+      "fragment": {
+        "version": 1,
+        "kind": "html",
+        "shape": "table",
+        "rows": 3,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003cth\u003e",
+            "source": "A"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003cth\u003e",
+            "source": "B"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
+            "source": "\u003cstrong\u003e複雑\u003c/strong\u003e"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd\u003e",
+            "source": "B\u0026amp;C"
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd\u003e",
+            "source": "\u003cem\u003e後\u003c/em\u003e"
+          }
+        ],
+        "row_tags": [
+          "\u003ctr class='見出し'\u003e",
+          "\u003ctr data-x=\"行\"\u003e",
+          "\u003ctr\u003e"
+        ],
+        "delimiters": []
+      }
+    },
+    {
+      "name": "HTMLのCRLF",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "html",
+        "editable": true,
+        "reason": "",
+        "rows": 3,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "A",
+            "raw": false,
+            "source": "A",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "B",
+            "raw": false,
+            "source": "B",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "**複雑**",
+            "raw": true,
+            "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
+            "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "B\u0026C",
+            "raw": true,
+            "source": "B\u0026amp;C",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "*後*",
+            "raw": true,
+            "source": "\u003cem\u003e後\u003c/em\u003e",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
+        "rowTags": [
+          "\u003ctr class='見出し'\u003e",
+          "\u003ctr data-x=\"行\"\u003e",
+          "\u003ctr\u003e"
+        ],
+        "delimiters": [],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 0,
+        "col": 0,
+        "rows": 3,
+        "cols": 2
+      },
+      "shape": "table",
+      "fragment": {
+        "version": 1,
+        "kind": "html",
+        "shape": "table",
+        "rows": 3,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003cth\u003e",
+            "source": "A"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003cth\u003e",
+            "source": "B"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
+            "source": "\u003cstrong\u003e複雑\u003c/strong\u003e"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd\u003e",
+            "source": "B\u0026amp;C"
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd\u003e",
+            "source": "\u003cem\u003e後\u003c/em\u003e"
+          }
+        ],
+        "row_tags": [
+          "\u003ctr class='見出し'\u003e",
+          "\u003ctr data-x=\"行\"\u003e",
+          "\u003ctr\u003e"
+        ],
+        "delimiters": []
+      }
+    },
+    {
+      "name": "HTML一部の列",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "html",
+        "editable": true,
+        "reason": "",
+        "rows": 3,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "A",
+            "raw": false,
+            "source": "A",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "B",
+            "raw": false,
+            "source": "B",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "**複雑**",
+            "raw": true,
+            "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
+            "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "B\u0026C",
+            "raw": true,
+            "source": "B\u0026amp;C",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "*後*",
+            "raw": true,
+            "source": "\u003cem\u003e後\u003c/em\u003e",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
+        "rowTags": [
+          "\u003ctr class='見出し'\u003e",
+          "\u003ctr data-x=\"行\"\u003e",
+          "\u003ctr\u003e"
+        ],
+        "delimiters": [],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 1,
+        "col": 1,
+        "rows": 2,
+        "cols": 1
+      },
+      "shape": "cells",
+      "fragment": {
+        "version": 1,
+        "kind": "html",
+        "shape": "cells",
+        "rows": 2,
+        "cols": 1,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd\u003e",
+            "source": "B\u0026amp;C"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "\u003ctd\u003e",
+            "source": "\u003cem\u003e後\u003c/em\u003e"
+          }
+        ],
+        "row_tags": [],
+        "delimiters": []
+      }
+    },
+    {
+      "name": "HTML結合を切る",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "html",
+        "editable": true,
+        "reason": "",
+        "rows": 3,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "A",
+            "raw": false,
+            "source": "A",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "B",
+            "raw": false,
+            "source": "B",
+            "tag": "\u003cth\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "**複雑**",
+            "raw": true,
+            "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
+            "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "B\u0026C",
+            "raw": true,
+            "source": "B\u0026amp;C",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "align": "",
+            "text": "*後*",
+            "raw": true,
+            "source": "\u003cem\u003e後\u003c/em\u003e",
+            "tag": "\u003ctd\u003e",
+            "copyLocked": ""
+          }
+        ],
+        "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
+        "rowTags": [
+          "\u003ctr class='見出し'\u003e",
+          "\u003ctr data-x=\"行\"\u003e",
+          "\u003ctr\u003e"
+        ],
+        "delimiters": [],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 1,
+        "col": 0,
+        "rows": 1,
+        "cols": 2
+      },
+      "shape": "cells",
+      "fragment": null
+    },
+    {
+      "name": "写せないセル",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "pipe",
+        "editable": true,
+        "reason": "",
+        "rows": 1,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "good",
+            "raw": false,
+            "source": "good",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "tail\\",
+            "raw": false,
+            "source": "tail\\",
+            "tag": "",
+            "copyLocked": "このセルの原文は写しとして受け取れない（写しの 1 行 1 列: パイプのセルの原文が区切りを消す）"
+          }
+        ],
+        "hash": "16837ff7a430723b26bd60fd2a7a467f4683cf76bc46cd1e478b401fab28641b",
+        "rowTags": [],
+        "delimiters": [
+          "---",
+          "---"
+        ],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 0,
+        "col": 0,
+        "rows": 1,
+        "cols": 2
+      },
+      "shape": "cells",
+      "fragment": null
+    },
+    {
+      "name": "写せないセルの隣",
+      "table": {
+        "index": 0,
+        "number": 1,
+        "kind": "pipe",
+        "editable": true,
+        "reason": "",
+        "rows": 1,
+        "cols": 2,
+        "rowsLocked": "",
+        "colsLocked": "",
+        "warnings": [],
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "good",
+            "raw": false,
+            "source": "good",
+            "tag": "",
+            "copyLocked": ""
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": true,
+            "align": "",
+            "text": "tail\\",
+            "raw": false,
+            "source": "tail\\",
+            "tag": "",
+            "copyLocked": "このセルの原文は写しとして受け取れない（写しの 1 行 1 列: パイプのセルの原文が区切りを消す）"
+          }
+        ],
+        "hash": "16837ff7a430723b26bd60fd2a7a467f4683cf76bc46cd1e478b401fab28641b",
+        "rowTags": [],
+        "delimiters": [
+          "---",
+          "---"
+        ],
+        "copyLocked": ""
+      },
+      "rect": {
+        "row": 0,
+        "col": 0,
+        "rows": 1,
+        "cols": 1
+      },
+      "shape": "cols",
+      "fragment": {
+        "version": 1,
+        "kind": "pipe",
+        "shape": "cols",
+        "rows": 1,
+        "cols": 1,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "tag": "",
+            "source": "good"
+          }
+        ],
+        "row_tags": [],
+        "delimiters": [
+          "---"
+        ]
+      }
+    }
+  ]
+}
