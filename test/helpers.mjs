@@ -54,6 +54,78 @@ export async function renderGoPageDocument({ file, root, output }) {
   });
 }
 
+// 製品の --stdio を起こし、試験が Lua の代わりに JSON の行を送り、種類ごとに待つ。
+export async function startGoStdio(t, { edit = true } = {}) {
+  const commands = await prepareGoPageTests();
+  assert.equal(commands.skip, false, 'Neovim の橋渡しのコマンドが使える');
+  const child = spawn(commands.command, ['--stdio', '--no-plantuml', '--no-official-style'], {
+    cwd: pageTestRoot, env: pageGoEnvironment(), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const buffered = [], waiting = new Set();
+  let stderr = '', failure, closing, exited = false;
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (value) => { stderr += value; });
+  const fail = (error) => {
+    failure ??= error;
+    for (const entry of waiting) {
+      clearTimeout(entry.timer);
+      entry.reject(failure);
+    }
+    waiting.clear();
+  };
+  const lines = createInterface({ input: child.stdout });
+  lines.on('line', (line) => {
+    let value;
+    try { value = JSON.parse(line); }
+    catch (cause) { fail(new Error('Neovim の橋渡しが JSON 以外の行を返した', { cause })); return; }
+    const entry = Array.from(waiting).find((entry) => entry.matches(value));
+    if (entry) {
+      waiting.delete(entry);
+      clearTimeout(entry.timer);
+      entry.resolve(value);
+    } else buffered.push(value);
+  });
+  child.on('error', fail);
+  child.stdin.on('error', (error) => { if (!closing) fail(error); });
+  const finished = new Promise((resolve) => child.on('close', (code, signal) => {
+    exited = true;
+    if (!closing) fail(new Error(`Neovim の橋渡しが終了した（code=${code}, signal=${signal}）: ${stderr}`));
+    resolve({ code, signal });
+  }));
+  const send = (value) => new Promise((resolve, reject) => {
+    if (failure) return reject(failure);
+    child.stdin.write(JSON.stringify(value) + '\n', (error) => error ? reject(error) : resolve());
+  });
+  const waitFor = (kind, timeout = 30000) => new Promise((resolve, reject) => {
+    if (failure) return reject(failure);
+    const matches = typeof kind === 'function' ? kind : (value) => value.type === kind;
+    const index = buffered.findIndex(matches);
+    if (index >= 0) return resolve(buffered.splice(index, 1)[0]);
+    const entry = { matches, resolve, reject, timer: setTimeout(() => {
+      waiting.delete(entry);
+      reject(new Error('Neovim の橋渡しの応答が時間内に届かない: ' + kind));
+    }, timeout) };
+    waiting.add(entry);
+  });
+  const close = () => (closing ??= (async () => {
+    child.stdin.end();
+    const timer = setTimeout(() => { if (!exited) child.kill(); }, 5000);
+    try {
+      const result = await finished;
+      assert.equal(result.code, 0, 'Neovim の橋渡しが正常終了する: ' + stderr);
+      if (failure) throw failure;
+    } finally {
+      clearTimeout(timer);
+      lines.close();
+      fail(new Error('Neovim の橋渡しを閉じた'));
+    }
+  })());
+  t.after(close);
+  await send({ type: 'hello', protocol: 1, ...(edit ? { edit: 1 } : {}) });
+  const ready = await waitFor('ready');
+  return { ready, url: ready.url, send, waitFor, close };
+}
+
 // options の edit: 'file' と live: true は、実ファイルへ書く編集 API も接続する。
 export async function startGoPageServer(t, options = {}) {
   const commands = await prepareGoPageTests();

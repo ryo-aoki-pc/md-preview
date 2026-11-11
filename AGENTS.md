@@ -20,7 +20,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - 消毒は `internal/sanitize` の規則で行う。正規表現で HTML の文字列を直接書き換えて消毒しない
 - `test/fixtures/*.gitlab.html` は GitLab が返した HTML そのままで、手で書き換えない。見本の入力（`test/fixtures/*.md`）は合成の文章だけにし、実在の利用者・プロジェクトに解決される参照（`@名前` など）を入れない（GitLab が返す HTML に、その人の名前が入る）
 - サーバーは 127.0.0.1 だけで待ち受け、URL に推測できない token を入れる。`Host` と `Sec-Fetch-Site` を確かめ、CORS のヘッダーは付けない。ファイルは `internal/resolve` の `Resolve` でルートの内側の実ファイルに限る（`..`・`\`・Windows の `:`・末尾の点と空白・デバイス名・`.git`・リンクでの脱出を拒む）。これらを緩めない
-- Markdown への書き込みは `--edit` を付けたときだけ行う。書く先は要求の本文や URL から取らず、サーバーが描画している文書だけにし、`?doc=` は今までどおり `Resolve` で検査する。`POST _/edit` は token・Host・Sec-Fetch-Site・要求の Host と同じ Origin・JSON の型・本文の上限を確かめる。描画のもとの本文と今のファイルが違えば書かない。これらを緩めない
+- Markdown への書き込みは `--edit` を付けたとき（ファイルへ）か、Neovim の橋渡しが `hello` で `edit: 1` を知らせたとき（バッファへ。ファイルには書かない）だけ行う。書く先は要求の本文や URL から取らず、サーバーが描画している文書だけにし、`?doc=` は今までどおり `Resolve` で検査する。`POST _/edit` は token・Host・Sec-Fetch-Site・要求の Host と同じ Origin・JSON の型・本文の上限を確かめる。描画のもとの本文と今のファイルが違えば書かず、バッファへの反映は描画のもとの `buf`・`rev` を Lua が検査する。これらを緩めない
 - 取り込んだファイルの監視も `internal/resolve` の `Resolve` でルート内を確かめ、文書ごとに32個までにする。失敗した include は、安全な親の下で出現を待つ。編集中の文書の再描画には最後に受けた本文を使う
 - `page/lib/` は KaTeX・mermaid・md-table-sticky の原文の写し。手で直さず、`tools/update-page-libs.mjs` で `lock.json`・ライセンスと一緒に更新する。CSS に残る woff / ttf の参照は変えず、配るフォントは woff2 だけにする
 - ページの CSP は `script-src 'self'`。ページに入れるスクリプトとライブラリは、同じサーバーから配る。配るライブラリは `page/lib/lock.json` にあるファイルだけにし、`node_modules` をそのまま見せない
@@ -45,10 +45,11 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `internal/watch/` — 標準ライブラリの定期確認による変更・削除・再作成の監視と、存在しない include の親の検査。書かれた直後に見たファイルは中身のハッシュを覚え、更新時刻の刻みが過ぎてから1回だけ確かめ直す（同じ大きさ・同じ更新時刻の書き換えを拾う）
 - `internal/fileopen/` — 文書・include・リポジトリのファイルの読み取り。Windows では、読んでいる間も名前の変更と削除を許して開く（標準の `os.Open` は許さない）
 - `internal/session/` — 文書ごとの最新描画、描画の番号と原文・行対応の保持、状態を変えない試しの描画とファイルの即時読み直し、取り消しと時間制限、ファイル文書・include・図の保持と破棄。描画器はインターフェースで受け取り、試験では偽物を使う
-- `internal/edit/` — 描画と原文の表の対応づけ、表・範囲・チェックボックスの編集、ファイルの再検査と書き戻し、文書ごとの差分履歴。試しの描画は最終 HTML の比較にだけ使う
+- `internal/edit/` — 描画と原文の表の対応づけ、表・範囲・チェックボックスの編集、ファイルの再検査と書き戻し、文書ごとの差分履歴。Neovim のバッファではファイルに触れず、変更を 1 個の行の置き換えへまとめ、編集元の応答を待つ。試しの描画は最終 HTML の比較にだけ使う
 - `internal/pagefiles/` — 埋め込みページの設定と、固定情報の大きさ・sha256 を照合するライブラリの読み取り
 - `internal/server/` — 127.0.0.1 の HTTP と SSE。要求は `net/http.ReadRequest` で解析し、パス整理・接続再利用・Expect の自動応答を使わない
-- `internal/stdio/`・`internal/cli/` — Neovim との版1の取り決め、コマンドの引数、ブラウザ起動と終了処理、`render`・`install-style` の入口。描画エンジンの用意・PlantUML・公式スタイルは外から渡す関数で接続する
+- `internal/stdio/` — Neovim との版1の取り決め。任意の編集対応の通知、バッファの行の置き換え要求と結果の照合、時間切れ・休止・終了による応答待ちの解除も扱う
+- `internal/cli/` — コマンドの引数、ブラウザ起動と終了処理、`render`・`install-style` の入口。描画エンジンの用意・PlantUML・公式スタイルは外から渡す関数で接続する
 - `internal/export/` — 単一 HTML の書き出し。入力の検査、ルート内の相対 URL の書き換え、本文と印刷用スタイル、文書に必要な KaTeX・mermaid と woff2 の埋め込み、スクリプトごとの CSP のハッシュ、PlantUML の図の埋め込みと原文への復帰、一時ファイルからの入れ替え。`extras.js` は書き出した HTML の中で数式と図を描くスクリプト
 - `internal/pipeline/` — 描画の流れ（消毒・フィルター・配色・取り込み・知らせ）と、展開・front matter・CR を考慮した原文の行対応。`api.go` の型と入口（`Renderer.Render`）をほかのパッケージが使う。処理と状態は文書ごとに持ち、取り消しと深さの上限を確認する
 - `internal/htmltree/`・`internal/sanitize/`・`internal/filters/` — HTML の木の操作と GitLab の許可リスト、消毒前後のフィルター
@@ -171,8 +172,12 @@ git diff --check
 ## Neovim との取り決め
 
 - 取り決めの版は1。`mdpreview --stdio [--port <番号>]` の標準入力と標準出力を、UTF-8 の JSON オブジェクト1行ずつ（区切りは `\n`）でつなぐ。標準出力に人向けの文は書かない。ブラウザの起動は Lua が行う
-- Lua からは、最初に `hello`（`protocol: 1` と省略できる `appearance`）、続いて `doc`・`scroll`・`pause`・`resume` を送る。休止中の本文とスクロールは捨て、再開後の本文で描画を戻す。休止してもプロセス・サーバー・URL は保つ
-- アプリからは `ready`（版・アプリの version・URL）を1回、`clients`（タブ数。最初は0）、`jump`（今の文書の path と行）、`error`（日本語1行）を返す。hello 前の行と対応しない版は `fatal: true` と終了コード2にする
+- Lua からは、最初に `hello`（`protocol: 1` と省略できる `appearance`・`edit: 1`）、続いて `doc`・`scroll`・`pause`・`resume` を送る。`edit` は数値の 1 のときだけ有効にし、ほかの値は省略と同じ扱いにする。休止中の本文とスクロールは捨て、再開後の本文で描画を戻す。休止してもプロセス・サーバー・URL は保つ
+- アプリからは `ready`（版・アプリの version・URL）を1回、`clients`（タブ数。最初は0）、`jump`（今の文書の path と行）、`error`（日本語1行）を返す。`hello` に `edit: 1` があったときだけ、`ready` の最後に `edit: 1` を加える。省略する古い相手への出力は変えず、編集の経路と設定を有効にせず、`edit` も送らない。hello 前の行と対応しない版は `fatal: true` と終了コード2にする
+- `doc` は `path`（絶対パスまたは `null`）・`name`・`text`・`rev` に、省略できる `buf` を加えられる。`buf` は正の安全な整数（1〜9007199254740991）だけを受け付ける。`text` はバッファの行を `\n` でつなぎ、末尾に `\n` を 1 個付ける。編集できるのは `buf` のある編集中の文書だけで、設定は `{scope: "current", undo: false}`。ファイルへ書かず、保存は利用者の `:w`、取り消しは Neovim の `u` で行う
+- 編集に対応する相手へは、アプリが `edit`（要求ごとに増える正の `id`・`jump` と同じ `path`、無名なら `null`・`buf`・描画のもとの `doc` の `rev`・`edits`）を送る。`edits` は今は必ず 1 個の `{start, end, lines}` で、行は 0 始まり、`end` は含まず、`lines` は改行を含まない文字列の配列（削除は空配列）。CR はそのまま残し、1 行は区切りを含めて 8 MiB までにする
+- Lua は `buf`・`path`・`rev` を確かめてバッファの行を置き換え、`edit_result`（同じ `id`・真偽の `ok`・省略できる日本語1行の `message`）を返し、反映後の新しい `doc` を送る。`id` は正の安全な整数、`ok` は真偽を必須とし、誤った行は `error` で知らせる。知らない番号・済んだ番号の結果は黙って捨てる。`message` は文字列だけを使い、改行以降を捨て、200文字までにする。拒否は HTTP 409 の `rejected` とし、省略時は既定の知らせを使う
+- 編集の応答待ちは既定で 5 秒。時間切れは HTTP 504 の `timeout` として返し、Neovim に反映されたかを決めず、次の描画を待つ。休止中の編集と休止時の応答待ちは 409 の `paused`、終了時は 503 の `closed` で終え、サーバーを閉じる前に待ちを解除する。`resume` は新しい編集を受けられる状態へ戻す。出力の待ち行列へ積めなければ 503 の `busy`、編集の行が大きすぎれば 413 の `large` にする
 - 入力の1行は96 MBまで。誤りのある行は捨てて続ける。標準入力が閉じたらタブに `stop`（`reason: 'exit'`）を送り、描画を取り消し、サーバーと描画エンジンを閉じて終了コード0で終わる
 - `CONFIG.jump` が真で、編集中の文書を見ている場合だけ、本文のダブルクリックから `POST _/jump` に行番号を送る。サーバーは token・Host・Sec-Fetch-Site・Origin・JSON の型と1 KBの本文上限を確かめる。単体のファイル表示では無効
 

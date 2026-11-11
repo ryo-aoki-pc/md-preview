@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import test from 'node:test';
-import { prepareGoPageTests, renderGoPageDocument, startGoPageServer, temp } from './helpers.mjs';
+import { prepareGoPageTests, renderGoPageDocument, startGoPageServer, startGoStdio, temp } from './helpers.mjs';
 import { assetFixture } from './assets-fixture.mjs';
 import { pathToFileURL } from 'node:url';
 
@@ -839,6 +839,91 @@ async function settledRender(page, rev) {
   }, rev);
   await page.evaluate(() => document.fonts.ready);
 }
+
+test('Neovim の橋渡しで表の編集をバッファへ頼み、拒否の知らせと古い相手との互換性を確かめる', { skip }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const original = '| 見出し |\n| --- |\n| 本文 |\n';
+  await t.test('行の置き換えを受け、新しい doc で表示を更新する', async (t) => {
+    const bridge = await startGoStdio(t);
+    assert.equal(bridge.ready.edit, 1);
+    const context = await browser.newContext();
+    t.after(() => context.close());
+    const outside = [];
+    await context.route('**/*', (route) => {
+      if (route.request().url().startsWith(bridge.url)) return route.continue();
+      outside.push(route.request().url());
+      return route.abort();
+    });
+    const page = await context.newPage();
+    await page.goto(bridge.url);
+    let text = original;
+    const document = (rev) => bridge.send({ type: 'doc', path: null, name: 'バッファ.md', text, buf: 1, rev });
+    await document(1);
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 1);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-edit-undo, #gp-edit-redo').count(), 0);
+    const cell = page.locator('#gp-content td').first();
+    await cell.click();
+    await page.keyboard.insertText('変更');
+    await page.keyboard.press('Enter');
+    const edit = await bridge.waitFor('edit');
+    assert.deepEqual(edit, { type: 'edit', id: 1, path: null, buf: 1, rev: 1,
+      edits: [{ start: 2, end: 3, lines: ['| 変更 |'] }] });
+    const lines = text.replace(/\n$/, '').split('\n');
+    for (const replacement of edit.edits) lines.splice(replacement.start, replacement.end - replacement.start, ...replacement.lines);
+    text = lines.join('\n') + '\n';
+    await bridge.send({ type: 'edit_result', id: edit.id, ok: true });
+    await document(2);
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 2);
+    await editIdle(page);
+    assert.equal(await cell.textContent(), '変更');
+    await cell.click();
+    await page.keyboard.insertText('断られる入力');
+    await page.keyboard.press('Enter');
+    const rejected = await bridge.waitFor('edit');
+    assert.equal(rejected.id, 2);
+    assert.equal(rejected.rev, 2);
+    const message = 'Neovim で拒否しました <img src=x onerror=alert(1)>';
+    await bridge.send({ type: 'edit_result', id: rejected.id, ok: false, message });
+    await page.waitForFunction((message) => document.querySelector('#gp-edit-status').textContent === message, message);
+    assert.equal(await cell.textContent(), '変更');
+    assert.equal(await page.locator('#gp-edit-status img').count(), 0);
+    // 拒否された入力は下書きに残り、同じセルを開いたときに戻る。
+    await cell.dblclick();
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '断られる入力');
+    await page.keyboard.press('Escape');
+    for (const [status, code] of [[409, 'paused'], [503, 'closed'], [503, 'busy'], [504, 'timeout']]) {
+      const message = `サーバーからの知らせ ${code}`;
+      const route = (route) => route.fulfill({ status, contentType: 'application/json',
+        body: JSON.stringify({ error: { code, message } }) });
+      await page.route('**/_/edit', route);
+      await cell.click();
+      await page.keyboard.insertText('残す入力 ' + code);
+      await page.keyboard.press('Enter');
+      await page.waitForFunction((message) => document.querySelector('#gp-edit-status').textContent.includes(message), message);
+      assert.equal(await cell.textContent(), '変更');
+      if (status === 409) await cell.dblclick();
+      assert.equal(await page.locator('#gp-edit-input').inputValue(), '残す入力 ' + code);
+      await page.keyboard.press('Escape');
+      await page.unroute('**/_/edit', route);
+    }
+    assert.deepEqual(outside, []);
+  });
+  await t.test('edit を知らせない古い Lua には編集の入口を出さない', async (t) => {
+    const bridge = await startGoStdio(t, { edit: false });
+    assert.equal(Object.hasOwn(bridge.ready, 'edit'), false);
+    const context = await browser.newContext();
+    t.after(() => context.close());
+    const page = await context.newPage();
+    await page.goto(bridge.url);
+    await bridge.send({ type: 'doc', path: null, name: '文書.md', text: original, buf: 1, rev: 1 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 1);
+    assert.equal(await page.locator('#gp-edit-toggle').isVisible(), false);
+    assert.equal(await page.locator('#gp-edit-layer').count(), 0);
+  });
+});
 
 test('本文の差分更新と編集用の接点', { skip, timeout: 120000 }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });

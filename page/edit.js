@@ -506,7 +506,9 @@
           discardQueue();
           saveDraft();
           if (item.value !== undefined) drafts.set(keyOf(item.point), { ...item });
-          notice('文書が変わったので、もう一度操作してください', true);
+          notice(['stale', 'changed'].includes(data?.error?.code)
+            ? '文書が変わったので、もう一度操作してください'
+            : messageOf(data) || '書き込めませんでした', true);
           void loadTables();
         } else if (response.status === 422) {
           reopen(item);
