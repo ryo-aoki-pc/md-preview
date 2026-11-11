@@ -5,6 +5,7 @@
   const preview = window.gpPreview;
   const config = preview?.config.edit;
   if (!config) return;
+  const editGrid = window.gpEditGrid;
 
   const root = document.documentElement;
   const toggle = document.getElementById('gp-edit-toggle');
@@ -18,6 +19,13 @@
   };
   const cursorStyle = make('style', 'gp-edit-cursor');
   const frame = make('div', 'gp-edit-selection');
+  const rangeFrame = make('div', 'gp-edit-range');
+  const rangePieces = Array.from({ length: 4 }, (_, i) => {
+    const piece = make('div', 'gp-edit-range-' + i, rangeFrame);
+    piece.className = 'gp-edit-range';
+    piece.hidden = true;
+    return piece;
+  });
   const input = make('textarea', 'gp-edit-input');
   input.setAttribute('aria-label', '表のセルの編集');
   input.spellcheck = false;
@@ -34,6 +42,8 @@
   let mode = false;
   let stopped = false;
   let selected = null;
+  // 表の範囲は、ブロックの原文の位置（point.range）と分けて持つ。
+  let tableSelection = null;
   let editor = null;
   let composing = false;
   let models = [];
@@ -56,6 +66,9 @@
   const queue = [];
   const drafts = new Map();
   const buttons = new Map();
+  const menus = new Map();
+  const menuItems = [];
+  const openMenus = [];
   const keyOf = (point) => point.range ? 'range:' + point.range : [point.table, point.row, point.col].join(':');
   const samePoint = (a, b) => a && b && keyOf(a) === keyOf(b);
   const allowed = () => !preview.config.list &&
@@ -174,7 +187,7 @@
         }
       }
     }
-    return cells.length === info.cells.length && width === info.cols ? { cells, slots } : null;
+    return cells.length === info.cells.length && width === info.cols ? { cells, slots, rows: groups.flat() } : null;
   }
 
   // 本文には識別用の属性も足さない。番号だけで作ったセレクターを層の style に置く。
@@ -208,6 +221,78 @@
   function pointOf(cell) { return { table: cell.table, row: cell.row, col: cell.col }; }
   function selectionCell() { return selected && find(selected); }
 
+  function selectionRect() {
+    const model = models[selected?.table];
+    return model && selected ? editGrid.rectOf(model, tableSelection || { anchor: selected, focus: selected }) : null;
+  }
+  function updateRange() {
+    const rect = selectionRect(), model = models[selected?.table];
+    rangeFrame.hidden = !tableSelection || !rect;
+    if (tableSelection && rect && editGrid.crossing(model, rect)) rangeFrame.dataset.invalid = '';
+    else delete rangeFrame.dataset.invalid;
+    input.setAttribute('aria-label', '表のセルの編集' + (tableSelection && rect
+      ? `（${rect.rows} 行 ${rect.cols} 列を選択中）` : ''));
+  }
+  function collapseRange() {
+    tableSelection = null;
+    updateRange();
+  }
+  function checkRange() {
+    if (!tableSelection) return;
+    const model = models[tableSelection.table];
+    if (!model?.editable || model.table !== tableSelection.tableElement ||
+      tableSelection.version !== externalVersion || !editGrid.rectOf(model, tableSelection)) {
+      collapseRange();
+      closeMenus();
+    } else updateRange();
+  }
+  function extendTo(cell) {
+    if (!selected || selected.table !== cell.table) return;
+    tableSelection ||= { table: selected.table, tableElement: models[selected.table].table,
+      anchor: { row: selected.row, col: selected.col }, focus: { row: selected.row, col: selected.col },
+      kind: 'cells', version: externalVersion };
+    tableSelection.focus = {
+      row: tableSelection.kind === 'cols' ? tableSelection.focus.row : cell.row,
+      col: tableSelection.kind === 'rows' ? tableSelection.focus.col : cell.col,
+    };
+    updateRange();
+    updateButtons();
+    reveal(cell.element);
+    focusInput();
+  }
+  function extend(direction) {
+    if (!selected || (tableSelection?.kind === 'rows' && ['left', 'right'].includes(direction)) ||
+      (tableSelection?.kind === 'cols' && ['up', 'down'].includes(direction))) return;
+    const next = editGrid.step(models[selected.table], tableSelection?.focus || selected, direction);
+    if (next) extendTo(next);
+  }
+  function selectRange(table, rect, kind = 'cells', keepActive = false) {
+    const model = models[table];
+    const cell = model?.editable && model.slots[rect.row]?.[rect.col];
+    if (!cell) return;
+    const previous = keepActive ? tableSelection || { anchor: selected, focus: selected } : null;
+    if (!keepActive) select(cell);
+    const reverseRows = previous && previous.anchor.row > previous.focus.row;
+    const reverseCols = previous && previous.anchor.col > previous.focus.col;
+    const candidate = { table, tableElement: model.table,
+      anchor: { row: reverseRows ? rect.row + rect.rows - 1 : rect.row, col: reverseCols ? rect.col + rect.cols - 1 : rect.col },
+      focus: { row: reverseRows ? rect.row : rect.row + rect.rows - 1, col: reverseCols ? rect.col : rect.col + rect.cols - 1 },
+      kind, version: externalVersion };
+    if (keepActive && kind === 'rows') {
+      candidate.anchor.col = selected.col;
+      candidate.focus.col = previous.focus.col;
+    } else if (keepActive && kind === 'cols') {
+      candidate.anchor.row = selected.row;
+      candidate.focus.row = previous.focus.row;
+    }
+    if (!editGrid.rectOf(model, candidate)) return;
+    tableSelection = candidate;
+    updateRange();
+    updateButtons();
+    reveal(cell.element);
+    focusInput();
+  }
+
   async function loadTables() {
     fetching?.abort();
     fetching = null;
@@ -237,7 +322,7 @@
         const model = { info, table: tables[i], editable: Boolean(shape),
           reason: !data.document.editable ? data.document.reason : nested ? '入れ子の表' :
             info.reason || '画面と原文のセルの形が違います',
-          cells: shape?.cells || [], slots: shape?.slots || [] };
+          cells: shape?.cells || [], slots: shape?.slots || [], rows: shape?.rows || [] };
         for (const cell of model.cells) byCell.set(cell.element, cell);
         return model;
       });
@@ -249,9 +334,10 @@
         const cell = find(selected);
         if (cell) {
           selected = pointOf(cell);
-          if (editor) editor.point = { ...selected };
+          if (editor && !busy?.item.structural) editor.point = { ...selected };
         } else clearSelection();
       }
+      checkRange();
       // 編集中のブロックが描き直しで別の要素になったら、見えない入力欄を残さない。文字は下書きに残す。
       if (editor?.point.range && !editor.element.isConnected) {
         clearSelection();
@@ -293,9 +379,10 @@
     if (!top) root.style.scrollPaddingTop = '';
     if (!low) root.style.scrollPaddingBottom = '';
   }
-  function select(cell, focus = true) {
-    input.setAttribute('aria-label', '表のセルの編集');
+  function select(cell, focus = true, { keepRange = false } = {}) {
+    if (!keepRange) collapseRange();
     selected = pointOf(cell);
+    updateRange();
     input.hidden = false;
     if (!editor) input.value = '';
     bar.hidden = false;
@@ -310,6 +397,8 @@
     if (editor) drafts.set(keyOf(editor.point), { ...editor, value: input.value });
   }
   function clearSelection() {
+    closeMenus();
+    collapseRange();
     saveDraft();
     editor = null;
     selected = null;
@@ -317,7 +406,7 @@
     // 開き直した入力欄が閉じたら、次の送信を止めたままにしない。
     failed = null;
     input.value = '';
-    input.hidden = frame.hidden = sourceLabel.hidden = bar.hidden = true;
+    input.hidden = frame.hidden = rangeFrame.hidden = sourceLabel.hidden = bar.hidden = true;
     layer.dataset.typing = 'off';
     cancelAnimationFrame(animation);
     animation = 0;
@@ -349,8 +438,7 @@
     return { top, left, right, bottom };
   }
   // size を渡した要素（入力欄）は、セルより右と下へ大きく出す。固定した行・列に隠れる上と左だけを切る。
-  function place(element, cell, size = null) {
-    const rect = cell.getBoundingClientRect();
+  function placeBox(element, cell, rect, size = null) {
     const clip = bounds(cell);
     const w = size?.width ?? rect.width;
     const h = size?.height ?? rect.height;
@@ -365,10 +453,45 @@
     element.style.visibility = visible ? 'visible' : 'hidden';
     return rect;
   }
+  function place(element, cell, size = null) {
+    return placeBox(element, cell, cell.getBoundingClientRect(), size);
+  }
+  // 固定した行と列の境で分ける。測るセルは各断片の角だけにする。
+  function placeRect(pieces, model, rect) {
+    const fixedCount = (count, cellAt, property) => {
+      let lo = 0, hi = count;
+      while (lo < hi) {
+        const mid = Math.floor((lo + hi) / 2), cell = cellAt(mid);
+        if (cell && getComputedStyle(cell.element)[property] !== 'auto') lo = mid + 1;
+        else hi = mid;
+      }
+      return lo;
+    };
+    const fixedRows = fixedCount(model.info.rows, (row) => model.slots[row]?.[0], 'top');
+    const fixedCols = fixedCount(model.info.cols, (col) => model.slots[0]?.[col], 'left');
+    const split = (start, count, boundary) => [start, ...(boundary > start && boundary < start + count ? [boundary] : []), start + count];
+    const ys = split(rect.row, rect.rows, fixedRows), xs = split(rect.col, rect.cols, fixedCols);
+    let number = 0;
+    for (let y = 0; y < ys.length - 1; y++) for (let x = 0; x < xs.length - 1; x++) {
+      const piece = pieces[number++];
+      const first = model.slots[ys[y]]?.[xs[x]]?.element;
+      const last = model.slots[ys[y + 1] - 1]?.[xs[x + 1] - 1]?.element;
+      piece.hidden = !first || !last;
+      if (piece.hidden) continue;
+      const a = first.getBoundingClientRect(), b = last.getBoundingClientRect();
+      const left = Math.min(a.left, b.left), top = Math.min(a.top, b.top);
+      const right = Math.max(a.right, b.right), bottom = Math.max(a.bottom, b.bottom);
+      placeBox(piece, first, { left, top, right, bottom, width: right - left, height: bottom - top });
+    }
+    for (; number < pieces.length; number++) pieces[number].hidden = true;
+  }
   function position() {
     animation = 0;
     const cell = editor?.point.range ? { element: editor.element } : selectionCell();
     if (!cell || !mode) return;
+    const range = tableSelection && selectionRect();
+    rangeFrame.hidden = !range || Boolean(editor);
+    if (range && !editor) placeRect(rangePieces, models[tableSelection.table], range);
     frame.hidden = Boolean(editor?.point.range);
     frame.dataset.pending = String([...queue, ...(busy ? [busy.item] : [])].some((item) => samePoint(item.point, selected)));
     const rect = place(frame, cell.element);
@@ -413,6 +536,8 @@
 
   function openBlock(draft) {
     saveDraft();
+    collapseRange();
+    closeMenus();
     selected = null;
     editor = { ...draft, source: true, em: 16, resize: true };
     input.value = draft.value;
@@ -479,6 +604,8 @@
   function beginEdit({ source = false, replace = false, value, composition = false } = {}) {
     const cell = selectionCell();
     if (!cell || stopped) return;
+    collapseRange();
+    closeMenus();
     operationStart();
     source ||= cell.raw;
     const original = currentValue(cell, source).replace(/\r\n?/g, '\n');
@@ -544,15 +671,8 @@
   function move(direction) {
     const cell = selectionCell();
     if (!cell) return;
-    const model = models[cell.table];
-    let next;
-    if (direction === 'next' || direction === 'previous') {
-      next = model.cells[model.cells.indexOf(cell) + (direction === 'next' ? 1 : -1)];
-    } else {
-      const row = direction === 'up' ? cell.row - 1 : direction === 'down' ? cell.row + cell.rowspan : cell.row;
-      const col = direction === 'left' ? cell.col - 1 : direction === 'right' ? cell.col + cell.colspan : cell.col;
-      next = model.slots[row]?.[col];
-    }
+    const next = editGrid.step(models[cell.table], cell, direction);
+    collapseRange();
     if (next) select(next);
     else focusInput();
   }
@@ -571,6 +691,7 @@
     operationStart();
     item.tableElement = models[item.point?.table]?.table;
     item.version = externalVersion;
+    item.structural = Boolean(item.history || /^(insert|delete|duplicate|move)/.test(item.op?.type || ''));
     if (first) queue.unshift(item);
     else queue.push(item);
     addMask(item);
@@ -585,18 +706,45 @@
     }
     for (const item of discarded.reverse()) if (checkboxElement(item)?.isConnected) item.checkbox.checked = item.originalChecked;
   }
-  function finishSend() {
+  function discardTableInputs() {
+    let discarded = false;
+    const items = queue.filter((item) => item.op);
+    for (let i = queue.length - 1; i >= 0; i--) if (queue[i].op) queue.splice(i, 1);
+    for (const item of items) {
+      item.mask?.remove();
+      if (item.value !== undefined) drafts.set(keyOf(item.point), { ...item });
+      discarded = true;
+    }
+    // まだ確定していない入力も、変わる前の座標と原文を下書きに残す。
+    if (editor && !editor.point.range) {
+      saveDraft();
+      editor = null;
+      composing = false;
+      input.value = '';
+      layer.dataset.typing = 'off';
+      discarded = true;
+    }
+    if (discarded) notice('行・列が変わったので、並んでいた入力は送らずに下書きへ戻しました。もう一度操作してください', true);
+  }
+  function finishSend(changed = false, ready = false) {
     if (!busy) return;
+    const item = busy.item;
     clearTimeout(busy.timer);
-    busy.item.mask?.remove();
+    item.mask?.remove();
+    if (item.structural && changed) {
+      discardTableInputs();
+      collapseRange();
+    }
     busy = null;
+    if (ready && item.after && mode && !stopped && item.version === externalVersion)
+      selectRange(item.point.table, item.after, item.afterKind);
     updateButtons();
     void pump();
     void loadBlock();
   }
   function completeSend() {
     if (busy?.ok && preview.current()?.render > busy.render && infoRender === preview.current()?.render)
-      finishSend();
+      finishSend(true, true);
   }
   function reopen(item) {
     failed = item.value === undefined ? null : item;
@@ -636,6 +784,10 @@
       return;
     }
     const render = preview.current().render;
+    if (item.op) {
+      item.after = editGrid.placed(item.op, target.info);
+      item.afterKind = /Rows$/.test(item.op.type) ? 'rows' : /Columns$/.test(item.op.type) ? 'cols' : 'cells';
+    }
     checkboxElement(item);
     if (item.point.range && (!documentEditable || (item.checkbox ? !item.checkbox.isConnected : item.render !== render))) {
       if (item.value !== undefined) drafts.set(keyOf(item.point), { ...item });
@@ -663,6 +815,8 @@
         if (response.status === 409) {
           // 文書が外で変わっている。開いている入力も、古い位置のまま確定させない。
           externalVersion++;
+          collapseRange();
+          closeMenus();
           discardQueue();
           saveDraft();
           if (item.value !== undefined) drafts.set(keyOf(item.point), { ...item });
@@ -690,14 +844,14 @@
       }
       if (data.warnings?.length) notice(data.warnings.join(' ／ '));
       busy.ok = true;
-      if (data.unchanged) { finishSend(); void loadTables(); return; }
+      if (data.unchanged) { finishSend(false, true); void loadTables(); return; }
       completeSend();
       if (busy?.item === item) busy.timer = setTimeout(() => {
         // 遅れて届くこの書き込みの描画を、外の変更と数えない。
         if (!busy.seen) late = busy.render;
         if (!stopped) notice('書き込み後の表示が届きません。表の情報を読み直します', true);
         infoRender = 0;
-        finishSend();
+        finishSend(true);
         void loadTables();
       }, 3000);
     } catch (error) {
@@ -713,57 +867,264 @@
   }
 
   let undoState = {};
-  const actions = [
-    ['row-before', '上に行を挿入'], ['row-after', '下に行を挿入'], ['row-delete', '行を削除'],
-    ['col-before', '左に列を挿入'], ['col-after', '右に列を挿入'], ['col-delete', '列を削除'],
-    ['source', '原文を編集'], ['undo', '元に戻す'], ['redo', 'やり直し'],
-  ];
-  for (const [action, label] of actions) {
+  function actionRect(action) {
+    const rect = selectionRect(), model = models[selected?.table];
+    if (!rect) return null;
+    return action.startsWith('row-') ? editGrid.axisRect(model, rect, 'rows')
+      : action.startsWith('col-') ? editGrid.axisRect(model, rect, 'cols') : rect;
+  }
+  // 表示・メニュー・実行は、必ず同じ理由を使う。DOM の行の表示状態はこの時だけ読む。
+  function reasonFor(action) {
+    const cell = selectionCell();
+    if (!cell) return 'セルを選んでください';
+    if (stopped) return 'プレビューが止まっています';
+    if (infoRender !== preview.current()?.render) return '表の情報を読み込んでいます';
+    const selecting = ['rows', 'cols', 'row-select', 'col-select'].includes(action);
+    if (!selecting && (busy || queue.length)) return '前の書き込みの反映を待っています';
+    const model = models[cell.table], info = model.info, rect = actionRect(action);
+    if (!rect) return '範囲を選び直してください';
+    if (selecting) return '';
+    const rowAction = action.startsWith('row-'), colAction = action.startsWith('col-');
+    if (rowAction && info.rowsLocked) return info.rowsLocked;
+    if (colAction && info.colsLocked) return info.colsLocked;
+    if (rowAction || colAction || action === 'clear') {
+      if (model.rows.slice(rect.row, rect.row + rect.rows).some((row) => getComputedStyle(row).display === 'none'))
+        return '表の検索で隠れた行をまたいでいます。検索を解除してから選び直してください';
+      // 空の挿入と削除は、既存の窓口が結合を伸縮するので許す。
+      const crossing = (action.endsWith('-duplicate') || action === 'clear') && editGrid.crossing(model, rect);
+      if (crossing) return `結合セル（${crossing.row + 1} 行 ${crossing.col + 1} 列目から ${crossing.rowspan} 行 ${crossing.colspan} 列）の途中で範囲が切れています。結合セル全体を含むように選び直してください`;
+    }
+    if (info.kind === 'pipe' && rect.row === 0) {
+      if (action === 'row-before') return 'パイプの表の見出し行の上には挿入できません';
+      if (action === 'row-delete') return 'パイプの表の見出し行は削除できません';
+    }
+    if (action === 'row-delete' && rect.rows === info.rows) return 'すべての行は削除できません';
+    if (action === 'col-delete' && rect.cols === info.cols) return 'すべての列は削除できません';
+    if (action === 'source' && info.kind !== 'html') return 'HTML の表だけで使えます';
+    if ((action === 'undo' || action === 'redo') && !undoState[action]) return '履歴がありません';
+    return '';
+  }
+  function showMenuReason(menu, item) {
+    const reason = item?.title || '';
+    if (menu.reason.textContent === reason) return;
+    menu.reason.textContent = reason;
+    const entry = openMenus.find((entry) => entry.menu === menu);
+    // 長い理由で高さが増えても、画面の端と操作欄の内側に収める。
+    if (entry && !menu.element.hidden) placeMenu(menu, entry.rect || entry.opener.getBoundingClientRect(), entry.placement);
+  }
+  function updateMenus() {
+    for (const { menu, action, item, description } of menuItems) {
+      if (!openMenus.some((entry) => entry.menu === menu)) continue;
+      const reason = reasonFor(action);
+      item.setAttribute('aria-disabled', String(Boolean(reason)));
+      item.title = description.textContent = reason;
+      if (reason) item.setAttribute('aria-describedby', description.id);
+      else item.removeAttribute('aria-describedby');
+    }
+    for (const { menu } of openMenus) {
+      const focused = menu.items.find((item) => item === document.activeElement);
+      showMenuReason(menu, focused);
+    }
+  }
+  function buildMenu(name, label, definitions) {
+    // transform がある操作欄の子にせず、層の直下へ置く。
+    const element = make('div', 'gp-edit-menu-' + name);
+    element.className = 'gp-edit-menu';
+    element.setAttribute('role', 'menu');
+    element.setAttribute('aria-label', label);
+    element.hidden = true;
+    const menu = { element, items: [], reason: null };
+    menus.set(name, menu);
+    for (const definition of definitions) {
+      if (!definition) {
+        const separator = document.createElement('div');
+        separator.setAttribute('role', 'separator');
+        element.append(separator);
+        continue;
+      }
+      const [action, text, id = action] = definition;
+      const item = make('button', 'gp-edit-' + id, element);
+      item.type = 'button';
+      item.textContent = text;
+      item.setAttribute('role', 'menuitem');
+      item.tabIndex = -1;
+      item.dataset.action = action;
+      if (action === 'rows' || action === 'cols') {
+        item.setAttribute('aria-haspopup', 'menu');
+        item.setAttribute('aria-expanded', 'false');
+        item.setAttribute('aria-controls', 'gp-edit-menu-' + action);
+        item.dataset.submenu = '';
+      }
+      const description = make('span', item.id + '-reason', element);
+      description.hidden = true;
+      menuItems.push({ menu, action, item, description });
+      menu.items.push(item);
+      item.addEventListener('focus', () => showMenuReason(menu, item));
+      item.addEventListener('pointerover', () => showMenuReason(menu, item));
+      item.addEventListener('click', () => {
+        if (reasonFor(action)) { updateMenus(); showMenuReason(menu, item); return; }
+        if (action === 'rows' || action === 'cols') openSubmenu(action, item);
+        else runAction(action);
+      });
+    }
+    menu.reason = make('div', element.id + '-reason', element);
+    menu.reason.className = 'gp-edit-menu-reason';
+    return menu;
+  }
+  for (const [prefix, name, directions] of [['row', 'rows', ['上', '下']], ['col', 'cols', ['左', '右']]]) {
+    buildMenu(name, prefix === 'row' ? '行の操作' : '列の操作', [
+      [prefix + '-before', directions[0] + 'に挿入'], [prefix + '-after', directions[1] + 'に挿入'],
+      [prefix + '-duplicate', '複製'], [prefix + '-delete', '削除'], null, [prefix + '-select', '選択'],
+    ]);
+  }
+  buildMenu('cell', 'セルの操作', [['rows', '行', 'cell-rows'], ['cols', '列', 'cell-cols'], null,
+    ['source', '原文を編集', 'cell-source']]);
+
+  function closeMenus(restore = false) {
+    const opener = openMenus[0]?.opener;
+    while (openMenus.length) {
+      const entry = openMenus.pop();
+      entry.menu.element.hidden = true;
+      if (entry.opener !== input) entry.opener.setAttribute('aria-expanded', 'false');
+    }
+    if (restore && mode && selected) {
+      if (opener?.isConnected && !opener.disabled) opener.focus({ preventScroll: true });
+      else focusInput();
+    }
+  }
+  function closeSubmenu() {
+    const entry = openMenus.pop();
+    entry.menu.element.hidden = true;
+    entry.opener.setAttribute('aria-expanded', 'false');
+    entry.opener.focus({ preventScroll: true });
+  }
+  function placeMenu(menu, rect, placement) {
+    const element = menu.element;
+    element.hidden = false;
+    const size = element.getBoundingClientRect();
+    let left = rect.left, top = rect.bottom + 4;
+    if (placement === 'toolbar') top = rect.top - size.height - 4;
+    else if (placement === 'child') {
+      left = rect.right + 4;
+      if (left + size.width > innerWidth - 8) left = rect.left - size.width - 4;
+      top = rect.top;
+    } else if (top + size.height > innerHeight - 8) top = rect.top - size.height - 4;
+    element.style.left = Math.max(8, Math.min(left, innerWidth - size.width - 8)) + 'px';
+    element.style.top = Math.max(8, Math.min(top, innerHeight - size.height - 8)) + 'px';
+  }
+  function openMenu(name, opener, { last = false, point = null } = {}) {
+    if (editor) endEdit(true);
+    closeMenus();
+    const menu = menus.get(name);
+    const placement = name === 'cell' ? 'cell' : 'toolbar';
+    const rect = point ? { left: point.x, right: point.x, top: point.y, bottom: point.y }
+      : name === 'cell' ? selectionCell().element.getBoundingClientRect() : opener.getBoundingClientRect();
+    openMenus.push({ menu, opener, placement, rect: name === 'cell' ? rect : null });
+    if (opener !== input) opener.setAttribute('aria-expanded', 'true');
+    updateMenus();
+    placeMenu(menu, rect, placement);
+    (last ? menu.items.at(-1) : menu.items[0]).focus({ preventScroll: true });
+  }
+  function openSubmenu(name, opener) {
+    if (openMenus.length > 1) {
+      const previous = openMenus.pop();
+      previous.menu.element.hidden = true;
+      previous.opener.setAttribute('aria-expanded', 'false');
+    }
+    const menu = menus.get(name);
+    openMenus.push({ menu, opener, placement: 'child' });
+    opener.setAttribute('aria-expanded', 'true');
+    updateMenus();
+    placeMenu(menu, opener.getBoundingClientRect(), 'child');
+    menu.items[0].focus({ preventScroll: true });
+  }
+  function runAction(action) {
+    const reason = reasonFor(action);
+    if (reason) {
+      if (openMenus.length) {
+        updateMenus();
+        const menu = openMenus.at(-1).menu;
+        showMenuReason(menu, menu.items.find((item) => item.dataset.action === action));
+      } else notice(reason, true);
+      return;
+    }
+    operationStart();
+    closeMenus();
+    if (action === 'source') { if (editor) endEdit(true); beginEdit({ source: true }); return; }
+    if (editor) endEdit(true);
+    // 入力の確定が先に送られたなら、座標を使う次の操作は反映を待つ。
+    const afterCommit = reasonFor(action);
+    if (afterCommit) { notice(afterCommit, true); focusInput(); return; }
+    const rect = actionRect(action), model = models[selected.table];
+    if (action.endsWith('-select')) {
+      selectRange(selected.table, rect, action.startsWith('row-') ? 'rows' : 'cols', true);
+      return;
+    }
+    if (action === 'undo' || action === 'redo') enqueue({ history: action, point: { ...selected } });
+    else if (action === 'clear') {
+      enqueue({ point: { ...selected }, op: { type: 'set', cells: editGrid.cellsIn(model, rect)
+        .map((cell) => ({ row: cell.row, col: cell.col, text: '' })) } });
+    } else {
+      const [axis, side] = action.split('-'), row = axis === 'row';
+      const op = { type: (side === 'duplicate' ? 'duplicate' : side === 'delete' ? 'delete' : 'insert') + (row ? 'Rows' : 'Columns'),
+        [row ? 'row' : 'col']: (row ? rect.row : rect.col) + (side === 'after' ? (row ? rect.rows : rect.cols) - 1 : 0),
+        count: row ? rect.rows : rect.cols };
+      if (side === 'before' || side === 'after') op.side = side;
+      enqueue({ point: { ...selected }, op });
+    }
+    focusInput();
+  }
+  function handleMenuKey(event) {
+    const key = event.key;
+    if (!openMenus.length) {
+      const action = [...buttons].find(([, button]) => button === document.activeElement)?.[0];
+      if (!['rows', 'cols'].includes(action) || buttons.get(action).disabled || !['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(key)) return false;
+      openMenu(action, buttons.get(action), { last: key === 'ArrowUp' });
+    } else {
+      const menu = openMenus.at(-1).menu;
+      const index = menu.items.indexOf(document.activeElement), item = menu.items[Math.max(0, index)];
+      if (key === 'ArrowDown' || key === 'ArrowUp')
+        menu.items[(index + (key === 'ArrowDown' ? 1 : -1) + menu.items.length) % menu.items.length].focus({ preventScroll: true });
+      else if (key === 'Home' || key === 'End') (key === 'Home' ? menu.items[0] : menu.items.at(-1)).focus({ preventScroll: true });
+      else if (key === 'Enter' || key === ' ') item.click();
+      else if (key === 'ArrowRight') {
+        if (item.hasAttribute('aria-haspopup') && !reasonFor(item.dataset.action)) openSubmenu(item.dataset.action, item);
+      } else if (key === 'ArrowLeft') { if (openMenus.length > 1) closeSubmenu(); }
+      else if (key === 'Escape') { if (openMenus.length > 1) closeSubmenu(); else closeMenus(true); }
+      else if (key === 'Tab') { closeMenus(); focusInput(); }
+      else return false;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return true;
+  }
+  for (const [action, label] of [['rows', '行'], ['cols', '列'], ['source', '原文を編集'], ['undo', '元に戻す'], ['redo', 'やり直し']]) {
     if ((action === 'undo' || action === 'redo') && !config.undo) continue;
     const button = make('button', 'gp-edit-' + action, bar);
     button.type = 'button';
     button.textContent = label;
     buttons.set(action, button);
+    if (action === 'rows' || action === 'cols') {
+      button.setAttribute('aria-haspopup', 'menu');
+      button.setAttribute('aria-expanded', 'false');
+      button.setAttribute('aria-controls', 'gp-edit-menu-' + action);
+    }
     button.addEventListener('click', () => {
-      operationStart();
-      if (action === 'source') { if (editor) endEdit(true); beginEdit({ source: true }); return; }
-      if (editor) endEdit(true);
-      const cell = selectionCell();
-      if (!cell) return;
-      if (action === 'undo' || action === 'redo') enqueue({ history: action, point: { ...selected } });
-      else {
-        const [axis, side] = action.split('-');
-        const row = axis === 'row';
-        const position = row ? cell.row : cell.col;
-        const span = row ? cell.rowspan : cell.colspan;
-        const op = { type: (side === 'delete' ? 'delete' : 'insert') + (row ? 'Rows' : 'Columns'),
-          [row ? 'row' : 'col']: position + (side === 'after' ? span - 1 : 0),
-          count: side === 'delete' ? span : 1 };
-        if (side !== 'delete') op.side = side;
-        enqueue({ point: { ...selected }, op });
-      }
-      focusInput();
+      if (action === 'rows' || action === 'cols') {
+        if (button.getAttribute('aria-expanded') === 'true') closeMenus();
+        else openMenu(action, button);
+      } else runAction(action);
     });
   }
   function updateButtons() {
     layer.setAttribute('aria-busy', String(Boolean(busy || queue.length)));
     layer.dataset.render = String(infoRender);
-    const cell = selectionCell();
-    const info = cell && models[cell.table]?.info;
     for (const [action, button] of buttons) {
-      let reason = !cell ? 'セルを選んでください' : stopped ? 'プレビューが止まっています' : '';
-      if (!reason && (busy || queue.length)) reason = '前の書き込みの反映を待っています';
-      if (!reason && action.startsWith('row-')) {
-        reason = info.rowsLocked;
-        if (!reason && info.kind === 'pipe' && cell.row === 0 && action !== 'row-after')
-          reason = 'パイプの表の見出し行は移動・削除できません';
-      }
-      if (!reason && action.startsWith('col-')) reason = info.colsLocked;
-      if (!reason && action === 'source' && info.kind !== 'html') reason = 'HTML の表だけで使えます';
-      if (!reason && (action === 'undo' || action === 'redo') && !undoState[action]) reason = '履歴がありません';
+      const reason = reasonFor(action);
       button.disabled = Boolean(reason);
-      button.title = reason || '';
+      button.title = reason;
     }
+    updateMenus();
   }
 
   function setMode(want) {
@@ -791,8 +1152,33 @@
   // 登録は一度だけ。全幅表示を開いたときに登録される Esc の受け手より先に動かす。
   window.addEventListener('pointerdown', (event) => {
     if (!mode) return;
+    if (openMenus.length && !event.target.closest?.('.gp-edit-menu, #gp-edit-rows, #gp-edit-cols')) closeMenus();
     down = { x: event.clientX, y: event.clientY };
     dragged = false;
+  }, true);
+  const shiftOnly = (event) => event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+  window.addEventListener('mousedown', (event) => {
+    const cell = byCell.get(event.target.closest?.('td, th'));
+    // click より前に止め、ブラウザーの Shift による文字の選択を始めさせない。
+    if (mode && !stopped && !editor && !ignored(event.target) && event.button === 0 && shiftOnly(event) &&
+      cell && selected?.table === cell.table) event.preventDefault();
+  }, true);
+  window.addEventListener('contextmenu', (event) => {
+    if (!mode || stopped || window.__mdTableSticky?.picking || (event.target === input && editor)) return;
+    const cell = event.target === input ? selectionCell() : byCell.get(event.target.closest?.('td, th'));
+    if (!cell) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (editor) endEdit(true);
+    const rect = selectionRect();
+    const inside = selected?.table === cell.table && rect && editGrid.cellsIn(models[cell.table], rect).includes(cell);
+    if (!inside) select(cell);
+    openMenu('cell', input, { point: { x: event.clientX, y: event.clientY } });
+  }, true);
+  window.addEventListener('resize', () => closeMenus());
+  window.addEventListener('blur', () => closeMenus());
+  window.addEventListener('scroll', (event) => {
+    if (openMenus[0]?.placement === 'cell' && !event.target.closest?.('.gp-edit-menu')) closeMenus();
   }, true);
   window.addEventListener('pointermove', (event) => {
     if (down && event.buttons && Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) dragged = true;
@@ -830,6 +1216,10 @@
     }
     if (dragged) return;
     operationStart();
+    if (cell && !editor && selected?.table === cell.table && shiftOnly(event)) {
+      extendTo(cell);
+      return;
+    }
     if (editor) endEdit(true);
     if (cell) select(cell);
     else {
@@ -863,9 +1253,20 @@
     if (model && !model.editable && (status.hidden || status.dataset.kind !== 'error')) notice(model.reason);
   }, true);
   window.addEventListener('keydown', (event) => {
-    if (!mode || stopped || document.activeElement !== input || (!selected && !editor?.point.range) ||
-      event.isComposing || event.keyCode === 229 || composing) return;
+    if (!mode || stopped) return;
+    if (event.isComposing || event.keyCode === 229 || composing) {
+      // IME の取り消しは入力欄へ渡すが、全幅表示の Esc へは渡さない。
+      if (event.key === 'Escape') event.stopImmediatePropagation();
+      return;
+    }
+    if (handleMenuKey(event)) return;
+    if (document.activeElement !== input || (!selected && !editor?.point.range)) return;
     const key = event.key;
+    if (selected && ((key === 'F10' && shiftOnly(event)) || key === 'ContextMenu')) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      openMenu('cell', input);
+      return;
+    }
     if (editor) {
       if (editor.point.range) {
         if (key === 'Escape') {
@@ -894,17 +1295,27 @@
       }
       return;
     }
-    if (key === 'Escape') { clearSelection(); return; }
+    if (key === 'Escape') {
+      // B4: この位置に、挿入の待機と切り取りの印を順に取り消す処理を足す。
+      if (tableSelection) {
+        collapseRange(); updateButtons();
+        event.preventDefault(); event.stopImmediatePropagation();
+        return;
+      }
+      clearSelection(); return;
+    }
     const direction = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[key];
-    if (direction) { event.preventDefault(); operationStart(); move(direction); }
+    if (direction) { event.preventDefault(); operationStart(); if (shiftOnly(event)) extend(direction); else move(direction); }
     else if (key === 'Tab') { event.preventDefault(); operationStart(); move(event.shiftKey ? 'previous' : 'next'); }
     else if (key === 'Enter' || key === 'F2') { event.preventDefault(); beginEdit(); }
     else if (key === 'Delete' || key === 'Backspace') {
-      event.preventDefault(); beginEdit({ replace: true }); endEdit(true);
+      event.preventDefault();
+      if (key === 'Delete' && tableSelection) runAction('clear');
+      else { beginEdit({ replace: true }); endEdit(true); }
     } else if (config.undo && event.ctrlKey && ['z', 'y'].includes(key.toLowerCase())) {
       event.preventDefault();
       const history = key.toLowerCase() === 'y' || event.shiftKey ? 'redo' : 'undo';
-      if (undoState[history] || busy || queue.length) enqueue({ history, point: { ...selected } });
+      runAction(history);
     }
   }, true);
   window.addEventListener('compositionstart', (event) => {

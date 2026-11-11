@@ -457,3 +457,83 @@ body {
     display: none !important;
   }
 }
+/* 範囲とメニューは編集の層にだけ置く。本文と書き出しのスタイルへは入れない。 */
+#gp-edit-range,
+.gp-edit-range {
+  pointer-events: none;
+}
+#gp-edit-range {
+  position: fixed;
+  inset: 0;
+}
+.gp-edit-range {
+  position: fixed;
+  box-sizing: border-box;
+  border: 1px solid var(--gp-fg);
+  background: color-mix(in srgb, var(--gp-fg) 10%, transparent);
+  z-index: 1;
+}
+#gp-edit-range[data-invalid] .gp-edit-range {
+  border-style: dotted;
+}
+#gp-edit-actions button[aria-haspopup='menu']::after {
+  content: ' ▾' / '';
+}
+.gp-edit-menu {
+  position: fixed;
+  z-index: 7;
+  min-width: 180px;
+  max-width: min(340px, calc(100vw - 16px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--gp-border);
+  border-radius: 4px;
+  color: var(--gp-fg);
+  background: var(--gp-bg);
+  box-shadow: 0 3px 12px #0003;
+  pointer-events: auto;
+}
+.gp-edit-menu [role='menuitem'] {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 2px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.gp-edit-menu [role='menuitem']:hover,
+.gp-edit-menu [role='menuitem']:focus {
+  background: color-mix(in srgb, var(--gp-fg) 10%, var(--gp-bg));
+}
+.gp-edit-menu [role='menuitem']:focus {
+  outline: 2px solid var(--gp-fg);
+  outline-offset: -2px;
+}
+.gp-edit-menu [aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+.gp-edit-menu [data-submenu]::after {
+  content: ' ▸' / '';
+  float: right;
+}
+.gp-edit-menu [role='separator'] {
+  margin: 4px 2px;
+  border-top: 1px solid var(--gp-border);
+}
+.gp-edit-menu-reason {
+  min-height: 2.6em;
+  margin: 4px 2px 0;
+  padding: 4px 6px;
+  border-top: 1px solid var(--gp-border);
+  color: var(--gp-muted);
+  font-size: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
