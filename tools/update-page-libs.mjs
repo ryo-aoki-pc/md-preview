@@ -1,17 +1,66 @@
 // ブラウザ用の写しと固定情報を更新する。実行時のアプリは node_modules のこれらの依存を使わない。
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url));
-const names = ['katex', 'mermaid'];
+const names = ['katex', 'md-table-sticky', 'mermaid'];
+const npmNames = ['katex', 'mermaid'];
+const stickyRepository = 'https://github.com/ryo-aoki-pc/md-table-sticky';
 const digest = (bytes) => ({ sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length });
 const validFile = (name, file) =>
   file === 'LICENSE' ||
   (name === 'katex'
     ? ['katex.min.js', 'katex.min.css'].includes(file) || /^fonts\/[a-z0-9_-]+\.woff2$/i.test(file)
-    : file === 'mermaid.min.js');
+    : name === 'md-table-sticky'
+      ? file === 'sticky-table.js'
+      : name === 'mermaid' && file === 'mermaid.min.js');
+
+function stickySource(clone, commit) {
+  const git = (...args) => execFileSync('git', ['--no-optional-locks', '-C', resolve(clone), ...args], {
+    windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (!commit) {
+    if (git('status', '--porcelain', '--untracked-files=all').length)
+      throw new Error('md-table-sticky の作業ツリーに変更があります');
+    commit = git('rev-parse', 'HEAD').toString('utf8').trim();
+  }
+  const pkg = JSON.parse(git('show', commit + ':package.json').toString('utf8'));
+  if (pkg.name !== 'md-table-sticky' || typeof pkg.version !== 'string' || !pkg.version)
+    throw new Error('md-table-sticky のパッケージ情報が正しくありません');
+  return {
+    pkg,
+    source: { repository: stickyRepository, commit, path: 'src/sticky-table.js' },
+    files: new Map([
+      ['LICENSE', git('show', commit + ':LICENSE')],
+      ['sticky-table.js', git('show', commit + ':src/sticky-table.js')],
+    ]),
+  };
+}
+
+function validateRecord(name, record) {
+  if (
+    record?.name !== name || typeof record.version !== 'string' || !record.version ||
+    (npmNames.includes(name) && typeof record.integrity !== 'string')
+  )
+    throw new Error('パッケージの固定情報が正しくありません: ' + name);
+  if (name === 'md-table-sticky' && (
+      record.source?.repository !== stickyRepository ||
+      !/^[a-f0-9]{40}$/.test(record.source?.commit || '') || record.source?.path !== 'src/sticky-table.js' ||
+      Object.hasOwn(record, 'integrity')
+  ))
+    throw new Error('md-table-sticky の取得元が正しくありません');
+  for (const required of [
+    'LICENSE',
+    ...(name === 'katex' ? ['katex.min.js', 'katex.min.css'] :
+      name === 'md-table-sticky' ? ['sticky-table.js'] : ['mermaid.min.js']),
+  ])
+    if (!Object.hasOwn(record.files || {}, required)) throw new Error('必要な写しがありません: ' + name + '/' + required);
+  for (const file of Object.keys(record.files))
+    if (!validFile(name, file)) throw new Error('許可していない写しです: ' + name + '/' + file);
+}
 
 function sourceFiles(modules, name) {
   const root = join(modules, name);
@@ -39,7 +88,9 @@ function actualFiles(root, prefix = '') {
   return files.sort();
 }
 
-export function updatePageLibraries({ root = repoRoot, modules = join(root, 'node_modules'), check = false } = {}) {
+export function updatePageLibraries({
+  root = repoRoot, modules = join(root, 'node_modules'), check = false, mdTableSticky,
+} = {}) {
   const libraryRoot = resolve(root, 'page', 'lib');
   const lockPath = join(libraryRoot, 'lock.json');
   const packageLockPath = join(root, 'package-lock.json');
@@ -53,26 +104,20 @@ export function updatePageLibraries({ root = repoRoot, modules = join(root, 'nod
     const expected = ['lock.json'];
     for (const name of names) {
       const record = lock.packages[name];
-      if (record.name !== name || typeof record.version !== 'string' || typeof record.integrity !== 'string')
-        throw new Error('パッケージの固定情報が正しくありません: ' + name);
-      const npm = npmLock?.packages?.['node_modules/' + name];
+      validateRecord(name, record);
+      const npm = npmNames.includes(name) && npmLock?.packages?.['node_modules/' + name];
       if (npm && (record.version !== npm.version || record.integrity !== npm.integrity))
         throw new Error('npm の固定情報と一致しません: ' + name);
-      for (const required of [
-        'LICENSE',
-        ...(name === 'katex' ? ['katex.min.js', 'katex.min.css'] : ['mermaid.min.js']),
-      ])
-        if (!Object.hasOwn(record.files || {}, required))
-          throw new Error('必要な写しがありません: ' + name + '/' + required);
       for (const [file, info] of Object.entries(record.files || {})) {
-        if (!validFile(name, file)) throw new Error('許可していない写しです: ' + name + '/' + file);
         const actual = digest(readFileSync(join(libraryRoot, name, file)));
         if (actual.sha256 !== info.sha256 || actual.size !== info.size)
           throw new Error('写しのハッシュまたは大きさが一致しません: ' + name + '/' + file);
         expected.push(name + '/' + file);
       }
-      if (existsSync(join(modules, name, 'package.json'))) {
-        const source = sourceFiles(modules, name);
+      if (name === 'md-table-sticky' ? mdTableSticky : existsSync(join(modules, name, 'package.json'))) {
+        const source = name === 'md-table-sticky'
+          ? stickySource(mdTableSticky, record.source.commit)
+          : sourceFiles(modules, name);
         if (source.pkg.name !== record.name || source.pkg.version !== record.version)
           throw new Error('導入済みの版と一致しません: ' + name);
         if (JSON.stringify([...source.files.keys()].sort()) !== JSON.stringify(Object.keys(record.files).sort()))
@@ -87,24 +132,38 @@ export function updatePageLibraries({ root = repoRoot, modules = join(root, 'nod
     return lock;
   }
   const lock = { version: 1, packages: {} };
-  const sources = names.map((name) => {
+  const sources = npmNames.map((name) => {
     const source = sourceFiles(modules, name);
     const npm = npmLock?.packages?.['node_modules/' + name];
     if (!npm || source.pkg.name !== name || source.pkg.version !== npm.version || !npm.integrity)
       throw new Error('導入済みのパッケージと npm の固定情報が一致しません: ' + name);
     return { name, source, npm };
   });
+  if (mdTableSticky) sources.push({ name: 'md-table-sticky', source: stickySource(mdTableSticky) });
+  else {
+    const record = JSON.parse(readFileSync(lockPath, 'utf8')).packages?.['md-table-sticky'];
+    validateRecord('md-table-sticky', record);
+    for (const [file, info] of Object.entries(record.files)) {
+      const actual = digest(readFileSync(join(libraryRoot, 'md-table-sticky', file)));
+      if (actual.sha256 !== info.sha256 || actual.size !== info.size)
+        throw new Error('写しのハッシュまたは大きさが一致しません: md-table-sticky/' + file);
+    }
+    lock.packages['md-table-sticky'] = record;
+  }
   // page や page/lib がリンクだと、下の作成・削除・書き込みがリンクの先へ行くので、先に確かめて止める。
   for (const part of [resolve(root, 'page'), libraryRoot])
     if (existsSync(part) && lstatSync(part).isSymbolicLink()) throw new Error('写しの置き場所の途中にリンクがあります');
   mkdirSync(libraryRoot, { recursive: true });
   for (const { name, source, npm } of sources) {
     const target = resolve(libraryRoot, name);
-    // 消すのは、この道具が管理する2つのフォルダーだけ。絶対パスと包含関係を先に確かめる。
+    // 消すのは、この道具が管理するフォルダーだけ。絶対パスと包含関係を先に確かめる。
     if (relative(libraryRoot, target) !== name) throw new Error('写しの置き場所が正しくありません');
     if (existsSync(target) && lstatSync(target).isSymbolicLink()) throw new Error('写しの置き場所がリンクです');
     rmSync(target, { recursive: true, force: true });
-    const record = { name, version: source.pkg.version, integrity: npm.integrity, files: {} };
+    const record = {
+      name, version: source.pkg.version,
+      ...(npm ? { integrity: npm.integrity } : { source: source.source }), files: {},
+    };
     for (const [file, bytes] of [...source.files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
       const destination = join(target, file);
       mkdirSync(dirname(destination), { recursive: true });
@@ -113,20 +172,28 @@ export function updatePageLibraries({ root = repoRoot, modules = join(root, 'nod
     }
     lock.packages[name] = record;
   }
+  lock.packages = Object.fromEntries(names.map((name) => [name, lock.packages[name]]));
   writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n');
   return lock;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const args = process.argv.slice(2);
-  if (args.some((arg) => arg !== '--check') || args.length > 1) {
-    process.stderr.write('使い方: node tools/update-page-libs.mjs [--check]\n');
+  let check = false, mdTableSticky, invalid = false;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--check' && !check) check = true;
+    else if (args[i] === '--md-table-sticky' && !mdTableSticky && args[i + 1] && !args[i + 1].startsWith('--'))
+      mdTableSticky = args[++i];
+    else invalid = true;
+  }
+  if (invalid) {
+    process.stderr.write('使い方: node tools/update-page-libs.mjs [--md-table-sticky <clone>] [--check]\n');
     process.exitCode = 2;
   } else {
     try {
-      updatePageLibraries({ check: args.includes('--check') });
+      updatePageLibraries({ check, mdTableSticky });
       process.stdout.write(
-        args.includes('--check')
+        check
           ? 'ブラウザ用ライブラリの写しは一致しています\n'
           : 'ブラウザ用ライブラリの写しと固定情報を更新しました\n',
       );

@@ -25,7 +25,12 @@ func TestEmbedded(t *testing.T) {
 			t.Fatal(name)
 		}
 	}
-	for _, name := range []string{"katex/../katex.min.js", "katex/%2e%2e/package.json", "lock.json", "katex/package.json", "katex/fonts/KaTeX_Main-Regular.ttf", "katex/unlisted.js"} {
+	for _, name := range []string{"md-table-sticky/sticky-table.js", "md-table-sticky/LICENSE"} {
+		if _, ok := libs.Read(name); !ok {
+			t.Fatal("表の固定の写しを読めない: " + name)
+		}
+	}
+	for _, name := range []string{"katex/../katex.min.js", "katex/%2e%2e/package.json", "lock.json", "katex/package.json", "katex/fonts/KaTeX_Main-Regular.ttf", "katex/unlisted.js", "md-table-sticky/package.json", "md-table-sticky/unlisted.js"} {
 		if _, ok := libs.Read(name); ok {
 			t.Fatal(name)
 		}

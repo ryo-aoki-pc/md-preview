@@ -29,6 +29,9 @@ func TestLicensesAction(t *testing.T) {
 	if code != 0 || errout.Len() != 0 {
 		t.Fatal(code, errout.String())
 	}
+	if !strings.Contains(out.String(), "名前: md-table-sticky\n") {
+		t.Fatal("表の固定のライセンスがありません")
+	}
 	components, err := mdpreview.LicenseManifest()
 	if err != nil {
 		t.Fatal(err)
