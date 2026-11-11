@@ -105,7 +105,7 @@
    where.exe mdtable
    ```
 
-   - `mdtable 0.6.0` などが出ればよい。GitHub Releases の取得した版と比べる
+   - `mdtable 0.7.0` などが出ればよい。GitHub Releases の取得した版と比べる
    - `where.exe mdtable` の最初が `%USERPROFILE%\.local\bin\mdtable.exe` ならよい
    - コマンドが無ければ、この項の手順 5 で PATH を確かめ、PowerShell 7 を開き直してこの項の手順 6 を貼り直す
    - ほかの場所が先に出るときは、ユーザーの `Path` で `%USERPROFILE%\.local\bin` をその場所より上へ移し、PowerShell 7 を開き直してこの項の手順 6 を貼り直す

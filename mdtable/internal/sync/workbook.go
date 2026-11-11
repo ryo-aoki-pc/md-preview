@@ -12,6 +12,7 @@ import (
 	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/pycompat"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
+	"github.com/ryo-aoki-pc/md-table-excel/internal/verify"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/version"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/workbook"
 )
@@ -117,49 +118,13 @@ func ExportContext(ctx context.Context, path, output string, selectors []string,
 }
 
 func cloneModel(m *model.TableModel, kind string) *model.TableModel {
-	cells := make([]*model.Cell, 0, len(m.Cells))
-	for _, c := range m.Cells {
-		copy := *c
-		cells = append(cells, &copy)
-	}
-	return model.New(kind, m.Rows, m.Cols, cells, nil)
+	return verify.CloneModel(m, kind)
 }
-
 func normalizedSheetModel(sheet *model.TableModel, r *table.Region) *model.TableModel {
-	m := cloneModel(sheet, r.Kind)
-	var cells []*model.Cell
-	for _, c := range m.Cells {
-		c.Text = cellsyntax.NormalizeListSpacing(c.Text)
-		if r.Kind == "pipe" {
-			c.Header = c.Row == 0
-		} else {
-			p := model.Position{Row: c.Row, Col: c.Col}
-			if r.Model().Holes[p] && c.Text == "" && c.Rowspan == 1 && c.Colspan == 1 && !c.Header && c.Align == "" {
-				m.Holes[p] = true
-				continue
-			}
-		}
-		cells = append(cells, c)
-	}
-	m.Cells = cells
-	return m
+	return verify.NormalizedSheetModel(sheet, r)
 }
-
 func render(r *table.Region, m *model.TableModel, warnings *[]string, keepKind bool) ([]string, string, error) {
-	if r.Kind == "pipe" {
-		lines, e := table.RenderPipe(r, m, warnings)
-		if e == nil {
-			return lines, "", nil
-		}
-		if keepKind {
-			return nil, "", e
-		}
-		converted := e.Error()
-		lines, e = table.RenderFromPipe(r, m, warnings)
-		return lines, converted, e
-	}
-	lines, e := table.RenderHTML(r, m, warnings)
-	return lines, "", e
+	return verify.Render(r, m, warnings, keepKind)
 }
 
 func alreadyApplied(sheet *model.TableModel, r *table.Region, md *table.MarkdownFile) bool {

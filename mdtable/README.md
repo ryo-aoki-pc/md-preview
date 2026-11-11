@@ -2,6 +2,8 @@
 
 GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して、元の文書に書き戻すツール（`mdtable` コマンド）です。Markdown の表（パイプ表）と HTML の表のどちらも扱い、セルの中は Excel 上でも Markdown の記法で書けます。
 
+ほかの Go のプログラムからは、公開パッケージ `github.com/ryo-aoki-pc/md-table-excel/tableedit` を import して表を編集できます（[公開の窓口](docs/reference/readme.md#公開の窓口-tableedit)）。
+
 ## 導入
 
 - 対象: Windows 11 の amd64（x86-64）。Excel で編集するときは、この PC の Excel を使う

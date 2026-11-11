@@ -6,15 +6,13 @@ import (
 	"fmt"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/blocks"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/cellsyntax"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/changes"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/inline"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/pycompat"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
+	"github.com/ryo-aoki-pc/md-table-excel/internal/verify"
 	"path/filepath"
 	"regexp"
-	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -218,134 +216,14 @@ type lineRange struct{ start, end int }
 
 // sync._leaf_signature に対応する表の外の解釈の署名。
 func leafSignature(d *blocks.Document, skip []lineRange, shift func(int) int) []string {
-	var result []string
-	for _, n := range d.Root.Walk() {
-		switch n.Kind {
-		case blocks.Paragraph, blocks.Heading, blocks.CodeBlock, blocks.HTMLBlock, blocks.ThematicBreak, blocks.Table:
-		default:
-			continue
-		}
-		inside := false
-		for _, r := range skip {
-			if r.start <= n.StartLine && n.StartLine <= r.end || r.start <= n.EndLine && n.EndLine <= r.end {
-				inside = true
-				break
-			}
-		}
-		if inside {
-			continue
-		}
-		var chain []string
-		for a := n.Parent; a != nil; a = a.Parent {
-			chain = append(chain, a.Kind)
-		}
-		result = append(result, n.Kind+"\x00"+strings.Join(chain, "\x00")+"\x01"+strconv.Itoa(shift(n.StartLine))+":"+strconv.Itoa(shift(n.EndLine)))
+	ranges := make([]verify.LineRange, len(skip))
+	for i, r := range skip {
+		ranges[i] = verify.LineRange{Start: r.start, End: r.end}
 	}
-	return result
+	return verify.LeafSignature(d, ranges, shift)
 }
 
 // sync.verify に対応する書き戻した表と前後の検証。
 func Verify(md *table.MarkdownFile, newText string, replacements []*table.Replacement) []string {
-	var problems []string
-	newMD := table.NewMarkdown(md.Path, newText, md.BOM)
-	ordered := append([]*table.Replacement{}, replacements...)
-	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Region.Start < ordered[j].Region.Start })
-	var oldRanges, newRanges []lineRange
-	delta := 0
-	for _, repl := range ordered {
-		r := repl.Region
-		oldRanges = append(oldRanges, lineRange{r.Start, r.End})
-		start := r.Start + delta
-		end := start + len(repl.Lines) - 1
-		newRanges = append(newRanges, lineRange{start, end})
-		delta += len(repl.Lines) - r.LineCount()
-	}
-	shift := func(line int) int {
-		offset := 0
-		for i, r := range oldRanges {
-			if line > r.end {
-				offset += len(ordered[i].Lines) - (r.end - r.start + 1)
-			}
-		}
-		return line + offset
-	}
-	oldSig := leafSignature(md.Doc(), oldRanges, shift)
-	newSig := leafSignature(newMD.Doc(), newRanges, func(i int) int { return i })
-	if strings.Join(oldSig, "\x02") != strings.Join(newSig, "\x02") {
-		problems = append(problems, "書き戻すと、表の前後の Markdown の解釈が変わる")
-	}
-	newRegions := table.FindTables(newMD)
-	for i, repl := range ordered {
-		span := newRanges[i]
-		r := repl.Region
-		var found []*table.Region
-		for _, n := range newRegions {
-			if n.Start == span.start && n.End <= span.end {
-				blank := true
-				for j := n.End + 1; j <= span.end; j++ {
-					if strings.Trim(newMD.Lines[j], " \t>") != "" {
-						blank = false
-						break
-					}
-				}
-				if blank {
-					found = append(found, n)
-				}
-			}
-		}
-		if len(found) == 0 || repl.TargetKind != "" && (len(found) != 1 || found[0].Kind != repl.TargetKind) {
-			problems = append(problems, fmt.Sprintf("表 %d: 書き戻した表を読み直せない", r.Number))
-			continue
-		}
-		again := found[0]
-		if again.Excluded != "" {
-			problems = append(problems, fmt.Sprintf("表 %d: 書き戻した表が対象外になる（%s）", r.Number, again.Excluded))
-			continue
-		}
-		if again.Location != r.Location {
-			location := r.Location
-			if location == "" {
-				location = "本文"
-			}
-			problems = append(problems, fmt.Sprintf("表 %d: 書き戻すと表の場所（%s）が変わる", r.Number, location))
-			continue
-		}
-		if repl.TargetKind != "" {
-			if !again.Model().SameContent(repl.Model) {
-				changes := changes.CompareModels(repl.Model, again.Model())
-				details := changes.Details(2)
-				for i := range details {
-					details[i] = pycompat.Strip(details[i])
-				}
-				suffix := changes.Summary()
-				if len(details) > 0 {
-					suffix = "（" + strings.Join(details, "、") + "）"
-				}
-				problems = append(problems, fmt.Sprintf("表 %d: 種類を変えると、表の中身が変わる%s", r.Number, suffix))
-			}
-			continue
-		}
-		if r.Kind == "html" && again.Kind == "html" && repl.Model != nil {
-			got, wanted := cloneModel(again.Model(), ""), cloneModel(repl.Model, "")
-			for _, m := range []*model.TableModel{got, wanted} {
-				for _, c := range m.Cells {
-					c.Text = ""
-				}
-			}
-			if !got.SameContent(wanted) {
-				problems = append(problems, fmt.Sprintf("表 %d: 書き戻した表の形・見出し・配置が、ブックの内容と違う", r.Number))
-				continue
-			}
-		}
-		m := normalizedSheetModel(again.Model(), r)
-		lines, _, e := render(r, m, &[]string{}, false)
-		if e != nil {
-			problems = append(problems, fmt.Sprintf("表 %d: 書き戻した表をもう一度書き戻せない（%s）", r.Number, e))
-			continue
-		}
-		if strings.Join(lines, "\n") != strings.Join(repl.Lines, "\n") {
-			problems = append(problems, fmt.Sprintf("表 %d: 書き戻した結果が安定しない", r.Number))
-		}
-	}
-	return problems
+	return verify.Verify(md, newText, replacements)
 }
