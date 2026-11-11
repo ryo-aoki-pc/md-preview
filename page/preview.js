@@ -54,13 +54,33 @@
   let stickyLoading = null;
   let stickyRestored = false;
 
+  // md-table-sticky の内部状態・追加する属性への依存はここへまとめる。
+  const stickyState = () => window.__mdTableSticky;
+  function slot(live) {
+    if (live.nodeType !== Node.ELEMENT_NODE || live.localName !== 'table') return { first: live, last: live };
+    const floating = stickyState()?.floating;
+    if (floating?.record.table === live) return { first: floating.placeholder, last: floating.placeholder };
+    const wrap = live.parentElement;
+    if (!wrap?.matches('[data-md-table-sticky-wrap]')) return { first: live, last: live };
+    let first = wrap;
+    while (first.previousSibling?.nodeType === Node.ELEMENT_NODE &&
+      first.previousSibling.matches('[data-md-table-sticky-bar], [data-md-table-sticky-search], [data-md-table-sticky-columns]'))
+      first = first.previousSibling;
+    return { first, last: wrap };
+  }
+  function cellContainer(live) {
+    return live.matches('td, th') && live.childNodes.length === 1 &&
+      live.firstChild.nodeType === Node.ELEMENT_NODE && live.firstChild.matches('span[data-md-table-sticky-inner]')
+      ? live.firstChild : live;
+  }
+
   function updateStickyButton() {
-    stickyToggle.setAttribute('aria-pressed', String(Boolean(window.__mdTableSticky)));
+    stickyToggle.setAttribute('aria-pressed', String(Boolean(stickyState())));
   }
 
   function setSticky(want) {
     if (stickyLoading) return stickyLoading;
-    if (Boolean(window.__mdTableSticky) === want) {
+    if (Boolean(stickyState()) === want) {
       updateStickyButton();
       return Promise.resolve();
     }
@@ -76,7 +96,7 @@
     }).then(() => {
       stickyLoading = null;
       updateStickyButton();
-      rememberAppearance('sticky', Boolean(window.__mdTableSticky));
+      rememberAppearance('sticky', Boolean(stickyState()));
       queueLayout();
     });
     return stickyLoading;
@@ -89,7 +109,7 @@
     if (savedAppearance.sticky === true) void setSticky(true);
   }
 
-  stickyToggle.addEventListener('click', () => void setSticky(!Boolean(window.__mdTableSticky)));
+  stickyToggle.addEventListener('click', () => void setSticky(!Boolean(stickyState())));
 
   // ---- GitLab との違い -----------------------------------------------------------
   const noticeLabels = new Map([
@@ -384,7 +404,7 @@
     }
     updateBanner();
     // 本文を置き換えると、開いている表の全幅パネルや details が失われる。図だけを描き直す。
-    if (changed && last) await renderMermaid(gen);
+    if (changed && last) await renderMermaid(gen, true);
     queueLayout();
   }
 
@@ -444,6 +464,8 @@
 
   let last = null; // 最後の render
   let lastScroll = null; // 最後の scroll
+  let scrollHeld = false;
+  let editing = false;
   let stopped = null; // "stop" | "exit" | null
   let dropTimer = 0;
 
@@ -491,7 +513,7 @@
     es.addEventListener('reload', reloadPage);
     es.addEventListener('scroll', (e) => {
       lastScroll = JSON.parse(e.data);
-      syncScroll();
+      syncScroll(true);
     });
   }
 
@@ -499,6 +521,244 @@
 
   let initialAnchor = true;
   let gen = 0; // 描画の世代。非同期の処理の途中で次の描画が来たら、古いほうは捨てる
+
+  // 写しは数式・図・表の操作が変更する前の木。画面との対応だけを別に持つ。
+  let shadow = null;
+  let liveOf = new WeakMap();
+  let shadowOf = new WeakMap();
+  let replaced = new WeakSet();
+  let shells = new WeakMap();
+  let trees = new WeakMap();
+  let plantumlLoaded = new Map();
+  const positions = ['data-sourcepos', 'data-checkbox-sourcepos'];
+  const tableParts = new Set(['table', 'thead', 'tbody', 'tfoot', 'tr']);
+
+  function compareTrees(oldTree, newTree) {
+    shells = new WeakMap();
+    trees = new WeakMap();
+    const ids = new Map();
+    function visit(node) {
+      const attrs = node.nodeType === Node.ELEMENT_NODE
+        ? Array.from(node.attributes, (a) => [a.name, a.value]).filter(([name]) => !positions.includes(name))
+          .sort(([a], [b]) => a.localeCompare(b)) : [];
+      const shell = JSON.stringify([node.nodeType, node.namespaceURI, node.nodeName, attrs, node.data]);
+      shells.set(node, shell);
+      // 子の識別値だけを含めるので、深い部分木の文字列を何度も作らない。
+      const key = JSON.stringify([shell, Array.from(node.childNodes, visit)]);
+      if (!ids.has(key)) ids.set(key, ids.size);
+      const id = ids.get(key);
+      trees.set(node, id);
+      return id;
+    }
+    visit(oldTree);
+    visit(newTree);
+  }
+  const sameShell = (a, b) => shells.get(a) === shells.get(b);
+  const sameDeep = (a, b) => trees.get(a) === trees.get(b);
+
+  function bind(s, live) {
+    liveOf.set(s, live);
+    shadowOf.set(live, s);
+  }
+  function syncPositions(live, s) {
+    if (live.nodeType !== Node.ELEMENT_NODE) return;
+    for (const name of positions) {
+      // 図の包みに位置が無いときは、描画時と同じく内側の位置を引き継ぐ。
+      const value = name === 'data-sourcepos' && replaced.has(live) ? sourcepos(s) : s.getAttribute(name);
+      if (value !== null) live.setAttribute(name, value);
+      else live.removeAttribute(name);
+    }
+  }
+  function inside(node, selector) {
+    return [...(node.nodeType === Node.ELEMENT_NODE && node.matches(selector) ? [node] : []),
+      ...node.querySelectorAll(selector)];
+  }
+  function materialize(s) {
+    // template の文書のまま写す。挿入前には画像を読み込まない。
+    const live = s.cloneNode(true);
+    function register(source, target) {
+      bind(source, target);
+      source.childNodes.forEach((child, i) => register(child, target.childNodes[i]));
+    }
+    register(s, live);
+    if (live.nodeType === Node.ELEMENT_NODE) {
+      const holder = s.ownerDocument.createDocumentFragment();
+      holder.append(live);
+      preparePlantuml(holder);
+      return holder.firstChild;
+    }
+    if (live.nodeType === Node.DOCUMENT_FRAGMENT_NODE) preparePlantuml(live);
+    return live;
+  }
+  function containerFor(s) {
+    if (s.nodeType === Node.DOCUMENT_FRAGMENT_NODE) return content;
+    const live = liveOf.get(s);
+    if (!live?.isConnected || replaced.has(live)) throw new Error('本文の親要素が見つかりません');
+    return cellContainer(live);
+  }
+  function checkedLive(s) {
+    const live = liveOf.get(s);
+    if (!live?.isConnected || shadowOf.get(live) !== s) throw new Error('本文の対応が失われました');
+    const place = slot(live);
+    if (!place.first.isConnected || place.first.parentNode !== containerFor(s.parentNode) ||
+      place.last.parentNode !== place.first.parentNode) throw new Error('本文の親が変わっています');
+    return live;
+  }
+  function checkChildren(s) {
+    let next = containerFor(s).firstChild;
+    for (const child of s.childNodes) {
+      const place = slot(checkedLive(child));
+      if (next !== place.first) throw new Error('本文の並びが変わっています');
+      while (next && next !== place.last) next = next.nextSibling;
+      if (!next) throw new Error('表の範囲が見つかりません');
+      next = next.nextSibling;
+    }
+    if (next) throw new Error('本文に対応のない節点があります');
+  }
+  function adopt(oldS, newS) {
+    const live = checkedLive(oldS);
+    if (!replaced.has(live) && oldS.nodeType === Node.ELEMENT_NODE) checkChildren(oldS);
+    bind(newS, live);
+    syncPositions(live, newS);
+    if (!replaced.has(live)) oldS.childNodes.forEach((child, i) => adopt(child, newS.childNodes[i]));
+  }
+  function syncAttributes(live, oldS, newS) {
+    for (const attr of oldS.attributes) {
+      if (attr.name !== 'style' && !newS.hasAttribute(attr.name)) live.removeAttribute(attr.name);
+    }
+    for (const attr of newS.attributes) {
+      if (attr.name !== 'style' && oldS.getAttribute(attr.name) !== attr.value) live.setAttribute(attr.name, attr.value);
+    }
+  }
+  function tables() {
+    return shadow ? Array.from(shadow.querySelectorAll('table'), (s) => liveOf.get(s)).filter((live) => live?.isConnected) : [];
+  }
+  function queryLive(selector) {
+    const found = new Set(content.querySelectorAll(selector));
+    for (const table of tables()) {
+      if (!content.contains(table)) for (const node of inside(table, selector)) found.add(node);
+    }
+    return Array.from(found);
+  }
+  function collectPlantuml(live) {
+    if (!live || (live.nodeType !== Node.ELEMENT_NODE && live.nodeType !== Node.DOCUMENT_FRAGMENT_NODE)) return;
+    for (const img of inside(live, PLANTUML_IMAGES)) {
+      if (!img.complete || !img.naturalWidth) continue;
+      const loaded = plantumlLoaded.get(img.src) || new Set();
+      loaded.add(img);
+      plantumlLoaded.set(img.src, loaded);
+    }
+  }
+  function removeLive(s, live) {
+    collectPlantuml(live);
+    // 全幅パネルへ移された子の表も外す。操作欄と包みは表の見張りが片付ける。
+    if (s.nodeType === Node.ELEMENT_NODE) {
+      for (const table of s.querySelectorAll('table')) {
+        const moved = liveOf.get(table);
+        if (moved?.isConnected && !live.contains(moved)) {
+          collectPlantuml(moved);
+          moved.remove();
+        }
+      }
+    }
+    live.remove();
+  }
+  function replaceRange(oldNodes, newNodes, nextS, container) {
+    const oldLives = oldNodes.map(checkedLive);
+    const next = nextS ? slot(liveOf.get(nextS)).first : null;
+    if (next && (!next.isConnected || next.parentNode !== container)) throw new Error('本文の差し込み先が変わっています');
+    oldNodes.forEach((s, i) => removeLive(s, oldLives[i]));
+    for (const s of newNodes) container.insertBefore(materialize(s), next);
+  }
+  function patchNode(oldS, newS, nextS, container) {
+    if (sameDeep(oldS, newS)) return adopt(oldS, newS);
+    const live = checkedLive(oldS);
+    if (!replaced.has(live) && oldS.nodeType === Node.ELEMENT_NODE && newS.nodeType === Node.ELEMENT_NODE) {
+      if (oldS.localName === newS.localName && tableParts.has(oldS.localName)) {
+        syncAttributes(live, oldS, newS);
+      } else if (sameShell(oldS, newS)) {
+        syncPositions(live, newS);
+        if (live.matches('td, th')) {
+          checkChildren(oldS);
+          const target = containerFor(oldS);
+          for (const child of oldS.childNodes) removeLive(child, liveOf.get(child));
+          target.replaceChildren(...Array.from(newS.childNodes, materialize));
+          bind(newS, live);
+          return;
+        }
+      } else return replaceRange([oldS], [newS], nextS, container);
+      patchChildren(oldS, newS);
+      bind(newS, live);
+      return;
+    }
+    replaceRange([oldS], [newS], nextS, container);
+  }
+  function patchRange(oldNodes, newNodes, nextS, container) {
+    const isTable = (s) => s.nodeType === Node.ELEMENT_NODE && s.localName === 'table';
+    // 数が同じでも、表の位置がずれていれば 1 組ずつは比べない (表が表でない節点と組になり、表を作り直してしまう)。
+    if (oldNodes.length === newNodes.length && oldNodes.every((s, i) => isTable(s) === isTable(newNodes[i]))) {
+      for (let i = oldNodes.length - 1; i >= 0; i--) {
+        patchNode(oldNodes[i], newNodes[i], nextS, container);
+        nextS = newNodes[i];
+      }
+      return;
+    }
+    const oldTables = oldNodes.filter(isTable);
+    const newTables = newNodes.filter(isTable);
+    if (!oldTables.length || oldTables.length !== newTables.length) return replaceRange(oldNodes, newNodes, nextS, container);
+    let oldEnd = oldNodes.length;
+    let newEnd = newNodes.length;
+    for (let i = oldTables.length - 1; i >= 0; i--) {
+      const oldIndex = oldNodes.lastIndexOf(oldTables[i], oldEnd - 1);
+      const newIndex = newNodes.lastIndexOf(newTables[i], newEnd - 1);
+      replaceRange(oldNodes.slice(oldIndex + 1, oldEnd), newNodes.slice(newIndex + 1, newEnd), nextS, container);
+      patchNode(oldTables[i], newTables[i], newNodes[newIndex + 1] || nextS, container);
+      nextS = newTables[i];
+      oldEnd = oldIndex;
+      newEnd = newIndex;
+    }
+    replaceRange(oldNodes.slice(0, oldEnd), newNodes.slice(0, newEnd), nextS, container);
+  }
+  function patchChildren(oldParent, newParent) {
+    checkChildren(oldParent);
+    const oldNodes = Array.from(oldParent.childNodes);
+    const newNodes = Array.from(newParent.childNodes);
+    let start = 0;
+    let oldEnd = oldNodes.length;
+    let newEnd = newNodes.length;
+    while (start < oldEnd && start < newEnd && sameDeep(oldNodes[start], newNodes[start])) {
+      adopt(oldNodes[start], newNodes[start]);
+      start++;
+    }
+    while (start < oldEnd && start < newEnd && sameDeep(oldNodes[oldEnd - 1], newNodes[newEnd - 1])) {
+      adopt(oldNodes[--oldEnd], newNodes[--newEnd]);
+    }
+    patchRange(oldNodes.slice(start, oldEnd), newNodes.slice(start, newEnd), newNodes[newEnd] || null, containerFor(oldParent));
+  }
+  function swapLive(oldLive, newLive) {
+    const s = shadowOf.get(oldLive);
+    oldLive.replaceWith(newLive);
+    if (s) bind(s, newLive);
+    replaced.add(newLive);
+  }
+  const detailsOpen = () => Array.from(content.querySelectorAll('details'), (d) => d.open);
+  function replaceContent(nextShadow, open = detailsOpen()) {
+    for (const img of queryLive(PLANTUML_IMAGES)) collectPlantuml(img);
+    for (const table of tables()) if (!content.contains(table)) table.remove();
+    liveOf = new WeakMap();
+    shadowOf = new WeakMap();
+    replaced = new WeakSet();
+    content.replaceChildren(materialize(nextShadow));
+    content.querySelectorAll('details').forEach((d, i) => {
+      if (open[i]) d.open = true;
+    });
+  }
+
+  window.gpPreview = {
+    config: CONFIG, base: BASE, doc: query.get('doc'), current: () => last, tables,
+    holdScroll: (hold) => { scrollHeld = Boolean(hold); },
+    setEditing: (active) => { editing = Boolean(active); },
+  };
 
   async function render(m) {
     // 導入・更新の完了後は、HTML に埋めた資産情報も読み直す。
@@ -508,6 +768,7 @@
     }
     if (Object.hasOwn(m, 'currentDocument')) jumpEnabled = Boolean(CONFIG.jump && m.currentDocument);
     const my = ++gen;
+    const previous = last;
     last = m;
     fileEl.textContent = m.file || '';
     document.title = (m.file ? m.file + ' — ' : '') + 'GitLab プレビュー';
@@ -525,7 +786,6 @@
     }
     updateBanner();
     rewriteUrls(tpl.content, m);
-    preparePlantuml(tpl.content);
     // コード配色は要素自身の背景も塗るので、body には付けずコードの範囲へ限定する。
     for (const highlight of tpl.content.querySelectorAll('.highlight')) {
       highlight.classList.add('code-syntax-highlight-theme');
@@ -533,17 +793,29 @@
       if (pre) pre.classList.add('code-syntax-highlight-theme');
     }
 
-    // 開いていた <details> は、描き直しても開いたままにする
-    const open = Array.from(content.querySelectorAll('details'), (d) => d.open);
-    content.replaceChildren(tpl.content);
-    content.querySelectorAll('details').forEach((d, i) => {
-      if (open[i]) d.open = true;
-    });
+    plantumlLoaded = new Map();
+    if (!shadow || Object.hasOwn(m, 'error') || Object.hasOwn(previous, 'error') || previous.file !== m.file) {
+      replaceContent(tpl.content);
+    } else {
+      // 途中まで当てた後に全置換へ戻るときも、始める前の details の開閉を使う。
+      const open = detailsOpen();
+      try {
+        compareTrees(shadow, tpl.content);
+        patchChildren(shadow, tpl.content);
+      } catch {
+        // 拡張や利用者の操作で対応が崩れたら、従来の全置換へ戻す。
+        replaceContent(tpl.content, open);
+      }
+    }
+    shadow = tpl.content;
+    bind(shadow, content);
+    plantumlLoaded.clear();
     buildNotices(Object.hasOwn(m, 'error') ? [] : m.notices);
     buildOutline(m.headings);
     restoreSticky();
     buildMap();
     syncScroll();
+    document.dispatchEvent(new CustomEvent('gp:render', { detail: { render: m.render } }));
 
     await renderMath(my);
     await renderMermaid(my);
@@ -551,7 +823,7 @@
     buildMap();
     syncScroll();
     markHeading();
-    if (initialAnchor && location.hash && !lastScroll) {
+    if (initialAnchor && location.hash && !lastScroll && !scrollHeld) {
       let id;
       try {
         id = decodeURIComponent(location.hash.slice(1));
@@ -642,20 +914,13 @@
     img.parentElement && img.parentElement.matches('a[data-diagram="plantuml"]') ? img.parentElement : img;
 
   function preparePlantuml(fragment) {
-    const loaded = new Map();
-    for (const img of content.querySelectorAll(PLANTUML_IMAGES)) {
-      if (!img.complete || !img.naturalWidth) continue;
-      const same = loaded.get(img.src) || [];
-      same.push(img);
-      loaded.set(img.src, same);
-    }
     for (let img of fragment.querySelectorAll(PLANTUML_IMAGES)) {
-      const old = loaded.get(img.src)?.shift();
+      const loaded = plantumlLoaded.get(img.src);
+      const old = loaded?.values().next().value;
       if (old) {
-        const pos = img.getAttribute('data-sourcepos');
-        if (pos) old.setAttribute('data-sourcepos', pos);
-        else old.removeAttribute('data-sourcepos');
-        img.replaceWith(old);
+        loaded.delete(old);
+        syncPositions(old, img);
+        swapLive(img, old);
         continue;
       }
       img.classList.add('gp-plantuml');
@@ -686,7 +951,7 @@
           code.textContent = source;
           pre.append(code);
           out.append(label, pre);
-          holder.replaceWith(out);
+          swapLive(holder, out);
           queueLayout();
         },
         { once: true },
@@ -696,7 +961,7 @@
 
   // 画面の外の図も、印刷のレイアウトを作る前に読み込みを始める。
   window.addEventListener('beforeprint', () => {
-    for (const img of content.querySelectorAll('img.gp-plantuml')) img.loading = 'eager';
+    for (const img of queryLive('img.gp-plantuml')) img.loading = 'eager';
   });
 
   function sourcepos(el) {
@@ -706,7 +971,7 @@
   }
 
   async function renderMath(my) {
-    const els = Array.from(content.querySelectorAll('.js-render-math'));
+    const els = queryLive('.js-render-math');
     if (!els.length) return;
     let katex;
     try {
@@ -736,7 +1001,7 @@
         out.textContent = el.textContent;
         out.classList.add('gp-error');
       }
-      box.replaceWith(out);
+      swapLive(box, out);
     }
   }
 
@@ -745,11 +1010,14 @@
   let mermaidGeneration = 0;
   const svgCache = new Map();
   const mermaidSources = new WeakMap();
+  const mermaidThemes = new WeakMap();
 
-  async function renderMermaid(my) {
+  async function renderMermaid(my, redraw = false) {
     const pass = ++mermaidGeneration;
-    const codes = Array.from(content.querySelectorAll('.js-render-mermaid, .gp-mermaid')).filter(
-      (el) => el.matches('.js-render-mermaid') || mermaidSources.has(el),
+    const theme = effectiveTheme() === 'dark' ? 'dark' : 'default';
+    const codes = queryLive('.js-render-mermaid, .gp-mermaid').filter(
+      (el) => el.matches('.js-render-mermaid') ||
+        (mermaidSources.has(el) && (redraw || mermaidThemes.get(el) !== theme)),
     );
     if (!codes.length) return;
     let mermaid;
@@ -759,7 +1027,6 @@
       return; // 読めなければ図の原文を見せる
     }
     if (my !== gen || pass !== mermaidGeneration) return;
-    const theme = effectiveTheme() === 'dark' ? 'dark' : 'default';
     if (theme !== mermaidTheme) {
       mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme });
       mermaidTheme = theme;
@@ -787,12 +1054,13 @@
         if (my !== gen || pass !== mermaidGeneration) return;
         out.innerHTML = svg;
         mermaidSources.set(out, src);
+        mermaidThemes.set(out, theme);
       } catch (e) {
         document.getElementById('d' + id)?.remove(); // 失敗したときに mermaid が残す作業用の要素
         out.className = 'gp-error';
         out.textContent = 'mermaid: ' + (e && e.message ? e.message : String(e));
       }
-      if (box.isConnected) box.replaceWith(out);
+      if (box.isConnected) swapLive(box, out);
     }
   }
 
@@ -816,7 +1084,8 @@
     return el.getBoundingClientRect().top + window.scrollY;
   }
 
-  function syncScroll() {
+  function syncScroll(fromEvent = false) {
+    if (scrollHeld && !fromEvent) return;
     const s = lastScroll;
     if (!s || !last) return;
     const head = toolbarHeight();
@@ -886,7 +1155,7 @@
 
   // ---- ダブルクリックでエディタの行へ ---------------------------------------------
   content.addEventListener('dblclick', (event) => {
-    if (!jumpEnabled) return;
+    if (!jumpEnabled || editing) return;
     const element = event.target instanceof Element ? event.target : event.target.parentElement;
     if (
       !element ||
@@ -911,7 +1180,7 @@
   // PlantUML の図は、SVG へのリンクで包まれている (GitLab と同じ形)。ダブルクリックで行へ移れるときは、
   // その 2 回のクリックで新しいタブが 2 つ開かないよう、図のクリックではリンクを開かない。
   content.addEventListener('click', (event) => {
-    if (!jumpEnabled) return;
+    if (!jumpEnabled || editing) return;
     const element = event.target instanceof Element ? event.target : event.target.parentElement;
     if (element && element.closest('a[data-diagram="plantuml"]')) event.preventDefault();
   });

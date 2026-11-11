@@ -1,6 +1,6 @@
 // ページの配線を、本物の HTTP / SSE・KaTeX・mermaid・ブラウザで確かめる。
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -74,12 +74,28 @@ test('PlantUML の画像・失敗時の原文・読み込み済み画像の使�
   await server.setDocument({ name: '図.md', text: markdown('次の見出し', '日本語'), rev: 2 });
   await page.waitForFunction(() => document.querySelector('#gp-content h1')?.textContent.includes('次の見出し'));
   assert.equal(await page.evaluate(() => window.savedPlantuml === document.querySelector('img.gp-plantuml')), true);
+  // 文書が変わって全置換になっても、外す範囲の読み込み済み画像を使い回す。
+  await server.setDocument({ name: '次の図.md', text: markdown('次の見出し', '日本語'), rev: 3 });
+  await page.waitForFunction(() => window.gpPreview.current().rev === 3);
+  assert.equal(await page.evaluate(() => window.savedPlantuml === document.querySelector('img.gp-plantuml')), true);
+  assert.deepEqual(await page.evaluate(() => {
+    const anchor = document.querySelector('a[data-diagram="plantuml"]');
+    const prevented = [];
+    const record = (event) => { prevented.push(event.defaultPrevented); event.preventDefault(); };
+    document.addEventListener('click', record);
+    window.gpPreview.setEditing(true);
+    anchor.click();
+    window.gpPreview.setEditing(false);
+    anchor.click();
+    document.removeEventListener('click', record);
+    return prevented;
+  }), [false, true]);
   await page.evaluate(() => window.dispatchEvent(new Event('beforeprint')));
   assert.equal(await page.locator('img.gp-plantuml').getAttribute('loading'), 'eager');
   await page.emulateMedia({ media: 'print' });
   assert.equal(await page.locator('img.gp-plantuml').isVisible(), true);
   const source = 'plain 日本語 "><script>危険な原文</script>';
-  await server.setDocument({ name: '図.md', text: markdown('失敗', source), rev: 3 });
+  await server.setDocument({ name: '図.md', text: markdown('失敗', source), rev: 4 });
   await page.waitForSelector('.gp-plantuml-error');
   assert.equal(await page.locator('.gp-plantuml-error p').textContent(), 'PlantUML の図を描けませんでした');
   assert.equal(await page.locator('.gp-plantuml-error code').textContent(), source);
@@ -257,6 +273,304 @@ async function fixturePage(
     },
   };
 }
+
+// 属性順と、文書ごとに生成する脚注・mermaid の識別子だけをそろえて木を比べる。
+async function contentTree(page) {
+  return page.locator('#gp-content').evaluate((root) => {
+    const ids = new Map();
+    for (const element of root.querySelectorAll('[id]')) {
+      if (element.closest('.gp-mermaid') || /^user-content-(?:fn|fnref)-/.test(element.id))
+        ids.set(element.id, '比較用-' + ids.size);
+    }
+    const normalize = (value) => {
+      for (const [id, replacement] of ids) value = value.replaceAll(id, replacement);
+      return value;
+    };
+    function visit(node) {
+      if (node.nodeType !== Node.ELEMENT_NODE) return [node.nodeType, normalize(node.data || '')];
+      return [node.namespaceURI, node.localName,
+        Array.from(node.attributes, (a) => [a.name, normalize(a.value)]).sort(([a], [b]) => a.localeCompare(b)),
+        Array.from(node.childNodes, visit)];
+    }
+    return Array.from(root.childNodes, visit);
+  });
+}
+
+async function settledRender(page, rev) {
+  await page.waitForFunction((rev) => {
+    const current = window.gpPreview?.current();
+    return current?.rev === rev && !document.querySelector('#gp-content .js-render-math, #gp-content .js-render-mermaid');
+  }, rev);
+  await page.evaluate(() => document.fonts.ready);
+}
+
+test('本文の差分更新と編集用の接点', { skip, timeout: 120000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+
+  await t.test('全見本の行を削除・挿入・入れ替えた結果が新しく開いたページと一致する', async (t) => {
+    const fixture = await fixturePage(t, browser, undefined,
+      (root) => writeFileSync(join(root, 'README.md'), '最初の本文\n'), { live: true });
+    const { page, server } = fixture;
+    let rev = 1;
+    const fixtures = new URL('./fixtures/', import.meta.url);
+    for (const name of readdirSync(fixtures).filter((name) => name.endsWith('.md')).sort()) {
+      // 外部メディアを含む見本も、本文の形を保って手元の参照にする。
+      const source = readFileSync(new URL(name, fixtures), 'utf8')
+        .replaceAll('https://example.com/b.png', 'images/b.png')
+        .replaceAll('https://example.com/x.png', 'images/x.png')
+        .replaceAll('https://example.com/v.mov', 'videos/v.mov');
+      await server.setDocument({ name: 'README.md', text: source, rev: ++rev });
+      await settledRender(page, rev);
+      const lines = source.split('\n');
+      const middle = Math.floor(lines.length / 2);
+      lines.splice(middle, 1, '挿入した行', '', '書き換えた段落');
+      if (lines.length > 3) [lines[1], lines[lines.length - 2]] = [lines[lines.length - 2], lines[1]];
+      await server.setDocument({ name: 'README.md', text: lines.join('\n'), rev: ++rev });
+      await settledRender(page, rev);
+      const fresh = await page.context().newPage();
+      try {
+        await fresh.goto(server.url);
+        await settledRender(fresh, rev);
+        assert.deepEqual(await contentTree(page), await contentTree(fresh), name + ' の差分更新が一致する');
+      } finally {
+        await fresh.close();
+      }
+    }
+  });
+
+  await t.test('表のセルと行を更新し、変わらない段落・details・数式・図を残す', async (t) => {
+    const markdown = (cell, rows, heading = '見出し') => '# ' + heading + '\n\n残す段落\n\n' +
+      '<details><summary>詳細</summary>内容</details>\n\n$`x^2`$\n\n```mermaid\ngraph TD; A-->B\n```\n\n' +
+      '| 列 | 値 |\n| --- | --- |\n| a | ' + cell + ' |\n' + rows;
+    const fixture = await fixturePage(t, browser, undefined,
+      (root) => writeFileSync(join(root, 'README.md'), markdown('最初', '| b | 二行目 |\n')), { live: true });
+    const { page, server } = fixture;
+    await settledRender(page, 1);
+    await page.evaluate(() => {
+      window.kept = ['#gp-content > p', 'details', '.gp-math-inline', '.gp-mermaid', 'table', 'tbody tr', 'tbody td']
+        .map((selector) => document.querySelector(selector));
+      document.querySelector('details').open = true;
+    });
+    for (const [rev, rows] of [[2, '| b | 二行目 |\n'], [3, '| b | 二行目 |\n| c | 追加 |\n'], [4, '']]) {
+      await server.setDocument({ name: 'README.md', text: markdown('変更後', rows), rev });
+      await settledRender(page, rev);
+      assert.deepEqual(await page.evaluate(() => ['#gp-content > p', 'details', '.gp-math-inline', '.gp-mermaid', 'table', 'tbody tr', 'tbody td']
+        .map((selector, i) => window.kept[i] === document.querySelector(selector))), Array(7).fill(true));
+      assert.equal(await page.locator('details').evaluate((element) => element.open), true);
+      assert.equal(await page.locator('tbody td').nth(1).textContent(), '変更後');
+      const fresh = await page.context().newPage();
+      try {
+        await fresh.goto(server.url);
+        await settledRender(fresh, rev);
+        // 利用者が開いた状態だけをそろえる。
+        await fresh.locator('details').evaluate((element) => { element.open = true; });
+        assert.deepEqual(await contentTree(page), await contentTree(fresh));
+      } finally {
+        await fresh.close();
+      }
+    }
+    const before = await page.evaluate(() => window.gpPreview.tables().map((table) => table.textContent));
+    assert.equal(before.length, 1);
+    await page.evaluate(() => { window.renderEvents = []; document.addEventListener('gp:render', (event) => window.renderEvents.push(event.detail)); });
+    await server.setDocument({ name: 'README.md', text: markdown('変更後', '') + '\n| 次 | 表 |\n| --- | --- |\n| d | e |\n', rev: 5 });
+    await settledRender(page, 5);
+    assert.deepEqual(await page.evaluate(() => window.gpPreview.tables().map((table) => table.rows[0].cells[0].textContent)), ['列', '次']);
+    assert.deepEqual(await page.evaluate(() => window.renderEvents), [await page.evaluate(() => ({ render: window.gpPreview.current().render }))]);
+    assert.equal(await page.evaluate(() => window.gpPreview.doc), null);
+    assert.equal(await page.evaluate(() => window.gpPreview.base.href === new URL('./', location.href).href), true);
+    assert.equal(await page.evaluate(() => typeof window.gpPreview.config === 'object'), true);
+  });
+
+  await t.test('位置属性だけを更新し、表と行の属性差分でも操作用の style を残す', async (t) => {
+    const html = (pos, kind, checked) => '<p' + (pos ? ' data-sourcepos="' + pos + '"' : '') + '>本文</p>' +
+      '<input type="checkbox"' + (checked ? ' data-checkbox-sourcepos="' + checked + '"' : '') + '>' +
+      '<table class="' + kind + '"><tbody><tr class="' + kind + '"><td style="text-align: right">値</td></tr></tbody></table>';
+    const fixture = await fixturePage(t, browser, payload(html('1:1-1:2', '最初', '2:1-2:3')));
+    const { page } = fixture;
+    await page.evaluate(() => {
+      window.originalNodes = Array.from(document.querySelector('#gp-content').children);
+      document.querySelector('table').style.width = '123px';
+      document.querySelector('tr').style.height = '42px';
+    });
+    for (const [rev, pos, checked] of [[2, '3:1-3:2', '4:1-4:3'], [3, '', '']]) {
+      await fixture.send('render', payload(html(pos, '変更後', checked), { rev }));
+      await settledRender(page, rev);
+      assert.equal(await page.evaluate(() => window.originalNodes.every((node, i) => node === document.querySelector('#gp-content').children[i])), true);
+      assert.equal(await page.locator('#gp-content p').getAttribute('data-sourcepos'), pos || null);
+      assert.equal(await page.locator('#gp-content input').getAttribute('data-checkbox-sourcepos'), checked || null);
+      assert.equal(await page.locator('table').getAttribute('class'), '変更後');
+      assert.equal(await page.locator('tr').getAttribute('class'), '変更後');
+      assert.equal(await page.locator('table').evaluate((node) => node.style.width), '123px');
+      assert.equal(await page.locator('tr').evaluate((node) => node.style.height), '42px');
+    }
+  });
+
+  await t.test('表と段落の順序が入れ替わっても表を残し、セルの配置の変更は表と行を残す', async (t) => {
+    const table = (align, value) => '<table><thead><tr><th align="' + align + '">列</th></tr></thead>' +
+      '<tbody><tr><td align="' + align + '">' + value + '</td></tr></tbody></table>';
+    const fixture = await fixturePage(t, browser, payload(table('left', '値') + '<p>段落</p>'));
+    const { page } = fixture;
+    await page.evaluate(() => {
+      window.keptTable = document.querySelector('#gp-content table');
+      window.keptRow = document.querySelector('#gp-content tbody tr');
+    });
+    // 節点の数は同じで、表の位置だけが変わる
+    await fixture.send('render', payload('<p>段落</p>' + table('left', '値'), { rev: 2 }));
+    await settledRender(page, 2);
+    assert.equal(await page.evaluate(() => window.keptTable === document.querySelector('#gp-content table') &&
+      window.keptTable.previousElementSibling.localName === 'p'), true);
+    // 表の前の節点が減り、後ろの節点が増える
+    await fixture.send('render', payload(table('left', '値') + '<p>後ろ</p>', { rev: 3 }));
+    await settledRender(page, 3);
+    assert.equal(await page.evaluate(() => window.keptTable === document.querySelector('#gp-content table') &&
+      !window.keptTable.previousElementSibling && window.keptTable.nextElementSibling.textContent === '後ろ'), true);
+    // セルの配置が変わると、セルは替わるが、表と行は残る
+    await fixture.send('render', payload(table('center', '変更後') + '<p>後ろ</p>', { rev: 4 }));
+    await settledRender(page, 4);
+    assert.equal(await page.evaluate(() => window.keptTable === document.querySelector('#gp-content table') &&
+      window.keptRow === document.querySelector('#gp-content tbody tr')), true);
+    assert.equal(await page.locator('#gp-content tbody td').getAttribute('align'), 'center');
+    assert.equal(await page.locator('#gp-content tbody td').textContent(), '変更後');
+  });
+
+  await t.test('表の固定を外した直後の描画でも、表と段落を残して差分更新する', async (t) => {
+    const html = (value) => '<p>段落</p><table><thead><tr><th>列</th></tr></thead>' +
+      '<tbody><tr><td>' + value + '</td></tr></tbody></table>';
+    const fixture = await fixturePage(t, browser, payload(html('最初')));
+    const { page } = fixture;
+    await page.evaluate(() => {
+      window.keptTable = document.querySelector('#gp-content table');
+      window.keptParagraph = document.querySelector('#gp-content p');
+    });
+    await page.locator('#gp-sticky-toggle').click();
+    await page.waitForFunction(() => document.querySelectorAll('[data-md-table-sticky-bar]').length === 1);
+    await page.locator('#gp-sticky-toggle').click();
+    await page.waitForFunction(() => !window.__mdTableSticky &&
+      !document.querySelector('[data-md-table-sticky-wrap], [data-md-table-sticky-bar]'));
+    await fixture.send('render', payload(html('変更後'), { rev: 2 }));
+    await settledRender(page, 2);
+    assert.equal(await page.evaluate(() => window.keptTable === document.querySelector('#gp-content table') &&
+      window.keptParagraph === document.querySelector('#gp-content p')), true);
+    assert.equal(await page.locator('#gp-content tbody td').textContent(), '変更後');
+  });
+
+  await t.test('誤りの前後・文書の変更・対応の食い違いは全置換する', async (t) => {
+    const html = '<details><summary>詳細</summary>本文</details><p>残す本文</p>';
+    const fixture = await fixturePage(t, browser, payload(html));
+    const { page } = fixture;
+    await page.locator('details').evaluate((element) => { element.open = true; });
+    const cases = [
+      payload('', { error: '試験の誤り', markdown: '原文', rev: 2 }),
+      payload(html, { rev: 3 }),
+      payload(html, { file: '別.md', rev: 4 }),
+      payload(html, { file: '別.md', rev: 5 }),
+    ];
+    for (const message of cases) {
+      if (await page.locator('details').count()) await page.locator('details').evaluate((element) => { element.open = true; });
+      await page.evaluate(() => { window.previousNode = document.querySelector('#gp-content').firstChild; });
+      if (message.rev === 5) await page.locator('#gp-content p').evaluate((element) => element.remove());
+      await fixture.send('render', message);
+      await settledRender(page, message.rev);
+      assert.equal(await page.evaluate(() => !window.previousNode.isConnected), true);
+      if (message.rev === 4) assert.equal(await page.locator('details').evaluate((element) => element.open), true);
+    }
+  });
+
+  await t.test('編集中のスクロール保持とジャンプの停止を接点から切り替える', async (t) => {
+    const html = Array.from({ length: 100 }, (_, i) => '<p data-sourcepos="' + (i + 1) + ':1-' + (i + 1) + ':10">段落 ' + i + '</p>').join('');
+    const fixture = await fixturePage(t, browser, payload(html), undefined, { jump: true });
+    const { page, server } = fixture;
+    await fixture.send('scroll', { line: 70, ratio: 0.5, lines: 100 });
+    await page.waitForFunction(() => window.scrollY > 100);
+    await page.evaluate(() => { window.gpPreview.holdScroll(true); window.gpPreview.setEditing(true); window.scrollTo(0, 100); });
+    await fixture.send('render', payload(html.replace('段落 0', '変更 0'), { rev: 2 }));
+    await settledRender(page, 2);
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await page.evaluate(() => window.scrollY), 100);
+    await page.locator('#gp-content p').first().dblclick();
+    await server.sync();
+    assert.deepEqual(fixture.jumpRequests, []);
+    await fixture.send('scroll', { line: 70, ratio: 0.5, lines: 100 });
+    await page.waitForFunction(() => window.scrollY > 100);
+    await page.evaluate(() => { window.gpPreview.holdScroll(false); window.gpPreview.setEditing(false); });
+    const jumped = page.waitForResponse((response) => response.url().endsWith('/_/jump'));
+    await page.locator('#gp-content p').first().dblclick();
+    await jumped;
+    await server.sync();
+    assert.deepEqual(fixture.jumps, [{ line: 1 }]);
+  });
+
+  await t.test('固定・コンパクト・検索・全幅表示中も表と記録と結合セルの内側を残す', async (t) => {
+    const table = (value, rows = '') => '<table><thead><tr><th>列1</th><th>列2</th><th>列3</th></tr></thead>' +
+      '<tbody><tr><td rowspan="2">' + value + '</td><td>名前</td><td>検索語 <span class="js-render-math">x</span></td></tr>' +
+      '<tr><td>二行目</td><td>値</td></tr>' + rows + '</tbody></table>';
+    const fixture = await fixturePage(t, browser, payload('<p>前</p>' + table('最初') + '<p>後</p>'));
+    const { page } = fixture;
+    await settledRender(page, 1);
+    await page.locator('#gp-sticky-toggle').click();
+    await page.waitForSelector('[data-md-table-sticky-bar]');
+    let cols = await page.evaluate(() => window.__mdTableSticky.records.get(window.gpPreview.tables()[0]).layout.cols);
+    if (cols === 2) {
+      await page.locator('[data-md-table-sticky-action="cols-minus"]').click();
+      cols--;
+    }
+    while (cols !== 2) {
+      await page.locator('[data-md-table-sticky-action="cols-' + (cols < 2 ? 'plus' : 'minus') + '"]').click();
+      cols = await page.evaluate(() => window.__mdTableSticky.records.get(window.gpPreview.tables()[0]).layout.cols);
+    }
+    await page.locator('[data-md-table-sticky-action="compact"]').check();
+    await page.locator('[data-md-table-sticky-action="search"]').click();
+    await page.locator('[data-md-table-sticky-search-input]').fill('検索語');
+    await page.waitForFunction(() => window.__mdTableSticky.records.get(window.gpPreview.tables()[0]).search.query === '検索語');
+    await page.locator('[data-md-table-sticky-action="float"]').click();
+    await page.waitForSelector('[data-md-table-sticky-float]');
+    await page.evaluate(() => {
+      window.keptTable = window.gpPreview.tables()[0];
+      window.keptRecord = window.__mdTableSticky.records.get(window.keptTable);
+      window.keptInner = window.keptTable.querySelector('td > span[data-md-table-sticky-inner]');
+      window.keptState = JSON.stringify({ override: window.keptRecord.override, compact: window.keptRecord.compact, query: window.keptRecord.search.query });
+    });
+    assert.equal(await page.evaluate(() => !!window.keptInner), true);
+    assert.equal(await page.evaluate(() => window.keptRecord.override.cols), 2);
+    await fixture.send('render', payload('<p>前</p>' + table('セルだけ変更') + '<p>後</p>', { rev: 2 }));
+    await settledRender(page, 2);
+    assert.deepEqual(await page.evaluate(() => ({
+      connected: window.keptInner.isConnected, text: window.keptInner.textContent,
+      sameTable: window.keptTable === window.gpPreview.tables()[0],
+    })), { connected: true, text: 'セルだけ変更', sameTable: true });
+    // 段落の数も変え、表を目印に分ける経路と、placeholder の前への挿入も通す。
+    await fixture.send('render', payload('<p>前の変更</p><p>挿入</p>' +
+      table('変更後', '<tr><td>追加</td><td>行</td><td>検索語</td></tr>') + '<p>後の変更</p>', { rev: 3 }));
+    await settledRender(page, 3);
+    await page.waitForFunction(() => window.keptTable.rows.length === 4 && window.keptTable.querySelector('td > span[data-md-table-sticky-inner]')?.textContent === '変更後');
+    await page.waitForFunction(() => window.keptRecord.search.query === '検索語');
+    assert.equal(await page.evaluate(() => {
+      const table = window.gpPreview.tables()[0];
+      return table === window.keptTable && window.__mdTableSticky.records.get(table) === window.keptRecord &&
+        window.__mdTableSticky.floating?.record === window.keptRecord &&
+        JSON.stringify({ override: window.keptRecord.override, compact: window.keptRecord.compact, query: window.keptRecord.search.query }) === window.keptState;
+    }), true);
+    assert.deepEqual(await page.locator('#gp-content').evaluate((element) => Array.from(element.children, (child) => child.textContent)),
+      ['前の変更', '挿入', 'この表は全幅で表示中（Esc で元に戻す）', '後の変更']);
+    // 全幅パネルへ移されたセルの数式も描く。
+    await fixture.send('render', payload('<p>前の変更</p><p>挿入</p>' + table('変更後', '<tr><td>追加</td><td>行</td><td><span class="js-render-math">y</span>' +
+      '<pre><code class="js-render-mermaid">graph TD; X-->Y</code></pre></td></tr>') + '<p>後の変更</p>', { rev: 4 }));
+    await page.waitForSelector('[data-md-table-sticky-float] .gp-mermaid svg');
+    await page.waitForFunction(() => window.gpPreview.current().rev === 4 && !window.keptTable.querySelector('.js-render-math, .js-render-mermaid'));
+    assert.equal(await page.locator('[data-md-table-sticky-float] .katex').count(), 2);
+    await page.locator('[data-md-table-sticky-action="float"]').click();
+    await page.waitForSelector('[data-md-table-sticky-float]', { state: 'detached' });
+    assert.equal(await page.evaluate(() => document.querySelector('#gp-content table') === window.keptTable), true);
+    // 全幅表示のまま表を削除した場合も、表自身と残った操作欄を片付ける。
+    await page.locator('[data-md-table-sticky-action="float"]').click();
+    await fixture.send('render', payload('<p>表を削除</p>', { rev: 5 }));
+    await settledRender(page, 5);
+    await page.waitForSelector('[data-md-table-sticky-float], [data-md-table-sticky-bar], [data-md-table-sticky-wrap]', { state: 'detached' });
+    assert.equal(await page.evaluate(() => window.keptTable.isConnected), false);
+    assert.deepEqual(await page.evaluate(() => window.gpPreview.tables()), []);
+  });
+});
 
 test('ローカルのプレビューページ', { skip, timeout: 90000 }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
