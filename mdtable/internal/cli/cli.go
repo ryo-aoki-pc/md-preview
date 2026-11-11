@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	mdtable "github.com/ryo-aoki-pc/md-table-excel"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/pycompat"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/sync"
 	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
@@ -291,6 +292,19 @@ func mainContext(ctx context.Context, argv []string, open func(string) error) (c
 	if errors.Is(ctx.Err(), context.Canceled) {
 		errLine("中止しました")
 		return 1
+	}
+	for _, argument := range argv {
+		if argument == "--licenses" {
+			if len(argv) != 1 {
+				errLine("--licenses は単独で指定してください")
+				return 2
+			}
+			if err := mdtable.WriteLicenses(stdout); err != nil {
+				errLine("エラー: ライセンスを書き込めません")
+				return 1
+			}
+			return 0
+		}
 	}
 	if len(argv) == 1 && argv[0] == "--version" {
 		fmt.Fprintln(stdout, "mdtable "+version.Version)

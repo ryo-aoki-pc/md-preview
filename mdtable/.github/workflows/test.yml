@@ -9,35 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  unittest:
-    name: unittest (${{ matrix.os }}, Python ${{ matrix.python }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # 3.9 は pyproject.toml の requires-python の下限、3.x はその時点の最新
-        include:
-          # ubuntu-26.04 のイメージには 3.9 が用意されていないので、ある版に固定する
-          - os: ubuntu-24.04
-            python: "3.9"
-          - os: ubuntu-latest
-            python: "3.x"
-          - os: windows-latest
-            python: "3.9"
-          - os: windows-latest
-            python: "3.x"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: ${{ matrix.python }}
-      - name: mdtable と依存（openpyxl）を入れる
-        run: python -m pip install --disable-pip-version-check .
-      - name: テストを動かす
-        run: python -B -m unittest discover -s tests -v
-
   go:
-    name: Go の検査と突き合わせ（${{ matrix.os }}）
+    name: Go の検査（${{ matrix.os }}）
     strategy:
       fail-fast: false
       matrix:
@@ -66,21 +39,8 @@ jobs:
       - name: 競合の検査
         if: runner.os == 'Linux'
         run: go test -race ./...
-      - name: Python を用意
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.x'
-      - name: Python 版と突き合わせる
+      - name: 配布物を作れることを確認
         shell: bash
         run: |
-          comparison_dir="$RUNNER_TEMP/mdtable-compare"
-          binary_name=mdtable
-          if [ "$RUNNER_OS" = 'Windows' ]; then
-            comparison_dir="$(cygpath -u "$comparison_dir")"
-            binary_name=mdtable.exe
-          fi
-          mkdir -p "$comparison_dir"
-          binary="$comparison_dir/$binary_name"
-          go build -o "$binary" ./cmd/mdtable
-          python -B scripts/fuzz-docs.py "$comparison_dir/fuzz" 150 1
-          python -B scripts/compare-go.py --go "$binary" --py-root . --out "$comparison_dir/results" docs/verification "$comparison_dir/fuzz"
+          release_version=$(sed -n 's/^var Version = "\([^"]*\)"$/\1/p' internal/version/version.go)
+          bash scripts/build-release.sh "$release_version" dist

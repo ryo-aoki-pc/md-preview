@@ -1,3 +1,5 @@
 * text=auto eol=lf
 *.xlsx binary
 *.png binary
+# テストの文書は改行コードと BOM を含めて、そのままのバイト列で保つ
+testdata/documents/** -text

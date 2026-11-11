@@ -2,7 +2,7 @@ package cli
 
 // Python 版のコマンドと同じ案内を表示する。
 var commandHelp = map[string]string{
-	"": `usage: mdtable [-h] [--version] コマンド ...
+	"": `usage: mdtable [-h] [--version] [--licenses] コマンド ...
 
 GLFM の Markdown にある表（パイプ表・HTML の表）を Excel で編集して書き戻す。
 
@@ -17,6 +17,7 @@ positional arguments:
 options:
   -h, --help  show this help message and exit
   --version   show program's version number and exit
+  --licenses  同梱する第三者のライセンスの全文を出す
 `,
 	"list": `usage: mdtable list [-h] [--json] markdown
 

@@ -1,0 +1,75 @@
+name: 配布
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 検証と配布
+    runs-on: ubuntu-latest
+    steps:
+      - name: ソースを取得
+        uses: actions/checkout@v7
+      - name: Go を用意
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: タグと既定の版を照合
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'タグは v と数字3つの版で指定してください。' >&2
+            exit 1
+          fi
+          release_version="${RELEASE_TAG#v}"
+          default_version=$(sed -n 's/^var Version = "\([^"]*\)"$/\1/p' internal/version/version.go)
+          if [ "$release_version" != "$default_version" ]; then
+            echo 'タグと internal/version の既定の版が一致しません。' >&2
+            exit 1
+          fi
+          printf 'RELEASE_VERSION=%s\n' "$release_version" >> "$GITHUB_ENV"
+      - name: 整形を確認
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo 'gofmt で整形されていないファイル:'
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: 静的検査
+        run: go vet ./...
+      - name: 試験
+        run: go test ./...
+      - name: 競合の検査
+        run: go test -race ./...
+      - name: Windows の amd64 向けに配布物を作る
+        run: bash scripts/build-release.sh "$RELEASE_VERSION" dist
+      - name: sha256 と配布の説明を確認
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          cat > release-notes.md <<'NOTES'
+          mdtable を、Windows 11 の amd64 (x86-64) 向けの単体の実行ファイルで配布します。
+
+          | ファイル | 内容 |
+          | --- | --- |
+          | mdtable-windows-amd64.exe | Windows の amd64 向けの実行ファイル |
+          | THIRD-PARTY-LICENSES.txt | 同梱する第三者のライセンスの全文 |
+          | SHA256SUMS | 実行ファイルとライセンス全文の sha256 |
+
+          導入・更新の手順は [mdtable の導入と更新](https://github.com/ryo-aoki-pc/md-table-excel/blob/main/docs/install.md#windows-11-で-mdtable-を導入更新する) にあります。
+          PowerShell の `Get-FileHash .\mdtable-windows-amd64.exe -Algorithm SHA256` の値を、SHA256SUMS の同名の行と照合してください。
+          実行ファイルを PATH の通ったフォルダーに `mdtable.exe` として置きます。
+          同梱ライセンスは THIRD-PARTY-LICENSES.txt または `mdtable --licenses` で確認できます。
+          NOTES
+      - name: GitHub Releases に配布
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file dist/release-notes.md \
+            dist/mdtable-windows-amd64.exe dist/THIRD-PARTY-LICENSES.txt dist/SHA256SUMS

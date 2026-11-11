@@ -4,18 +4,16 @@ GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して
 
 ## 導入
 
-- 対象: AlmaLinux 10 と Windows 11 の自分のユーザー。Python 3.9 以上と git が要る
-- `~/md-table-excel`（Windows は `%USERPROFILE%\md-table-excel`）に clone し、`scripts/setup-mdtable.py` で、リポジトリの外の専用の仮想環境に入れる。起動コマンドは `~/.local/bin` に置く
+- 対象: Windows 11 の amd64（x86-64）。Excel で編集するときは、この PC の Excel を使う
+- GitHub Releases の `mdtable-windows-amd64.exe` を取得し、sha256 を確かめてから、PATH の通った `%USERPROFILE%\.local\bin` に `mdtable.exe` として置く
 - 手順は[導入と更新](docs/install.md)、使い方は[使い方](docs/usage.md)にある。更新も導入の項で行う
 
-| | AlmaLinux 10 | Windows 11 |
-| --- | --- | --- |
-| 導入・更新 | [mdtable を導入・更新する](docs/install.md#mdtable-を導入更新する) | [Windows 11 で mdtable を導入・更新する](docs/install.md#windows-11-で-mdtable-を導入更新する) |
-| 使い方 | [mdtable で Markdown の表を Excel と往復する](docs/usage.md#mdtable-で-markdown-の表を-excel-と往復する) | [Windows 11 の mdtable で Markdown の表を Excel と往復する](docs/usage.md#windows-11-の-mdtable-で-markdown-の表を-excel-と往復する) |
-| 表の種類を変える | [mdtable で表の種類を変える](docs/usage.md#mdtable-で表の種類を変える) | [Windows 11 の mdtable で表の種類を変える](docs/usage.md#windows-11-の-mdtable-で表の種類を変える) |
-| Excel で編集するときの注意 | [mdtable のブックを Excel で編集するときの注意](docs/usage.md#mdtable-のブックを-excel-で編集するときの注意) | [Windows 11 で mdtable のブックを Excel で編集するときの注意](docs/usage.md#windows-11-で-mdtable-のブックを-excel-で編集するときの注意) |
-
-- macOS（未検証）: clone したフォルダーで `python3 scripts/setup-mdtable.py` を実行する。起動コマンドは `~/.local/bin/mdtable`
+| | Windows 11 |
+| --- | --- |
+| 導入・更新 | [Windows 11 で mdtable を導入・更新する](docs/install.md#windows-11-で-mdtable-を導入更新する) |
+| 使い方 | [Windows 11 の mdtable で Markdown の表を Excel と往復する](docs/usage.md#windows-11-の-mdtable-で-markdown-の表を-excel-と往復する) |
+| 表の種類を変える | [Windows 11 の mdtable で表の種類を変える](docs/usage.md#windows-11-の-mdtable-で表の種類を変える) |
+| Excel で編集するときの注意 | [Windows 11 で mdtable のブックを Excel で編集するときの注意](docs/usage.md#windows-11-で-mdtable-のブックを-excel-で編集するときの注意) |
 
 ## できること
 
@@ -70,8 +68,12 @@ GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して
 
 ## 文書
 
-- [導入と更新](docs/install.md) — AlmaLinux 10・Windows 11 の導入・更新の手順
+- [導入と更新](docs/install.md) — Windows 11 の導入・更新の手順
 - [使い方](docs/usage.md) — Markdown の表を Excel と往復する手順と、ブックを Excel で編集するときの注意
 - [設計と変換の規則](docs/reference/readme.md)
 - 検証記録（`repos/md-table-excel/docs/verification/readme.md`）: 手元の文書と comrak での確認、Excel の実機での確認とその手順
 - テストのコマンドと、変更するときの決まりは [AGENTS.md](AGENTS.md)
+
+## ライセンス
+
+md-table-excel は [MIT ライセンス](LICENSE)。同梱しているものの一覧は [licenses/manifest.json](licenses/manifest.json) にあり、原文は `mdtable --licenses` で出す。

@@ -1,0 +1,102 @@
+[
+  {
+    "name": "md-table-excel",
+    "version": "0.6.0",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "Go",
+    "version": "1.27.3",
+    "license": "BSD-3-Clause",
+    "files": [
+      "licenses/go/go/LICENSE",
+      "licenses/go/go/PATENTS"
+    ]
+  },
+  {
+    "name": "github.com/xuri/excelize/v2",
+    "version": "v2.11.1",
+    "license": "BSD-3-Clause",
+    "files": [
+      "licenses/go/github.com/xuri/excelize/v2/LICENSE"
+    ]
+  },
+  {
+    "name": "github.com/richardlehane/mscfb",
+    "version": "v1.0.9",
+    "license": "Apache-2.0",
+    "files": [
+      "licenses/go/github.com/richardlehane/mscfb/LICENSE.txt"
+    ]
+  },
+  {
+    "name": "github.com/richardlehane/msoleps",
+    "version": "v1.0.6",
+    "license": "Apache-2.0",
+    "files": [
+      "licenses/go/github.com/richardlehane/msoleps/LICENSE.txt"
+    ]
+  },
+  {
+    "name": "github.com/tiendc/go-deepcopy",
+    "version": "v1.7.2",
+    "license": "MIT",
+    "files": [
+      "licenses/go/github.com/tiendc/go-deepcopy/LICENSE"
+    ]
+  },
+  {
+    "name": "github.com/xuri/efp",
+    "version": "v0.0.3-0.20260924042702-217b81952dec",
+    "license": "BSD-3-Clause",
+    "files": [
+      "licenses/go/github.com/xuri/efp/LICENSE"
+    ]
+  },
+  {
+    "name": "github.com/xuri/nfp",
+    "version": "v0.0.2-0.20250530014748-2ddeb826f9a9",
+    "license": "BSD-3-Clause",
+    "files": [
+      "licenses/go/github.com/xuri/nfp/LICENSE"
+    ]
+  },
+  {
+    "name": "golang.org/x/crypto",
+    "version": "v0.58.0",
+    "license": "BSD-3-Clause",
+    "files": [
+      "licenses/go/golang.org/x/crypto/LICENSE",
+      "licenses/go/golang.org/x/crypto/PATENTS"
+    ]
+  },
+  {
+    "name": "golang.org/x/net",
+    "version": "v0.62.0",
+    "license": "BSD-3-Clause",
+    "files": [
+      "licenses/go/golang.org/x/net/LICENSE",
+      "licenses/go/golang.org/x/net/PATENTS"
+    ]
+  },
+  {
+    "name": "golang.org/x/text",
+    "version": "v0.43.0",
+    "license": "BSD-3-Clause",
+    "files": [
+      "licenses/go/golang.org/x/text/LICENSE",
+      "licenses/go/golang.org/x/text/PATENTS"
+    ]
+  },
+  {
+    "name": "openpyxl (既定のテーマ)",
+    "version": "3.1.5",
+    "license": "MIT",
+    "files": [
+      "licenses/openpyxl/LICENSE"
+    ]
+  }
+]
