@@ -317,6 +317,11 @@ async function replaceCell(page, cell, value, key = 'Enter') {
   await page.keyboard.press(key);
   await editIdle(page);
 }
+async function menuItem(page, id) {
+  const axis = id.startsWith('row-') ? 'rows' : 'cols';
+  await page.locator('#gp-edit-' + axis).click();
+  return page.locator('#gp-edit-' + id);
+}
 async function pasteText(page, text) {
   await page.evaluate((text) => {
     const data = new DataTransfer();
@@ -486,7 +491,7 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     });
     const cells = page.locator('#gp-content td');
     await cells.first().click();
-    await page.locator('#gp-edit-row-after').click();
+    await (await menuItem(page, 'row-after')).click();
     await cells.nth(1).click();
     await page.keyboard.insertText('並んだ入力');
     await page.keyboard.press('Enter');
@@ -570,15 +575,403 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     assert.equal(await first.locator('strong').textContent(), '太字');
   });
 
+  await t.test('Shift の矢印とクリックで範囲を伸縮し、起点のセルと本文を保つ', async (t) => {
+    const { page } = await editablePage(t, browser, pipe);
+    const cells = page.locator('#gp-content td'), input = page.locator('#gp-edit-input');
+    await cells.first().click();
+    const original = await cells.first().evaluate((element) => element.outerHTML);
+    await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Shift+ArrowDown');
+    assert.equal(await input.getAttribute('aria-label'), '表のセルの編集（2 行 2 列を選択中）');
+    await page.waitForFunction(() => !document.querySelector('#gp-edit-range-0').hidden);
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+    const boxes = await page.evaluate(() => {
+      const first = document.querySelector('#gp-content td').getBoundingClientRect();
+      const end = document.querySelectorAll('#gp-content td')[4].getBoundingClientRect();
+      const range = document.querySelector('#gp-edit-range-0').getBoundingClientRect();
+      const active = document.querySelector('#gp-edit-selection').getBoundingClientRect();
+      return { range: [range.left, range.top, range.right, range.bottom],
+        expected: [first.left, first.top, end.right, end.bottom], active: [active.left, active.top], origin: [first.left, first.top] };
+    });
+    boxes.range.forEach((value, i) => assert.ok(Math.abs(value - boxes.expected[i]) < 1, JSON.stringify(boxes)));
+    assert.deepEqual(boxes.active, boxes.origin);
+    assert.equal(await cells.first().evaluate((element) => element.outerHTML), original);
+    await page.keyboard.press('Shift+ArrowLeft');
+    assert.match(await input.getAttribute('aria-label'), /2 行 1 列/);
+    assert.equal(await cells.last().evaluate((element) => {
+      const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true, shiftKey: true, button: 0 });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    }), true);
+    await cells.last().click({ modifiers: ['Shift'] });
+    assert.match(await input.getAttribute('aria-label'), /3 行 3 列/);
+    assert.equal(await page.evaluate(() => window.getSelection().toString()), '');
+    for (const modifier of ['Control', 'Alt', 'Meta']) {
+      await cells.nth(1).click({ modifiers: [modifier, 'Shift'] });
+      assert.equal(await page.locator('#gp-edit-range').isVisible(), false);
+      await page.keyboard.press('F2');
+      assert.equal(await input.inputValue(), '1');
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Shift+ArrowDown');
+    }
+    // 入力中と別の表では、Shift を範囲の操作に使わない。
+    await page.keyboard.press('F2');
+    await cells.last().click({ modifiers: ['Shift'] });
+    assert.equal(await page.locator('#gp-edit-range').isVisible(), false);
+  });
+
+  await t.test('範囲の Delete は全セルを一つの set で空にし、Backspace は一つのセルだけを空にする', async (t) => {
+    const { page, file } = await editablePage(t, browser, pipe);
+    const sent = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/_/edit')) sent.push(request.postDataJSON());
+    });
+    await page.locator('#gp-content td').first().click();
+    await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Shift+ArrowDown');
+    await page.keyboard.press('Delete');
+    await editIdle(page);
+    assert.deepEqual(sent[0].op, { type: 'set', cells: [
+      { row: 1, col: 0, text: '' }, { row: 1, col: 1, text: '' },
+      { row: 2, col: 0, text: '' }, { row: 2, col: 1, text: '' },
+    ] });
+    assert.equal(readFileSync(file, 'utf8'), pipe.replace('| りんご | 1 |', '|  |  |').replace('| みかん | 2 |', '|  |  |'));
+    assert.match(await page.locator('#gp-edit-input').getAttribute('aria-label'), /2 行 2 列/);
+    await page.keyboard.press('Control+z');
+    await editIdle(page);
+    await page.locator('#gp-content td').first().click();
+    await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Backspace');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), pipe.replace('りんご', ''));
+    assert.equal(await page.locator('#gp-edit-range').isVisible(), false);
+  });
+
+  await t.test('行と列の選択は範囲の数で挿入・削除し、直交する Shift の矢印を無視する', async (t) => {
+    const { page } = await editablePage(t, browser, pipe);
+    const sent = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/_/edit')) sent.push(request.postDataJSON());
+    });
+    await page.locator('#gp-content td').first().click();
+    await page.keyboard.press('Shift+ArrowDown');
+    await (await menuItem(page, 'row-select')).click();
+    assert.match(await page.locator('#gp-edit-input').getAttribute('aria-label'), /2 行 3 列/);
+    await page.keyboard.press('Shift+ArrowRight');
+    assert.match(await page.locator('#gp-edit-input').getAttribute('aria-label'), /2 行 3 列/);
+    // 行の選択では、Shift+クリックでも列の位置を変えない。
+    await page.locator('#gp-content td').nth(3).click({ modifiers: ['Shift'] });
+    assert.match(await page.locator('#gp-edit-input').getAttribute('aria-label'), /2 行 3 列/);
+    await (await menuItem(page, 'row-after')).click();
+    await editIdle(page);
+    assert.deepEqual(sent.at(-1).op, { type: 'insertRows', row: 2, count: 2, side: 'after' });
+    assert.equal(await page.locator('#gp-content tr').count(), 6);
+    await page.locator('#gp-content td').first().click();
+    await page.keyboard.press('Shift+ArrowRight');
+    await (await menuItem(page, 'col-select')).click();
+    assert.match(await page.locator('#gp-edit-input').getAttribute('aria-label'), /6 行 2 列/);
+    await page.keyboard.press('Shift+ArrowDown');
+    assert.match(await page.locator('#gp-edit-input').getAttribute('aria-label'), /6 行 2 列/);
+    await (await menuItem(page, 'col-delete')).click();
+    await editIdle(page);
+    assert.deepEqual(sent.at(-1).op, { type: 'deleteColumns', col: 0, count: 2 });
+    assert.equal(await page.locator('#gp-content th').count(), 1);
+  });
+
+  await t.test('HTML の行の複製は原文と属性を保ち、複製先を選び、一回の undo で戻る', async (t) => {
+    const rows = ['  <tr class="一"><td style="color:red" data-x="値">甲</td><td>乙</td></tr>\n',
+      '  <tr><td>丙</td><td>丁</td></tr>\n'];
+    const text = '<table>\n<tbody>\n' + rows.join('') + '</tbody>\n</table>\n';
+    const { page, file } = await editablePage(t, browser, text);
+    await page.locator('#gp-content td').first().click();
+    await page.keyboard.press('Shift+ArrowDown');
+    await (await menuItem(page, 'row-select')).click();
+    const reply = page.waitForResponse((response) => response.request().method() === 'POST' &&
+      new URL(response.url()).pathname.endsWith('/_/edit'));
+    await (await menuItem(page, 'row-duplicate')).click();
+    assert.equal((await reply).status(), 200, 'B1 の duplicateRows が必要');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '<table>\n<tbody>\n' + rows.join('').repeat(2) + '</tbody>\n</table>\n');
+    assert.match(await page.locator('#gp-edit-input').getAttribute('aria-label'), /2 行 2 列/);
+    await page.keyboard.press('F2');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '甲');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Control+z');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), text);
+  });
+
+  await t.test('本物のサーバーで行列を複製して複製先を選び、op を一回だけ送る', async (t) => {
+    const { page, file } = await editablePage(t, browser, pipe);
+    const received = [];
+    page.on('request', (request) => {
+      if (request.method() !== 'POST' || !new URL(request.url()).pathname.endsWith('/_/edit')) return;
+      const op = request.postDataJSON().op;
+      if (op?.type.startsWith('duplicate')) received.push(op);
+    });
+    await page.locator('#gp-content td').first().click();
+    await (await menuItem(page, 'row-duplicate')).click();
+    await editIdle(page);
+    assert.deepEqual(received, [{ type: 'duplicateRows', row: 1, count: 1 }]);
+    assert.match(await page.locator('#gp-edit-input').getAttribute('aria-label'), /1 行 3 列/);
+    assert.equal(await page.evaluate(() => {
+      const selected = document.querySelector('#gp-edit-selection').getBoundingClientRect();
+      const inserted = document.querySelectorAll('#gp-content tr')[2].cells[0].getBoundingClientRect();
+      return selected.top === inserted.top && selected.left === inserted.left;
+    }), true);
+    await page.keyboard.press('Control+z');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), pipe);
+    await page.locator('#gp-content td').first().click();
+    await page.keyboard.press('Shift+ArrowRight');
+    await (await menuItem(page, 'col-select')).click();
+    await (await menuItem(page, 'col-duplicate')).click();
+    await editIdle(page);
+    assert.deepEqual(received.at(-1), { type: 'duplicateColumns', col: 0, count: 2 });
+    assert.equal(received.length, 2);
+    assert.match(await page.locator('#gp-edit-input').getAttribute('aria-label'), /4 行 2 列/);
+    assert.equal(await page.evaluate(() => {
+      const selected = document.querySelector('#gp-edit-selection').getBoundingClientRect();
+      const inserted = document.querySelector('#gp-content tr').cells[2].getBoundingClientRect();
+      return selected.top === inserted.top && selected.left === inserted.left;
+    }), true);
+    await page.keyboard.press('Control+z');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), pipe);
+  });
+
+  await t.test('結合を切る範囲は点線と理由を出し、複製と Delete を断る', async (t) => {
+    const text = '<table><tr><td>左上</td><td rowspan="2">結合</td><td>右上</td></tr>' +
+      '<tr><td>左下</td><td>右下</td></tr><tr><td>左末</td><td>中末</td><td>右末</td></tr></table>\n';
+    const { page, file } = await editablePage(t, browser, text);
+    await page.locator('#gp-content td').first().click();
+    await page.locator('#gp-content tr').first().locator('td').last().click({ modifiers: ['Shift'] });
+    assert.equal(await page.locator('#gp-edit-range').getAttribute('data-invalid'), '');
+    assert.equal(await page.locator('#gp-edit-range-0').evaluate((element) => getComputedStyle(element).borderTopStyle), 'dotted');
+    const duplicate = await menuItem(page, 'row-duplicate');
+    assert.equal(await duplicate.getAttribute('aria-disabled'), 'true');
+    const description = await duplicate.getAttribute('aria-describedby');
+    assert.match(await page.locator('#' + description).textContent(), /結合セル.*選び直してください/);
+    await duplicate.click({ force: true });
+    assert.equal(await page.locator('#gp-edit-menu-rows').isVisible(), true);
+    assert.match(await page.locator('#gp-edit-menu-rows-reason').textContent(), /結合/);
+    assert.equal(await page.locator('#gp-edit-menu-rows').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.top >= 8 && rect.bottom <= innerHeight - 8;
+    }), true);
+    assert.equal(await page.locator('#gp-edit-row-after').getAttribute('aria-disabled'), 'false');
+    assert.equal(await page.locator('#gp-edit-row-delete').getAttribute('aria-disabled'), 'false');
+    await page.keyboard.press('Escape');
+    await page.locator('#gp-edit-input').focus();
+    await page.keyboard.press('Delete');
+    assert.match(await page.locator('#gp-edit-status').textContent(), /結合/);
+    assert.equal(readFileSync(file, 'utf8'), text);
+  });
+
+  await t.test('パイプの見出しの複製は見出し直下のデータ行になり、上への挿入は無効になる', async (t) => {
+    const { page, file } = await editablePage(t, browser, pipe);
+    await page.locator('#gp-content th').first().click();
+    const duplicate = await menuItem(page, 'row-duplicate');
+    assert.equal(await page.locator('#gp-edit-row-before').getAttribute('aria-disabled'), 'true');
+    assert.match(await page.locator('#gp-edit-row-before').getAttribute('title'), /見出し行の上/);
+    assert.equal(await duplicate.getAttribute('aria-disabled'), 'false');
+    const reply = page.waitForResponse((response) => response.request().method() === 'POST' &&
+      new URL(response.url()).pathname.endsWith('/_/edit'));
+    await duplicate.click();
+    assert.equal((await reply).status(), 200, 'B1 の duplicateRows が必要');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), pipe.replace('| --- | --- | --- |\n', '| --- | --- | --- |\n| 名前 | 数 | 備考 |\n'));
+    assert.equal(await page.locator('#gp-content th').count(), 3);
+    assert.match(await page.locator('#gp-edit-input').getAttribute('aria-label'), /1 行 3 列/);
+    await page.keyboard.press('Control+z');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), pipe);
+  });
+
+  await t.test('検索で隠れた行をまたぐ範囲は削除も複製も断る', async (t) => {
+    const text = '| 名前 | 値 |\n| --- | --- |\n| 一致 上 | 1 |\n| 隠す | 2 |\n| 一致 下 | 3 |\n';
+    const { page, file } = await editablePage(t, browser, text);
+    await page.locator('#gp-sticky-toggle').click();
+    await page.locator('[data-md-table-sticky-action="search"]').click();
+    await page.locator('[data-md-table-sticky-search-input]').fill('一致');
+    await page.locator('[data-md-table-sticky-action="search-filter"]').check();
+    await page.waitForFunction(() => getComputedStyle(document.querySelectorAll('#gp-content tr')[2]).display === 'none');
+    await page.locator('#gp-content td').first().click();
+    await page.locator('#gp-content td').last().click({ modifiers: ['Shift'] });
+    const duplicate = await menuItem(page, 'row-duplicate');
+    assert.equal(await duplicate.getAttribute('aria-disabled'), 'true');
+    assert.equal(await page.locator('#gp-edit-row-delete').getAttribute('aria-disabled'), 'true');
+    await duplicate.focus();
+    assert.match(await page.locator('#gp-edit-menu-rows-reason').textContent(), /検索.*解除/);
+    await duplicate.click({ force: true });
+    assert.equal(readFileSync(file, 'utf8'), text);
+    await page.keyboard.press('Escape');
+    await page.locator('#gp-edit-input').focus();
+    await page.keyboard.press('Delete');
+    assert.match(await page.locator('#gp-edit-status').textContent(), /検索/);
+    assert.equal(readFileSync(file, 'utf8'), text);
+  });
+
+  await t.test('右クリックとキーボードで同じ行列の子のメニューを開き、無効理由を読める', async (t) => {
+    const { page } = await editablePage(t, browser, pipe);
+    await page.locator('#gp-content td').first().click({ button: 'right' });
+    const cellMenu = page.locator('#gp-edit-menu-cell'), rows = page.locator('#gp-edit-menu-rows'), cols = page.locator('#gp-edit-menu-cols');
+    assert.equal(await cellMenu.getAttribute('role'), 'menu');
+    assert.equal(await page.locator('#gp-edit-actions > button').count(), 5);
+    assert.equal(await page.locator('#gp-edit-actions [role="menu"]').count(), 0);
+    assert.equal(await page.locator('#gp-edit-layer > [role="menu"]').count(), 3);
+    assert.equal(await page.locator('#gp-edit-cell-rows').getAttribute('role'), 'menuitem');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    assert.equal(await cellMenu.isVisible(), true);
+    assert.equal(await cols.isVisible(), true);
+    assert.equal(await page.locator('#gp-edit-cell-cols').getAttribute('aria-expanded'), 'true');
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await cols.isVisible(), false);
+    assert.equal(await page.locator('#gp-edit-cell-cols').evaluate((element) => element === document.activeElement), true);
+    await page.keyboard.press('Home');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await rows.isVisible(), true);
+    await page.keyboard.press('End');
+    await page.keyboard.press('Space');
+    assert.equal(await cellMenu.isVisible(), false);
+    assert.match(await page.locator('#gp-edit-input').getAttribute('aria-label'), /1 行 3 列/);
+    await page.keyboard.press('Shift+F10');
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    assert.equal(await cellMenu.isVisible(), true);
+    assert.equal(await page.locator('#gp-edit-cell-source').getAttribute('aria-disabled'), 'true');
+    assert.match(await page.locator('#gp-edit-menu-cell-reason').textContent(), /HTML/);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('ContextMenu');
+    assert.equal(await cellMenu.isVisible(), true);
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await cellMenu.isVisible(), false);
+    assert.equal(await page.locator('#gp-edit-input').evaluate((element) => element === document.activeElement), true);
+    await page.locator('#gp-edit-rows').focus();
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await page.locator('#gp-edit-row-select').evaluate((element) => element === document.activeElement), true);
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.locator('#gp-edit-row-before').evaluate((element) => element === document.activeElement), true);
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#gp-edit-rows').evaluate((element) => element === document.activeElement), true);
+    await page.locator('#gp-edit-input').focus();
+    await page.keyboard.press('F2');
+    assert.equal(await page.locator('#gp-edit-input').evaluate((element) => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    }), false);
+    await page.keyboard.press('Escape');
+    const blocked = await editablePage(t, browser, '```json:table\n{"markdown":true,"fields":[{"key":"a","label":"列"}],"items":[{"a":"値"}]}\n```\n');
+    assert.equal(await blocked.page.locator('#gp-content td').evaluate((element) => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    }), false);
+    assert.equal(await blocked.page.locator('#gp-edit-menu-cell').isVisible(), false);
+  });
+
+  await t.test('固定行列と横スクロールでは範囲を四つに分け、Esc はメニュー・範囲・全幅の順に解く', async (t) => {
+    const text = '| 列一 | 列二 | 列三 |\n| --- | --- | --- |\n' +
+      Array.from({ length: 16 }, (_, row) => `| ${row} ${'長い値'.repeat(15)} | 二 | 三 |`).join('\n') + '\n';
+    const { page } = await editablePage(t, browser, text);
+    await page.setViewportSize({ width: 700, height: 460 });
+    await page.locator('#gp-sticky-toggle').click();
+    await page.locator('[data-md-table-sticky-action="rows-plus"]').click();
+    await page.locator('[data-md-table-sticky-action="cols-plus"]').click();
+    await page.locator('[data-md-table-sticky-action="float"]').click();
+    const panel = page.locator('[data-md-table-sticky-float-panel]');
+    await panel.locator('th').first().click();
+    await panel.locator('td').last().click({ modifiers: ['Shift'] });
+    await page.waitForFunction(() => Array.from(document.querySelector('#gp-edit-range').children).filter((element) => !element.hidden).length === 4);
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+    assert.equal(await page.locator('#gp-edit-range .gp-edit-range:not([hidden])').evaluateAll((elements) =>
+      elements.every((element) => getComputedStyle(element).pointerEvents === 'none' && element.style.clipPath.startsWith('inset('))), true);
+    await page.locator('#gp-edit-input').evaluate((element) => element.dispatchEvent(new KeyboardEvent('keydown',
+      { bubbles: true, key: 'Escape', keyCode: 229, isComposing: true })));
+    assert.equal(await panel.count(), 1);
+    assert.equal(await page.locator('#gp-edit-range').isVisible(), true);
+    await page.keyboard.press('Shift+F10');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#gp-edit-menu-cell').isVisible(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#gp-edit-range').isVisible(), true);
+    assert.equal(await panel.count(), 1);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#gp-edit-range').isVisible(), false);
+    assert.equal(await page.locator('#gp-edit-selection').isVisible(), true);
+    assert.equal(await panel.count(), 1);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#gp-edit-selection').isVisible(), false);
+    assert.equal(await panel.count(), 0);
+  });
+
+  await t.test('構造変更の応答待ちで確定した入力を送らず下書きへ戻す', async (t) => {
+    const { page, file } = await editablePage(t, browser, pipe);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    t.after(() => release());
+    let sent = 0;
+    await page.route('**/_/edit', async (route) => {
+      sent++;
+      if (sent !== 1) return route.continue();
+      const response = await route.fetch();
+      await gate;
+      await route.fulfill({ response });
+    });
+    const initial = await page.evaluate(() => window.gpPreview.current().render);
+    await page.locator('#gp-content td').first().click();
+    await (await menuItem(page, 'row-after')).click();
+    await page.locator('#gp-content td').nth(1).click();
+    await page.keyboard.insertText('構造待ちの入力');
+    await page.keyboard.press('Tab');
+    await page.waitForFunction((initial) => window.gpPreview.current().render > initial, initial);
+    release();
+    await editIdle(page);
+    assert.equal(sent, 1);
+    assert.equal(readFileSync(file, 'utf8').includes('構造待ちの入力'), false);
+    assert.match(await page.locator('#gp-edit-status').textContent(), /行・列が変わった.*下書き/);
+    await page.locator('#gp-content td').nth(1).click();
+    await page.keyboard.press('F2');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '構造待ちの入力');
+    await page.keyboard.press('Escape');
+  });
+
+  await t.test('外の変更と 409 では範囲を捨て、メニューも閉じる', async (t) => {
+    const { page, file, server } = await editablePage(t, browser, pipe);
+    await page.locator('#gp-content td').first().click();
+    await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Shift+F10');
+    writeFileSync(file, pipe.replace('ぶどう', '外のぶどう'));
+    await server.setDocument({ path: file, text: readFileSync(file, 'utf8'), rev: 40 });
+    await page.waitForFunction(() => window.gpPreview.current().rev === 40);
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-edit-range').isVisible(), false);
+    assert.equal(await page.locator('#gp-edit-menu-cell').isVisible(), false);
+    await page.locator('#gp-content td').first().click();
+    await page.keyboard.press('Shift+ArrowDown');
+    await page.route('**/_/edit', (route) => route.fulfill({ status: 409, contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'changed', message: '試験の競合' } }) }));
+    await page.keyboard.press('Delete');
+    await page.waitForFunction(() => document.querySelector('#gp-edit-status').textContent.includes('文書が変わった'));
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-edit-range').isVisible(), false);
+    assert.equal(await page.locator('#gp-edit-selection').isVisible(), true);
+  });
+
   await t.test('六つの行列操作と見出し行・rowsLocked の制限', async (t) => {
     const { page, file } = await editablePage(t, browser, pipe);
     await page.locator('#gp-content th').first().click();
-    assert.equal(await page.locator('#gp-edit-row-before').isDisabled(), true);
-    assert.equal(await page.locator('#gp-edit-row-delete').isDisabled(), true);
+    await page.locator('#gp-edit-rows').click();
+    assert.equal(await page.locator('#gp-edit-row-before').getAttribute('aria-disabled'), 'true');
+    assert.equal(await page.locator('#gp-edit-row-delete').getAttribute('aria-disabled'), 'true');
     await page.locator('#gp-content td').first().click();
     for (const [action, rows, cols] of [['row-before', 5, 3], ['row-after', 6, 3], ['row-delete', 5, 3],
       ['col-before', 5, 4], ['col-after', 5, 5], ['col-delete', 5, 4]]) {
-      await page.locator('#gp-edit-' + action).click();
+      await (await menuItem(page, action)).click();
       await editIdle(page);
       assert.equal(await page.locator('#gp-content tr').count(), rows);
       assert.equal(await page.locator('#gp-content th').count(), cols);
@@ -588,7 +981,8 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     const locked = await editablePage(t, browser,
       '<table><tbody><tr><td>上</td></tr></tbody><thead><tr><th>下</th></tr></thead></table>\n');
     await locked.page.locator('#gp-content td').first().click();
-    assert.equal(await locked.page.locator('#gp-edit-row-after').isDisabled(), true);
+    await locked.page.locator('#gp-edit-rows').click();
+    assert.equal(await locked.page.locator('#gp-edit-row-after').getAttribute('aria-disabled'), 'true');
     assert.ok(await locked.page.locator('#gp-edit-row-after').getAttribute('title'));
   });
 
