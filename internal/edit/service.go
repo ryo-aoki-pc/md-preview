@@ -1,4 +1,4 @@
-// Package edit は、描画に使った原文を確かめて Markdown のファイルへ書き戻す。
+// Package edit は、描画に使った原文を確かめて Markdown のファイルやバッファへ反映する。
 package edit
 
 import (
@@ -28,6 +28,17 @@ type Options struct {
 	Host    Host
 	Mode    Mode
 	Written func(src session.Source, text string)
+	// Buffer の方式で、行の置き換えを編集元（Neovim）に頼む。応答を待って返す。
+	Send func(ctx context.Context, e BufferEdit) *Error
+}
+
+type BufferEdit struct {
+	Path  string // session.Source.DocPath。無名なら空
+	Buf   any    // session.Source.Buf
+	Rev   any    // session.Source.Rev
+	Start int    // 0 始まり
+	End   int    // 含まない
+	Lines []string
 }
 type Error struct {
 	Status        int
@@ -47,8 +58,13 @@ type Service struct {
 	history histories
 }
 
-func New(o Options) *Service              { return &Service{opts: o, cache: map[string]*mapping{}} }
-func (s *Service) Config() map[string]any { return map[string]any{"scope": "all", "undo": true} }
+func New(o Options) *Service { return &Service{opts: o, cache: map[string]*mapping{}} }
+func (s *Service) Config() map[string]any {
+	if s.opts.Mode == Buffer {
+		return map[string]any{"scope": "current", "undo": false}
+	}
+	return map[string]any{"scope": "all", "undo": true}
+}
 func (s *Service) source(doc *string, render uint64) (session.Source, *Error) {
 	if s.opts.Host == nil {
 		return session.Source{}, fault(404, "missing", "描画した文書がありません。")
@@ -78,7 +94,9 @@ func (s *Service) Tables(ctx context.Context, doc *string, render uint64) (any, 
 		return nil, e
 	}
 	result := m.response
-	result.Undo = s.history.status(pathKey(src.Path), text)
+	if s.opts.Mode == File {
+		result.Undo = s.history.status(pathKey(src.Path), text)
+	}
 	if fileErr != nil {
 		result.Undo = undoState{}
 		result.Document = documentState{false, fileErr.Message}
@@ -119,6 +137,9 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	r, e := parseRequest(body)
 	if e != nil {
 		return nil, e
+	}
+	if s.opts.Mode == Buffer && (r.undo || r.redo) {
+		return nil, fault(404, "unsupported", "元に戻す操作は Neovim で行ってください。")
 	}
 	src, e := s.source(doc, r.render)
 	if e != nil {
@@ -195,6 +216,22 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	}
 	if len(text) > maxDocumentBytes {
 		return nil, fault(422, "large", "編集後の文書が 16 MiB を超えています。")
+	}
+	if s.opts.Mode == Buffer {
+		replacement := bufferEdit(src, old, text)
+		if replacement.Start == replacement.End && len(replacement.Lines) == 0 {
+			return map[string]any{"ok": true, "unchanged": true}, nil
+		}
+		if _, e = s.source(doc, r.render); e != nil {
+			return nil, e
+		}
+		if e = s.opts.Send(ctx, replacement); e != nil {
+			return nil, e
+		}
+		if warnings == nil {
+			warnings = []string{}
+		}
+		return map[string]any{"ok": true, "warnings": warnings}, nil
 	}
 	// 試しの描画中に外で変わった場合も、古い本文を上書きしない。
 	current, currentBOM, e := s.readFile(src)

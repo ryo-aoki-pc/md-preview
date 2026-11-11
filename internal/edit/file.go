@@ -24,6 +24,21 @@ func pathKey(path string) string {
 	return path
 }
 func (s *Service) readFile(src session.Source) (string, bool, *Error) {
+	if s.opts.Mode == Buffer {
+		if !src.Current {
+			return "", false, fault(403, "excluded", "Neovim で開いている文書だけ編集できます。")
+		}
+		if src.Buf == nil || s.opts.Send == nil {
+			return "", false, fault(422, "unsupported", "この文書の編集には対応していません。")
+		}
+		if len(src.Text) > maxDocumentBytes {
+			return "", false, fault(422, "large", "文書が 16 MiB を超えています。")
+		}
+		if !utf8.ValidString(src.Text) {
+			return "", false, fault(422, "encoding", "UTF-8 でない文書は編集できません。")
+		}
+		return src.Text, false, nil
+	}
 	if s.opts.Mode != File {
 		return "", false, fault(422, "unsupported", "この文書の編集には対応していません。")
 	}

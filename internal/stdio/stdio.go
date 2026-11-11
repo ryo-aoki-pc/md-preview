@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ryo-aoki-pc/md-preview/internal/edit"
 	"github.com/ryo-aoki-pc/md-preview/internal/pagefiles"
 	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
 	"github.com/ryo-aoki-pc/md-preview/internal/server"
@@ -32,6 +33,7 @@ type readyMessage struct {
 	Protocol int    `json:"protocol"`
 	Version  string `json:"version"`
 	URL      string `json:"url"`
+	Edit     int    `json:"edit,omitempty"`
 }
 type clientsMessage struct {
 	Type  string `json:"type"`
@@ -105,16 +107,19 @@ func newOutput(w io.Writer) *output {
 	go o.run()
 	return o
 }
-func (o *output) send(v any) {
+func (o *output) send(v any) bool {
 	b, err := server.Stringify(v)
 	if err != nil {
-		return
+		return false
 	}
+	return o.sendLine(b)
+}
+func (o *output) sendLine(b []byte) bool {
 	b = append(b, '\n')
 	o.mu.Lock()
 	if o.failed || o.closing || o.bytes > MaxOutputBytes {
 		o.mu.Unlock()
-		return
+		return false
 	}
 	o.queue = append(o.queue, b)
 	o.bytes += len(b)
@@ -123,6 +128,7 @@ func (o *output) send(v any) {
 	case o.wake <- struct{}{}:
 	default:
 	}
+	return true
 }
 func (o *output) run() {
 	defer close(o.done)
@@ -183,6 +189,7 @@ type Options struct {
 	Plantuml     server.DiagramRenderer
 	Assets       server.OfficialAssets
 	AssetsNotice string
+	EditTimeout  time.Duration
 	OnStart      func(*server.Server, *session.Session) error
 }
 
@@ -191,9 +198,10 @@ func finite(v any) bool { n, ok := v.(float64); return ok && !math.IsNaN(n) && !
 func Run(ctx context.Context, o Options) int {
 	output := newOutput(o.Stdout)
 	defer output.finish()
+	bridge := newEditBridge(output, o.EditTimeout)
 	var state *session.Session
 	var httpServer *server.Server
-	greeted, paused, closing := false, false, false
+	greeted, editing, closing := false, false, false
 	code := 0
 	var currentPath any
 	var pathMu sync.Mutex
@@ -255,23 +263,36 @@ func Run(ctx context.Context, o Options) int {
 			if e != nil {
 				return report("プレビューのサーバーを起動できません", true)
 			}
-			page, e := pagefiles.Load(pagefiles.Options{Theme: theme, Width: width, Jump: true})
+			var editor *edit.Service
+			var editConfig any
+			editVersion := 0
+			if value["edit"] == float64(1) {
+				editing = true
+				editVersion = 1
+				editor = edit.New(edit.Options{Host: state, Mode: edit.Buffer, Send: bridge.send})
+				editConfig = editor.Config()
+			}
+			page, e := pagefiles.Load(pagefiles.Options{Theme: theme, Width: width, Jump: true, Edit: editConfig})
 			if e != nil {
 				return report("プレビューのサーバーを起動できません", true)
 			}
-			httpServer, e = server.New(server.Options{Session: state, Page: page, Port: o.Port, Plantuml: o.Plantuml, Assets: o.Assets, AssetsNotice: o.AssetsNotice, OnJump: func(line int64) {
+			serverOptions := server.Options{Session: state, Page: page, Port: o.Port, Plantuml: o.Plantuml, Assets: o.Assets, AssetsNotice: o.AssetsNotice, OnJump: func(line int64) {
 				pathMu.Lock()
 				p := currentPath
 				pathMu.Unlock()
 				output.send(jumpMessage{"jump", p, line})
-			}, OnClientCount: func(count int) { output.send(clientsMessage{"clients", count}) }})
+			}, OnClientCount: func(count int) { output.send(clientsMessage{"clients", count}) }}
+			if editor != nil {
+				serverOptions.Edit = editor
+			}
+			httpServer, e = server.New(serverOptions)
 			if e != nil {
 				return report("プレビューのサーバーを起動できません", true)
 			}
 			// 状態側が通知と取り消しを直列化し、休止より後に古い描画を流さない。
 			state.SetCallbacks(func(d session.Data) { _ = httpServer.Broadcast("render", d) }, func(d session.Data) { _ = httpServer.Broadcast("scroll", d) })
 			greeted = true
-			output.send(readyMessage{"ready", 1, o.Version, httpServer.URL})
+			output.send(readyMessage{"ready", 1, o.Version, httpServer.URL, editVersion})
 			output.send(clientsMessage{"clients", httpServer.ClientCount()})
 			if o.OnStart != nil {
 				if o.OnStart(httpServer, state) != nil {
@@ -282,17 +303,18 @@ func Run(ctx context.Context, o Options) int {
 		}
 		switch kind {
 		case "doc":
-			if paused {
+			if bridge.isPaused() {
 				return true
 			}
 			path, pathOK := value["path"]
 			p, pathString := path.(string)
 			name, nameOK := value["name"].(string)
 			text, textOK := value["text"].(string)
-			if !pathOK || !(path == nil || (pathString && resolve.IsAbsolute(p) && !strings.ContainsRune(p, 0))) || !nameOK || !textOK || !finite(value["rev"]) {
-				return report("doc の path・name・text・rev の型または値が正しくありません", false)
+			buf, hasBuf := value["buf"]
+			if !pathOK || !(path == nil || (pathString && resolve.IsAbsolute(p) && !strings.ContainsRune(p, 0))) || !nameOK || !textOK || !finite(value["rev"]) || hasBuf && !server.SafeInteger(buf) {
+				return report("doc の path・name・text・rev・buf の型または値が正しくありません", false)
 			}
-			if state.SetDocument(session.Document{Path: p, Name: name, Text: text, Rev: value["rev"]}) != nil {
+			if state.SetDocument(session.Document{Path: p, Name: name, Text: text, Rev: value["rev"], Buf: buf}) != nil {
 				return report("文書のパスまたはフォルダーを使えません", false)
 			}
 			pathMu.Lock()
@@ -300,7 +322,7 @@ func Run(ctx context.Context, o Options) int {
 			pathMu.Unlock()
 			return true
 		case "scroll":
-			if paused {
+			if bridge.isPaused() {
 				return true
 			}
 			if !server.SafeInteger(value["line"]) || !server.SafeInteger(value["lines"]) || !finite(value["ratio"]) {
@@ -313,12 +335,23 @@ func Run(ctx context.Context, o Options) int {
 			state.SetScroll(value)
 			return true
 		case "pause":
-			paused = true
+			bridge.pause(true)
 			state.CancelRender()
 			_ = httpServer.Broadcast("stop", session.Data{"reason": "stop"})
 			return true
 		case "resume":
-			paused = false
+			bridge.pause(false)
+			return true
+		case "edit_result":
+			if !editing {
+				return report("知らない行の種類です。type を確かめてください", false)
+			}
+			ok, valid := value["ok"].(bool)
+			if !server.SafeInteger(value["id"]) || !valid {
+				return report("edit_result の id・ok の型または値が正しくありません", false)
+			}
+			message, _ := value["message"].(string)
+			bridge.result(uint64(value["id"].(float64)), ok, message)
 			return true
 		case "hello":
 			return report("hello は最初に1回だけ送ってください", false)
@@ -330,6 +363,7 @@ func Run(ctx context.Context, o Options) int {
 		report("標準入力を読めません", true)
 	}
 	closing = true
+	bridge.close()
 	if c, ok := o.Stdin.(io.Closer); ok {
 		_ = c.Close()
 	}
