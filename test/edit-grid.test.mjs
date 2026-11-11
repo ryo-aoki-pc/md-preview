@@ -299,8 +299,8 @@ test('foreignHints は参照リンク・脚注・リンクと HTML のパスの�
   assert.equal(grid.foreignHints(grid.valuesFragment([['ただの文字', '配列 [1]']])), false);
 });
 
-test('B1 の全見本で Go と JavaScript の写しが一致する', () => {
-  // B1 の見本が無い場合も失敗させ、結合時の照合を省かない。
+test('internal/edit の写しの見本のすべてで、Go と JavaScript の写しが一致する', () => {
+  // 見本が無い場合も失敗させ、Go と JavaScript の照合を省かない。
   const fixture = JSON.parse(readFileSync(new URL('../internal/edit/testdata/page-fragments.json', import.meta.url), 'utf8'));
   assert.equal(fixture.version, 1);
   assert.ok(Array.isArray(fixture.cases) && fixture.cases.length > 0);

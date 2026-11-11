@@ -730,7 +730,7 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     const reply = page.waitForResponse((response) => response.request().method() === 'POST' &&
       new URL(response.url()).pathname.endsWith('/_/edit'));
     await (await menuItem(page, 'row-duplicate')).click();
-    assert.equal((await reply).status(), 200, 'B1 の duplicateRows が必要');
+    assert.equal((await reply).status(), 200, 'サーバーが duplicateRows を受け付ける');
     await editIdle(page);
     assert.equal(readFileSync(file, 'utf8'), '<table>\n<tbody>\n' + rows.join('').repeat(2) + '</tbody>\n</table>\n');
     assert.match(await page.locator('#gp-edit-input').getAttribute('aria-label'), /2 行 2 列/);
@@ -819,7 +819,7 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     const reply = page.waitForResponse((response) => response.request().method() === 'POST' &&
       new URL(response.url()).pathname.endsWith('/_/edit'));
     await duplicate.click();
-    assert.equal((await reply).status(), 200, 'B1 の duplicateRows が必要');
+    assert.equal((await reply).status(), 200, 'サーバーが duplicateRows を受け付ける');
     await editIdle(page);
     assert.equal(readFileSync(file, 'utf8'), pipe.replace('| --- | --- | --- |\n', '| --- | --- | --- |\n| 名前 | 数 | 備考 |\n'));
     assert.equal(await page.locator('#gp-content th').count(), 3);
@@ -1772,7 +1772,7 @@ test('表のクリップボード・挿入貼り付け・切り取りを確か�
     await page.locator('#gp-content td').first().click();
     await (await menuItem(page, 'row-select')).click();
     const copy = await copied(page);
-    assert.ok(copy.custom, 'B1 の origin と写しの材料で独自の形式を作る');
+    assert.ok(copy.custom, '表情報の origin と写しの材料で独自の形式を作る');
     assert.equal(copy.text, 'りんご\t1\t赤\r\n');
     assert.match(copy.html, /^<table>/);
     assert.equal(JSON.parse(copy.custom).fragment.shape, 'rows');
@@ -1814,7 +1814,7 @@ test('表のクリップボード・挿入貼り付け・切り取りを確か�
     await page.locator('#gp-content td').first().click();
     await page.keyboard.press('Shift+ArrowRight');
     const copy = await copied(page);
-    assert.ok(copy.custom, 'B1 の表情報で HTML の原文をコピーする');
+    assert.ok(copy.custom, '表情報で HTML の原文をコピーする');
     assert.match(JSON.parse(copy.custom).fragment.cells[0].tag, /data-x="値"/);
     assert.doesNotMatch(copy.html, /style="color|data-x|<b>/);
     const other = await page.context().newPage();
@@ -2110,7 +2110,7 @@ test('Neovim の橋渡しで表の編集をバッファへ頼み、拒否の知�
         new URL(value.url()).pathname.endsWith('/_/edit'));
       await action();
       return Promise.race([bridge.waitFor('edit', 10000), response.then((value) => {
-        assert.fail(`B1 の新しい op で edit を頼む前に HTTP ${value.status()} が返りました`);
+        assert.fail(`新しい op で edit を頼む前に HTTP ${value.status()} が返りました`);
       })]);
     };
     const apply = async (edit, rev) => {
