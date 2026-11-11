@@ -48,6 +48,49 @@
     location.reload();
   }
 
+  // ---- 表の固定 -----------------------------------------------------------------
+  const stickyToggle = document.getElementById('gp-sticky-toggle');
+  stickyToggle.hidden = Boolean(CONFIG.list);
+  let stickyLoading = null;
+  let stickyRestored = false;
+
+  function updateStickyButton() {
+    stickyToggle.setAttribute('aria-pressed', String(Boolean(window.__mdTableSticky)));
+  }
+
+  function setSticky(want) {
+    if (stickyLoading) return stickyLoading;
+    if (Boolean(window.__mdTableSticky) === want) {
+      updateStickyButton();
+      return Promise.resolve();
+    }
+    // 原文は実行のたびに切り替わるので、読み込みを重ねず、使い終わった script は外す。
+    stickyLoading = new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = new URL('_/lib/md-table-sticky/sticky-table.js', BASE).href;
+      script.onload = script.onerror = () => {
+        script.remove();
+        resolve();
+      };
+      document.head.appendChild(script);
+    }).then(() => {
+      stickyLoading = null;
+      updateStickyButton();
+      rememberAppearance('sticky', Boolean(window.__mdTableSticky));
+      queueLayout();
+    });
+    return stickyLoading;
+  }
+
+  function restoreSticky() {
+    updateStickyButton();
+    if (stickyRestored) return;
+    stickyRestored = true;
+    if (savedAppearance.sticky === true) void setSticky(true);
+  }
+
+  stickyToggle.addEventListener('click', () => void setSticky(!Boolean(window.__mdTableSticky)));
+
   // ---- GitLab との違い -----------------------------------------------------------
   const noticeLabels = new Map([
     ['reference', 'GitLab では参照のリンクになる書き方（手元ではリンクにしない）'],
@@ -498,6 +541,7 @@
     });
     buildNotices(Object.hasOwn(m, 'error') ? [] : m.notices);
     buildOutline(m.headings);
+    restoreSticky();
     buildMap();
     syncScroll();
 

@@ -265,6 +265,9 @@ func TestLicenseBrowserVersions(t *testing.T) {
 	if err := json.Unmarshal(data, &lock); err != nil {
 		t.Fatal(err)
 	}
+	if _, ok := lock.Packages["md-table-sticky"]; !ok {
+		t.Fatal("表の固定のライブラリがありません")
+	}
 	versions := map[string]string{}
 	for _, c := range licenseManifest(t) {
 		versions[c.Name] = c.Version

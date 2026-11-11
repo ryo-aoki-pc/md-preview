@@ -21,8 +21,10 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - Markdown を GitLab に送らず、手元で描いてブラウザに表示する。ファイルの保存に合わせて描き直す。Neovim からは未保存の内容も表示する
 - 本文の相対リンクから別の Markdown へ移り、ブラウザの戻る・進むで行き来する。「一覧」でルート内の文書を選び、「見出し」で見出しの一覧を左に出し入れする
 - 「GitLab との違い」で、参照・図・提案・取り込み・絵文字・メディアの知らせを読み、本文の該当する行へ移る
+- 「表を固定」で、表の先頭行・列の固定、折り返し、全幅表示を使う
 - `::include{file=…}` でルート内のファイルを取り込む。取り込むファイルの変更・削除・作成に合わせて描き直す
 - 数式（KaTeX）と図（mermaid）を、同梱のライブラリで描く。PlantUML の図は、`plantuml` コマンドが入っていれば、手元のそのコマンドで描く
+- 表の操作には、同梱の md-table-sticky（[原文の写し](page/lib/md-table-sticky/)）を使う
 - Markdown を HTML に書き出す。スタイルと、文書に必要な数式・図のライブラリを埋め込み、サーバーを起こさずにブラウザで開ける形にする
 - ブラウザから印刷する。印刷用の表示では操作欄・見出し欄・知らせを隠す
 - 配色（システム・ライト・ダーク）と本文幅（全幅・固定幅）を切り替える。任意で GitLab の公式スタイルとフォントを取得し、プレビューに使う
@@ -110,8 +112,12 @@ node --test test/page.test.mjs
 
 `test/page.test.mjs` は試験用サーバーと書き出しのコマンドを Go でビルドし、本物の KaTeX・mermaid をブラウザで描く。Playwright を通常の場所から読めないときは、`PLAYWRIGHT_MODULE` に導入先を指定する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる。必要な道具が無ければ理由を付けて skip する（合格には数えない）。
 
+写しの更新処理は `node --test test/page-libs.test.mjs` で確かめる。合成の npm パッケージと使い捨ての Git リポジトリを使い、外へ通信しない。
+
 GitLab の本物の出力との比較は `go test ./...` に含まれる。保存済みの見本を使い、試験中は GitLab へ通信しない。作り直す手順と決まりは [AGENTS.md](AGENTS.md) にある。
 
 ## ライセンス
 
 md-preview は [MIT ライセンス](LICENSE)。同梱しているものの一覧は [licenses/manifest.json](licenses/manifest.json) にあり、原文は `mdpreview --licenses` で出す。
+
+表の操作に使う md-table-sticky も MIT ライセンス。原文の写しとライセンスは [page/lib/md-table-sticky/](page/lib/md-table-sticky/) にある。

@@ -97,7 +97,7 @@ func NewLibraries(files fs.FS) (*Libraries, error) {
 	}
 	l := &Libraries{files: files, records: map[string]Record{}}
 	for name, p := range lock.Packages {
-		if (name != "katex" && name != "mermaid") || name != p.Name {
+		if (name != "katex" && name != "mermaid" && name != "md-table-sticky") || name != p.Name {
 			return nil, errors.New("ライブラリの固定情報が正しくありません")
 		}
 		for file, r := range p.Files {

@@ -221,16 +221,13 @@ async function fixturePage(
     const url = new URL(route.request().url());
     return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
   });
-  // 通信開始前に CSP で拒否されたものも、外への試みとして数える。
+  // 通信開始前の拒否やインラインの違反も、文書の移動をまたいで記録する。
   await context.addInitScript(() => {
     window.gpBlocked = [];
     document.addEventListener('securitypolicyviolation', (event) => {
-      const value = event.blockedURI;
-      if (/^https?:/.test(value) && new URL(value).hostname !== '127.0.0.1') {
-        const blocked = { url: value, type: event.violatedDirective };
-        window.gpBlocked.push(blocked);
-        void window.gpRecordViolation(blocked).catch(() => {});
-      }
+      const blocked = { url: event.blockedURI, type: event.violatedDirective };
+      window.gpBlocked.push(blocked);
+      void window.gpRecordViolation(blocked).catch(() => {});
     });
   });
   const page = await context.newPage();
@@ -242,7 +239,7 @@ async function fixturePage(
     await server.close();
     assert.deepEqual(errors, [], 'ページの例外がない');
     assert.deepEqual(attempted, [], '本文の外部画像を含まない試験では、外への要求を試みない');
-    assert.deepEqual(blocked, [], 'CSP で拒否された外部への試みもない');
+    assert.deepEqual(blocked, [], 'CSP 違反もない');
     assert.deepEqual(blockedAcrossPages, [], '文書を移動する前の CSP 違反もない');
   });
   await page.goto(server.url);
@@ -264,6 +261,100 @@ async function fixturePage(
 test('ローカルのプレビューページ', { skip, timeout: 90000 }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
+
+  const tableHtml = '<table><thead><tr><th>名前</th><th>値</th></tr></thead>' +
+    '<tbody><tr><td>項目</td><td>内容</td></tr></tbody></table>';
+  const stickySource = readFileSync(new URL('../page/lib/md-table-sticky/sticky-table.js', import.meta.url), 'utf8');
+  const waitSticky = (page, want) => page.waitForFunction(
+    (want) => Boolean(window.__mdTableSticky) === want &&
+      document.querySelector('#gp-sticky-toggle').getAttribute('aria-pressed') === String(want) &&
+      document.querySelectorAll('[data-md-table-sticky-bar]').length === Number(want),
+    want,
+  );
+
+  await t.test('表の固定を切り替え、script を外し、再読込でも固定の指定を保持する', async (t) => {
+    const { page } = await fixturePage(t, browser, payload(tableHtml));
+    const toggle = page.locator('#gp-sticky-toggle');
+    await waitSticky(page, false);
+    await toggle.click();
+    await waitSticky(page, true);
+    assert.equal(await toggle.textContent(), '表を固定');
+    assert.equal(await page.locator('script[src$="/md-table-sticky/sticky-table.js"]').count(), 0);
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-appearance')).sticky), true);
+    await page.reload();
+    await waitSticky(page, true);
+    await toggle.click();
+    await waitSticky(page, false);
+    assert.equal(await toggle.textContent(), '表を固定');
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-appearance')).sticky), false);
+    await page.reload();
+    await waitSticky(page, false);
+  });
+
+  await t.test('ブックマークレットの状態を描画後に反映し、同じ解除処理で戻す', async (t) => {
+    const fixture = await fixturePage(t, browser, payload(tableHtml));
+    const { page } = fixture;
+    await page.evaluate(stickySource);
+    await page.evaluate(() => { window.gpStickyState = window.__mdTableSticky; });
+    await fixture.send('render', payload('<p>更新</p>' + tableHtml, { rev: 2 }));
+    await waitSticky(page, true);
+    assert.equal(await page.evaluate(() => window.gpStickyState === window.__mdTableSticky), true);
+    await page.locator('#gp-sticky-toggle').click();
+    await waitSticky(page, false);
+    assert.equal(await page.evaluate(() => window.gpStickyState.active), false);
+    // ボタンで有効にした後にブックマークレットで外しても、次の描画で勝手に戻さない。
+    await page.locator('#gp-sticky-toggle').click();
+    await waitSticky(page, true);
+    await page.evaluate(stickySource);
+    await fixture.send('render', payload('<p>解除後</p>' + tableHtml, { rev: 3 }));
+    await waitSticky(page, false);
+  });
+
+  await t.test('読み込み中の連打で表の固定を二重に実行しない', async (t) => {
+    const { page } = await fixturePage(t, browser, payload(tableHtml));
+    let release;
+    const ready = new Promise((resolve) => { release = resolve; });
+    t.after(() => release());
+    let requests = 0;
+    await page.route('**/_/lib/md-table-sticky/sticky-table.js', async (route) => {
+      requests++;
+      await ready;
+      await route.continue();
+    });
+    await page.locator('#gp-sticky-toggle').click();
+    await page.waitForSelector('script[src$="/md-table-sticky/sticky-table.js"]', { state: 'attached' });
+    await page.locator('#gp-sticky-toggle').click();
+    assert.equal(await page.locator('script[src$="/md-table-sticky/sticky-table.js"]').count(), 1);
+    release();
+    await waitSticky(page, true);
+    assert.equal(requests, 1);
+  });
+
+  await t.test('表の固定の読み込みに失敗しても script を外し、押し直して再試行できる', async (t) => {
+    const { page } = await fixturePage(t, browser, payload(tableHtml));
+    const routePattern = '**/_/lib/md-table-sticky/sticky-table.js';
+    await page.route(routePattern, (route) => route.abort());
+    await page.locator('#gp-sticky-toggle').click();
+    await page.waitForSelector('script[src$="/md-table-sticky/sticky-table.js"]', { state: 'detached' });
+    await waitSticky(page, false);
+    await page.unroute(routePattern);
+    await page.locator('#gp-sticky-toggle').click();
+    await waitSticky(page, true);
+  });
+
+  await t.test('表の無い文書でも表の固定を切り替えられ、後から描いた表に当たる', async (t) => {
+    const fixture = await fixturePage(t, browser, payload('<p>本文だけ</p>'));
+    const { page } = fixture;
+    const toggle = page.locator('#gp-sticky-toggle');
+    await toggle.click();
+    await page.waitForFunction(() => Boolean(window.__mdTableSticky) &&
+      document.querySelector('#gp-sticky-toggle').getAttribute('aria-pressed') === 'true');
+    assert.equal(await page.locator('[data-md-table-sticky-bar]').count(), 0);
+    await fixture.send('render', payload('<p>本文</p>' + tableHtml, { rev: 2 }));
+    await waitSticky(page, true);
+    await toggle.click();
+    await waitSticky(page, false);
+  });
 
   await t.test('本文・コード配色の目印・details・ページ内リンクを保つ', async (t) => {
     const html =
@@ -547,6 +638,7 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
     const { page } = fixture;
     await page.waitForSelector('.gp-document-list a');
     assert.equal(fixture.eventRequests.length, 0);
+    assert.equal(await page.locator('#gp-sticky-toggle').isVisible(), false);
     assert.equal(await page.locator('#gp-back').isVisible(), false);
     assert.ok((await page.locator('.gp-document-list ul a').count()) > 0);
     await page.locator('.gp-document-list a').filter({ hasText: 'a.md' }).click();

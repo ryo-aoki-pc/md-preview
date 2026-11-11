@@ -236,6 +236,11 @@ body {
 #gp-controls button:disabled {
   opacity: 0.5;
 }
+#gp-controls button[aria-pressed='true'] {
+  background: var(--gp-border);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
 #gp-content a[aria-disabled='true'] {
   color: inherit;
   text-decoration: none;
