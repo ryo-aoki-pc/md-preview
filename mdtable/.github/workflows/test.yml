@@ -35,3 +35,52 @@ jobs:
         run: python -m pip install --disable-pip-version-check .
       - name: テストを動かす
         run: python -B -m unittest discover -s tests -v
+
+  go:
+    name: Go の検査と突き合わせ（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: ソースを取得
+        uses: actions/checkout@v7
+      - name: Go を用意
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: 整形を確認
+        if: runner.os == 'Linux'
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt で整形されていないファイル:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: 静的検査
+        run: go vet ./...
+      - name: 試験
+        run: go test ./...
+      - name: 競合の検査
+        if: runner.os == 'Linux'
+        run: go test -race ./...
+      - name: Python を用意
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+      - name: Python 版と突き合わせる
+        shell: bash
+        run: |
+          comparison_dir="$RUNNER_TEMP/mdtable-compare"
+          binary_name=mdtable
+          if [ "$RUNNER_OS" = 'Windows' ]; then
+            comparison_dir="$(cygpath -u "$comparison_dir")"
+            binary_name=mdtable.exe
+          fi
+          mkdir -p "$comparison_dir"
+          binary="$comparison_dir/$binary_name"
+          go build -o "$binary" ./cmd/mdtable
+          python -B scripts/fuzz-docs.py "$comparison_dir/fuzz" 150 1
+          python -B scripts/compare-go.py --go "$binary" --py-root . --out "$comparison_dir/results" docs/verification "$comparison_dir/fuzz"
