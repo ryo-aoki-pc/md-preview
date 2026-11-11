@@ -271,6 +271,15 @@ func (s *Server) serve(ctx context.Context, conn net.Conn) {
 		}()
 	}
 	s.handle(&responseConn{Conn: conn}, r)
+	// POST の本文を読み残したまま Close すると、Windows は応答より先に RST を送ることがある
+	// (上限を超える本文を断ったときなど)。応答を半閉鎖で届け、残りは大きさと時間を限って捨てる。
+	if r.Method == "POST" {
+		if tcp, ok := conn.(*net.TCPConn); ok {
+			_ = tcp.CloseWrite()
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		_, _ = io.Copy(io.Discard, io.LimitReader(reader, 4*1024*1024))
+	}
 }
 
 func statusText(status int) string {
