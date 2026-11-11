@@ -26,6 +26,14 @@
     piece.hidden = true;
     return piece;
   });
+  const cutFrame = make('div', 'gp-edit-cut');
+  cutFrame.hidden = true;
+  const cutPieces = Array.from({ length: 4 }, (_, i) => {
+    const piece = make('div', 'gp-edit-cut-' + i, cutFrame);
+    piece.className = 'gp-edit-cut';
+    piece.hidden = true;
+    return piece;
+  });
   const input = make('textarea', 'gp-edit-input');
   input.setAttribute('aria-label', '表のセルの編集');
   input.spellcheck = false;
@@ -44,6 +52,11 @@
   let selected = null;
   // 表の範囲は、ブロックの原文の位置（point.range）と分けて持つ。
   let tableSelection = null;
+  let origin = '';
+  let lastCopy = null;
+  let cutState = null;
+  let pendingInsert = null;
+  let clipboardIntent = null;
   let editor = null;
   let composing = false;
   let models = [];
@@ -135,11 +148,24 @@
     clearTimeout(noticeTimer);
     status.textContent = text;
     status.hidden = !text;
-    status.dataset.kind = error ? 'error' : 'info';
+    status.dataset.kind = error === 'wait' ? 'wait' : error ? 'error' : 'info';
     if (text && !error) noticeTimer = setTimeout(() => { status.hidden = true; }, 5000);
   }
   function operationStart() {
     if (status.dataset.kind === 'error') notice('');
+  }
+
+  function cancelInsert() {
+    pendingInsert = null;
+    if (status.dataset.kind === 'wait') notice('');
+  }
+  function cancelCut() {
+    if (cutState) cutState.active = false;
+    cutFrame.hidden = true;
+  }
+  function checkInsert() {
+    if (pendingInsert && (pendingInsert.version !== externalVersion ||
+      models[pendingInsert.table]?.table !== pendingInsert.tableElement)) cancelInsert();
   }
 
   // サーバーと同じく、区画を木の順にたどる。table.rows は tfoot の順序が変わる。
@@ -248,6 +274,7 @@
   }
   function extendTo(cell) {
     if (!selected || selected.table !== cell.table) return;
+    cancelInsert();
     tableSelection ||= { table: selected.table, tableElement: models[selected.table].table,
       anchor: { row: selected.row, col: selected.col }, focus: { row: selected.row, col: selected.col },
       kind: 'cells', version: externalVersion };
@@ -315,6 +342,7 @@
         data.tables.some((table, i) => table.index !== i)) throw new Error('画面と原文の表の数が合いません');
       documentEditable = data.document.editable === true;
       documentReason = data.document.reason || '';
+      origin = typeof data.origin === 'string' && /^[0-9a-f]{32}$/i.test(data.origin) ? data.origin : '';
       byCell = new WeakMap();
       models = data.tables.map((info, i) => {
         const nested = tables[i].querySelector('table') || tables[i].parentElement.closest('table');
@@ -338,6 +366,7 @@
         } else clearSelection();
       }
       checkRange();
+      checkInsert();
       // 編集中のブロックが描き直しで別の要素になったら、見えない入力欄を残さない。文字は下書きに残す。
       if (editor?.point.range && !editor.element.isConnected) {
         clearSelection();
@@ -380,6 +409,7 @@
     if (!low) root.style.scrollPaddingBottom = '';
   }
   function select(cell, focus = true, { keepRange = false } = {}) {
+    if (!samePoint(selected, cell)) cancelInsert();
     if (!keepRange) collapseRange();
     selected = pointOf(cell);
     updateRange();
@@ -397,6 +427,7 @@
     if (editor) drafts.set(keyOf(editor.point), { ...editor, value: input.value });
   }
   function clearSelection() {
+    cancelInsert();
     closeMenus();
     collapseRange();
     saveDraft();
@@ -411,6 +442,7 @@
     cancelAnimationFrame(animation);
     animation = 0;
     if (document.activeElement === input) input.blur();
+    if (mode && cutState?.active) animation = requestAnimationFrame(position);
   }
 
   // スクロールする祖先の内側と固定行・列の下を除いた範囲へ切る。
@@ -487,8 +519,14 @@
   }
   function position() {
     animation = 0;
+    const cutModel = models[cutState?.table];
+    cutFrame.hidden = !mode || !cutState?.active || cutModel?.table !== cutState.tableElement;
+    if (!cutFrame.hidden) placeRect(cutPieces, cutModel, cutState.rect);
     const cell = editor?.point.range ? { element: editor.element } : selectionCell();
-    if (!cell || !mode) return;
+    if (!cell || !mode) {
+      if (!cutFrame.hidden) animation = requestAnimationFrame(position);
+      return;
+    }
     const range = tableSelection && selectionRect();
     rangeFrame.hidden = !range || Boolean(editor);
     if (range && !editor) placeRect(rangePieces, models[tableSelection.table], range);
@@ -535,6 +573,7 @@
   }
 
   function openBlock(draft) {
+    cancelInsert();
     saveDraft();
     collapseRange();
     closeMenus();
@@ -604,6 +643,7 @@
   function beginEdit({ source = false, replace = false, value, composition = false } = {}) {
     const cell = selectionCell();
     if (!cell || stopped) return;
+    cancelInsert();
     collapseRange();
     closeMenus();
     operationStart();
@@ -786,7 +826,7 @@
     const render = preview.current().render;
     if (item.op) {
       item.after = editGrid.placed(item.op, target.info);
-      item.afterKind = /Rows$/.test(item.op.type) ? 'rows' : /Columns$/.test(item.op.type) ? 'cols' : 'cells';
+      item.afterKind = /Rows(?:From)?$/.test(item.op.type) ? 'rows' : /Columns(?:From)?$/.test(item.op.type) ? 'cols' : 'cells';
     }
     checkboxElement(item);
     if (item.point.range && (!documentEditable || (item.checkbox ? !item.checkbox.isConnected : item.render !== render))) {
@@ -816,6 +856,8 @@
           // 文書が外で変わっている。開いている入力も、古い位置のまま確定させない。
           externalVersion++;
           collapseRange();
+          cancelCut();
+          cancelInsert();
           closeMenus();
           discardQueue();
           saveDraft();
@@ -826,10 +868,13 @@
           void loadTables();
         } else if (response.status === 422) {
           reopen(item);
-          notice(messageOf(data) || 'この操作では書き込めませんでした', true);
+          const hint = item.clipboard ? '。文字だけで貼るには Ctrl+Shift+V を押してください' : '';
+          notice((messageOf(data) || 'この操作では書き込めませんでした') + hint, true);
           // 入力欄を開き直さなかったとき（行・列の操作、編集モードの外）は、並んでいる送信を続ける。
           if (!failed) void pump();
         } else {
+          cancelCut();
+          cancelInsert();
           discardQueue();
           reopen(item);
           notice('書き込めませんでした' + (messageOf(data) ? ' ／ ' + messageOf(data) : ''), true);
@@ -842,13 +887,16 @@
         void loadBlock();
         return;
       }
-      if (data.warnings?.length) notice(data.warnings.join(' ／ '));
+      const messages = [...(data.warnings || []), item.successNotice].filter(Boolean);
+      if (messages.length) notice(messages.join(' ／ '));
       busy.ok = true;
       if (data.unchanged) { finishSend(false, true); void loadTables(); return; }
       completeSend();
       if (busy?.item === item) busy.timer = setTimeout(() => {
         // 遅れて届くこの書き込みの描画を、外の変更と数えない。
         if (!busy.seen) late = busy.render;
+        cancelCut();
+        cancelInsert();
         if (!stopped) notice('書き込み後の表示が届きません。表の情報を読み直します', true);
         infoRender = 0;
         finishSend(true);
@@ -857,6 +905,8 @@
     } catch (error) {
       item.mask?.remove();
       busy = null;
+      cancelCut();
+      cancelInsert();
       discardQueue();
       if (item.checkbox?.isConnected) item.checkbox.checked = item.originalChecked;
       reopen(item);
@@ -867,6 +917,116 @@
   }
 
   let undoState = {};
+  const cutCancelled = '切り取りは取り消されています。もう一度切り取ってください';
+  const pasteInstruction = 'ブラウザーの決まりで、メニューからはクリップボードを読めません。Ctrl+V を押してください';
+  function isCancelled(envelope) {
+    return envelope.cut && envelope.origin === origin &&
+      (envelope.cut.render !== preview.current()?.render || (cutState?.id === envelope.cut.id && !cutState.active));
+  }
+  function sourceOf(envelope, axis = null) {
+    const cut = envelope.cut;
+    const common = { table: cut.table, render: cut.render, hash: cut.hash, origin: envelope.origin };
+    return axis === 'row' ? { ...common, row: cut.row, count: cut.rows }
+      : axis === 'col' ? { ...common, col: cut.col, count: cut.cols }
+        : { ...common, row: cut.row, col: cut.col, rows: cut.rows, cols: cut.cols };
+  }
+  function foreignNotice(envelope) {
+    if (!envelope || envelope.origin === origin) return '';
+    return [envelope.cut ? '別の文書から切り取った内容は、元を消さずにコピーとして貼りました' : '',
+      editGrid.foreignHints(envelope.fragment) ? '別の文書から貼りました。参照リンク・脚注・相対パスは、この文書の場所で解釈されます' : '']
+      .filter(Boolean).join(' ／ ');
+  }
+  function insertReason(copy, axis, at, side, table) {
+    if (!copy) return `このページでコピーした${axis === 'row' ? '行' : '列'}がありません`;
+    if (isCancelled(copy)) return cutCancelled;
+    const info = models[table].info, row = axis === 'row';
+    const fragment = copy.fragment;
+    if (!fragment) return '範囲が大きすぎるので、挿入する範囲を小さくしてコピーし直してください';
+    if (fragment.shape === (row ? 'cols' : 'rows')) return `コピーしたのは${row ? '列' : '行'}です`;
+    const count = row ? fragment.cols : fragment.rows, expected = row ? info.cols : info.rows;
+    if (count !== expected) return `コピーした${row ? '行の列' : '列の行'}の数（${count}）が表（${expected}）と違います`;
+    if (copy.cut && copy.origin === origin) {
+      const source = models[copy.cut.table]?.info;
+      if (!source || (row ? copy.cut.col !== 0 || copy.cut.cols !== source.cols : copy.cut.row !== 0 || copy.cut.rows !== source.rows))
+        return `切り取った${row ? '行' : '列'}の全体を選び直してください`;
+      if (row && source.kind === 'pipe' && copy.cut.row === 0) return 'パイプの表の見出し行は切り取りできません';
+      if (copy.cut.table === table) {
+        const start = row ? copy.cut.row : copy.cut.col, count = row ? copy.cut.rows : copy.cut.cols;
+        const boundary = at + (side === 'after' ? 1 : 0);
+        if (boundary > start && boundary < start + count) return `切り取った${row ? '行' : '列'}の中へは移動できません`;
+        if (boundary === start || boundary === start + count) return '同じ位置です';
+      }
+    }
+    return '';
+  }
+  function sendInsert(pending, envelope, values = null, extraNotice = '') {
+    const { axis, index: at, side, table } = pending;
+    const reason = envelope && insertReason(envelope, axis, at, side, table);
+    if (reason) { notice(reason, true); return; }
+    const moving = envelope?.cut && envelope.origin === origin;
+    const op = { type: (moving ? 'move' : 'insert') + (axis === 'row' ? 'Rows' : 'Columns') + (moving ? '' : 'From'),
+      [axis === 'row' ? 'row' : 'col']: at, side };
+    if (moving) op.from = sourceOf(envelope, axis);
+    else if (envelope) op.fragment = envelope.fragment;
+    else op.values = values;
+    enqueue({ point: { ...selected, table }, op, clipboard: true,
+      successNotice: [extraNotice, foreignNotice(envelope)].filter(Boolean).join(' ／ ') });
+  }
+  function startInsert(action, rect) {
+    const [axis, , side] = action.split('-');
+    const table = selected.table;
+    pendingInsert = { axis, side, table, tableElement: models[table].table,
+      index: rect[axis === 'row' ? 'row' : 'col'] + (side === 'after' ? rect[axis === 'row' ? 'rows' : 'cols'] - 1 : 0),
+      version: externalVersion };
+    notice('挿入する内容を Ctrl+V で貼り付けてください（Esc でやめる）', 'wait');
+    focusInput();
+  }
+  function copySelection(event, kind) {
+    if (!mode || stopped || document.activeElement !== input || editor || !event.clipboardData) return;
+    const action = kind === 'cut' ? (tableSelection?.kind === 'rows' ? 'row-cut' : tableSelection?.kind === 'cols' ? 'col-cut' : 'cut') : 'copy';
+    const reason = reasonFor(action);
+    if (reason) { notice(reason, true); return; }
+    const rect = selectionRect(), model = models[selected.table], info = model.info;
+    const shape = tableSelection?.kind || 'cells';
+    const values = editGrid.matrix(info, rect);
+    const locked = info.copyLocked || editGrid.cellsIn(info, rect).some((cell) => cell.copyLocked);
+    const raw = locked ? null : editGrid.fragment(info, rect, shape);
+    const fragment = raw || editGrid.valuesFragment(values);
+    if (fragment && !raw) fragment.shape = shape;
+    const cut = kind === 'cut' && fragment && /^[0-9a-f]{32}$/i.test(origin) && /^[0-9a-f]{64}$/i.test(info.hash)
+      ? { id: Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, '0')).join(''),
+        table: selected.table, render: infoRender, hash: info.hash, ...rect } : null;
+    const envelope = fragment && origin ? editGrid.envelope({ origin, fragment, cut }) : null;
+    // ここまでに断った場合は既存のクリップボードを保つ。文字・HTML は DOM へ入れない。
+    event.clipboardData.setData('text/plain', editGrid.toTSV(values));
+    const html = editGrid.toHTML(info, rect);
+    if (html) event.clipboardData.setData('text/html', html);
+    if (envelope) event.clipboardData.setData(editGrid.TYPE, JSON.stringify(envelope));
+    event.preventDefault();
+    if (clipboardIntent) clipboardIntent.handled = true;
+    cancelCut();
+    lastCopy = { origin, fragment, cut: envelope?.cut || null };
+    if (envelope?.cut) {
+      cutState = { ...cut, tableElement: model.table, rect, shape, active: true };
+      cutFrame.hidden = false;
+      if (!animation) position();
+    }
+    let message = `${rect.rows} 行 ${rect.cols} 列を${envelope?.cut ? '切り取りました' : 'コピーしました'}`;
+    if (!raw || !envelope) message += locked ? '。原文を保てないセルがあるので、値だけをコピーしました'
+      : '。範囲が大きいか写しの情報が無いので、原文を保つ写しは作りませんでした';
+    if (kind === 'cut' && !envelope?.cut) message += '。切り取りはできないので、コピーとして扱います';
+    notice(message);
+    updateButtons();
+  }
+  function menuCopy(kind) {
+    const intent = { kind, handled: false };
+    clipboardIntent = intent;
+    focusInput();
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch { /* キーからの操作を案内する。 */ }
+    finally { clipboardIntent = null; }
+    if (!copied || !intent.handled) notice('メニューからコピーできませんでした。Ctrl+C を押してください', true);
+  }
   function actionRect(action) {
     const rect = selectionRect(), model = models[selected?.table];
     if (!rect) return null;
@@ -875,6 +1035,7 @@
   }
   // 表示・メニュー・実行は、必ず同じ理由を使う。DOM の行の表示状態はこの時だけ読む。
   function reasonFor(action) {
+    if (action === 'paste') return pasteInstruction;
     const cell = selectionCell();
     if (!cell) return 'セルを選んでください';
     if (stopped) return 'プレビューが止まっています';
@@ -885,23 +1046,29 @@
     if (!rect) return '範囲を選び直してください';
     if (selecting) return '';
     const rowAction = action.startsWith('row-'), colAction = action.startsWith('col-');
-    if (rowAction && info.rowsLocked) return info.rowsLocked;
-    if (colAction && info.colsLocked) return info.colsLocked;
-    if (rowAction || colAction || action === 'clear') {
+    const copying = ['copy', 'cut'].includes(action) || /-(copy|cut)$/.test(action);
+    if (!copying && rowAction && info.rowsLocked) return info.rowsLocked;
+    if (!copying && colAction && info.colsLocked) return info.colsLocked;
+    if (rowAction || colAction || copying || action === 'clear') {
       if (model.rows.slice(rect.row, rect.row + rect.rows).some((row) => getComputedStyle(row).display === 'none'))
         return '表の検索で隠れた行をまたいでいます。検索を解除してから選び直してください';
       // 空の挿入と削除は、既存の窓口が結合を伸縮するので許す。
-      const crossing = (action.endsWith('-duplicate') || action === 'clear') && editGrid.crossing(model, rect);
+      const crossing = (copying || action.endsWith('-duplicate') || action === 'clear') && editGrid.crossing(model, rect);
       if (crossing) return `結合セル（${crossing.row + 1} 行 ${crossing.col + 1} 列目から ${crossing.rowspan} 行 ${crossing.colspan} 列）の途中で範囲が切れています。結合セル全体を含むように選び直してください`;
     }
     if (info.kind === 'pipe' && rect.row === 0) {
-      if (action === 'row-before') return 'パイプの表の見出し行の上には挿入できません';
+      if (['row-before', 'row-insert-before', 'row-paste-before'].includes(action)) return 'パイプの表の見出し行の上には挿入できません';
       if (action === 'row-delete') return 'パイプの表の見出し行は削除できません';
+      if (action === 'row-cut') return 'パイプの表の見出し行は切り取りできません';
     }
     if (action === 'row-delete' && rect.rows === info.rows) return 'すべての行は削除できません';
     if (action === 'col-delete' && rect.cols === info.cols) return 'すべての列は削除できません';
     if (action === 'source' && info.kind !== 'html') return 'HTML の表だけで使えます';
     if ((action === 'undo' || action === 'redo') && !undoState[action]) return '履歴がありません';
+    if (/^(row|col)-insert-/.test(action)) {
+      const [axis, , side] = action.split('-'), row = axis === 'row';
+      return insertReason(lastCopy, axis, rect[row ? 'row' : 'col'] + (side === 'after' ? rect[row ? 'rows' : 'cols'] - 1 : 0), side, selected.table);
+    }
     return '';
   }
   function showMenuReason(menu, item) {
@@ -916,6 +1083,11 @@
     for (const { menu, action, item, description } of menuItems) {
       if (!openMenus.some((entry) => entry.menu === menu)) continue;
       const reason = reasonFor(action);
+      if (/^(row|col)-insert-/.test(action)) {
+        const [axis, , side] = action.split('-'), row = axis === 'row';
+        const count = lastCopy?.fragment?.[row ? 'rows' : 'cols'];
+        item.textContent = `${lastCopy?.cut ? '切り取った' : 'コピーした'}${count ? ' ' + count + ' ' : ''}${row ? '行' : '列'}を${row ? side === 'before' ? '上' : '下' : side === 'before' ? '左' : '右'}に挿入`;
+      }
       item.setAttribute('aria-disabled', String(Boolean(reason)));
       item.title = description.textContent = reason;
       if (reason) item.setAttribute('aria-describedby', description.id);
@@ -975,9 +1147,15 @@
     buildMenu(name, prefix === 'row' ? '行の操作' : '列の操作', [
       [prefix + '-before', directions[0] + 'に挿入'], [prefix + '-after', directions[1] + 'に挿入'],
       [prefix + '-duplicate', '複製'], [prefix + '-delete', '削除'], null, [prefix + '-select', '選択'],
+      [prefix + '-copy', 'コピー'], [prefix + '-cut', '切り取り'], null,
+      [prefix + '-insert-before', 'コピーした' + (prefix === 'row' ? '行' : '列') + 'を' + directions[0] + 'に挿入'],
+      [prefix + '-insert-after', 'コピーした' + (prefix === 'row' ? '行' : '列') + 'を' + directions[1] + 'に挿入'],
+      [prefix + '-paste-before', '貼り付けて' + directions[0] + 'に挿入…'],
+      [prefix + '-paste-after', '貼り付けて' + directions[1] + 'に挿入…'],
     ]);
   }
-  buildMenu('cell', 'セルの操作', [['rows', '行', 'cell-rows'], ['cols', '列', 'cell-cols'], null,
+  buildMenu('cell', 'セルの操作', [['copy', 'コピー（Ctrl+C）', 'cell-copy'], ['cut', '切り取り（Ctrl+X）', 'cell-cut'],
+    ['paste', '貼り付け（Ctrl+V）', 'cell-paste'], null, ['rows', '行', 'cell-rows'], ['cols', '列', 'cell-cols'], null,
     ['source', '原文を編集', 'cell-source']]);
 
   function closeMenus(restore = false) {
@@ -1013,6 +1191,7 @@
     element.style.top = Math.max(8, Math.min(top, innerHeight - size.height - 8)) + 'px';
   }
   function openMenu(name, opener, { last = false, point = null } = {}) {
+    cancelInsert();
     if (editor) endEdit(true);
     closeMenus();
     const menu = menus.get(name);
@@ -1056,6 +1235,20 @@
     const afterCommit = reasonFor(action);
     if (afterCommit) { notice(afterCommit, true); focusInput(); return; }
     const rect = actionRect(action), model = models[selected.table];
+    if (['copy', 'cut'].includes(action) || /-(copy|cut)$/.test(action)) {
+      if (action.startsWith('row-') || action.startsWith('col-'))
+        selectRange(selected.table, rect, action.startsWith('row-') ? 'rows' : 'cols', true);
+      menuCopy(action.endsWith('cut') ? 'cut' : 'copy');
+      return;
+    }
+    if (/^(row|col)-paste-/.test(action)) { startInsert(action, rect); return; }
+    if (/^(row|col)-insert-/.test(action)) {
+      const [axis, , side] = action.split('-'), row = axis === 'row';
+      sendInsert({ axis, side, table: selected.table,
+        index: rect[row ? 'row' : 'col'] + (side === 'after' ? rect[row ? 'rows' : 'cols'] - 1 : 0) }, lastCopy);
+      focusInput();
+      return;
+    }
     if (action.endsWith('-select')) {
       selectRange(selected.table, rect, action.startsWith('row-') ? 'rows' : 'cols', true);
       return;
@@ -1133,7 +1326,7 @@
     mode = want && allowed();
     toggle.setAttribute('aria-pressed', String(mode));
     if (mode) root.dataset.edit = 'on';
-    else { delete root.dataset.edit; root.style.removeProperty('--gp-edit-bottom'); clearSelection(); }
+    else { cancelCut(); cancelInsert(); delete root.dataset.edit; root.style.removeProperty('--gp-edit-bottom'); clearSelection(); }
     preview.holdScroll(mode);
     preview.setEditing(mode);
     preview.rememberAppearance('edit', mode);
@@ -1296,7 +1489,12 @@
       return;
     }
     if (key === 'Escape') {
-      // B4: この位置に、挿入の待機と切り取りの印を順に取り消す処理を足す。
+      if (pendingInsert) {
+        cancelInsert(); event.preventDefault(); event.stopImmediatePropagation(); return;
+      }
+      if (cutState?.active) {
+        cancelCut(); updateButtons(); event.preventDefault(); event.stopImmediatePropagation(); return;
+      }
       if (tableSelection) {
         collapseRange(); updateButtons();
         event.preventDefault(); event.stopImmediatePropagation();
@@ -1335,33 +1533,62 @@
   }, true);
   window.addEventListener('paste', (event) => {
     if (!mode || stopped || document.activeElement !== input || !selected || editor) return;
+    const custom = event.clipboardData?.getData(editGrid.TYPE);
     const text = event.clipboardData?.getData('text/plain');
     // 文字の無い貼り付け（画像など）では、セルを空にする編集を始めない。
-    if (!text) return;
+    if (!custom && !text) return;
     event.preventDefault();
+    const pending = pendingInsert;
+    cancelInsert();
     operationStart();
-    if (/[\t\r\n]/.test(text)) {
+    const reason = reasonFor('clipboard-write');
+    if (reason) { notice(reason, true); return; }
+    const envelope = custom ? editGrid.parseEnvelope(custom) : null;
+    const fallbackNotice = custom && !envelope ? '写しの形が正しくないので、文字として貼りました' : '';
+    if (envelope && isCancelled(envelope)) { notice(cutCancelled, true); return; }
+    if (pending) {
+      if (pending.version !== externalVersion || models[pending.table]?.table !== pending.tableElement) {
+        notice('文書が変わったので、もう一度操作してください', true); return;
+      }
       try {
-        const values = window.gpEditGrid.parseTSV(text);
-        if (values.length) enqueue({ point: { ...selected }, op: { type: 'paste', row: selected.row, col: selected.col, values } });
+        const values = envelope ? null : editGrid.parseTSV(text || '');
+        if (envelope || values.length) sendInsert(pending, envelope, values, fallbackNotice);
       } catch (error) { notice(error.message, true); }
-    } else beginEdit({ replace: true, value: text });
+      return;
+    }
+    const rect = selectionRect();
+    if (envelope) {
+      const moving = envelope.cut && envelope.origin === origin;
+      const op = { type: moving ? 'moveCells' : 'pasteFragment', row: rect.row, col: rect.col };
+      if (moving) op.from = sourceOf(envelope);
+      else op.fragment = envelope.fragment;
+      enqueue({ point: { ...selected }, op, clipboard: true, successNotice: foreignNotice(envelope) });
+    } else if (text && /[\t\r\n]/.test(text)) {
+      try {
+        const values = editGrid.parseTSV(text);
+        if (values.length) enqueue({ point: { ...selected }, clipboard: true,
+          op: { type: 'paste', row: rect.row, col: rect.col, values }, successNotice: fallbackNotice });
+      } catch (error) { notice(error.message, true); }
+    } else if (text) {
+      const cell = models[selected.table].slots[rect.row]?.[rect.col];
+      if (cell) select(cell);
+      beginEdit({ replace: true, value: text });
+      if (fallbackNotice) notice(fallbackNotice);
+    } else if (fallbackNotice) notice(fallbackNotice, true);
   }, true);
-  // 選択中のコピーは、セル用 Markdown（原文の編集になるセルは原文）を渡す。編集中は入力欄のふつうのコピー。
-  window.addEventListener('copy', (event) => {
-    if (!mode || document.activeElement !== input || editor || !event.clipboardData) return;
-    const cell = selectionCell();
-    if (!cell) return;
-    event.preventDefault();
-    event.clipboardData.setData('text/plain', cell.raw ? cell.source : cell.text);
-  }, true);
+  // 空の textarea でも Chromium の cut は届く。入力中はブラウザーのふつうのコピー・切り取りに任せる。
+  window.addEventListener('copy', (event) => copySelection(event, clipboardIntent?.kind || 'copy'), true);
+  window.addEventListener('cut', (event) => copySelection(event, 'cut'), true);
   document.addEventListener('gp:render', () => {
     const render = preview.current()?.render;
     if (render !== observedRender) {
+      cancelCut();
+      closeMenus();
       // 自分の書き込みの描画は、送信ごとに最初の 1 回だけ（時間切れの後に遅れて届く 1 回を含む）。ほかは外の変更と数える。
       if (busy && !busy.seen && render > busy.render) busy.seen = true;
       else if (late !== null && render > late) late = null;
       else externalVersion++;
+      checkInsert();
     }
     observedRender = render;
     stopped = false;
@@ -1372,6 +1599,8 @@
   });
   document.addEventListener('gp:stop', () => {
     stopped = true;
+    cancelCut();
+    cancelInsert();
     cancelSource();
     updateCheckboxes();
     fetching?.abort();

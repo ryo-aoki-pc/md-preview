@@ -537,3 +537,19 @@ body {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* 切り取りの印は選択とは別に残し、固定行列の境でも placeRect で分ける。 */
+#gp-edit-cut {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+.gp-edit-cut {
+  position: fixed;
+  box-sizing: border-box;
+  border: 2px dashed var(--gp-fg);
+  pointer-events: none;
+  z-index: 2;
+}
+#gp-edit-status[data-kind='wait'] {
+  border: 2px dashed var(--gp-border);
+}
