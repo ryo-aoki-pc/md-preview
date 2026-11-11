@@ -43,15 +43,15 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `internal/resolve/`・`internal/documents/` — URL と実パスの閉じ込め、Markdown の一覧。Windows のジャンクションは OS のハンドルから最終パスを取得する
 - `internal/watch/` — 標準ライブラリの定期確認による変更・削除・再作成の監視と、存在しない include の親の検査。書かれた直後に見たファイルは中身のハッシュを覚え、更新時刻の刻みが過ぎてから1回だけ確かめ直す（同じ大きさ・同じ更新時刻の書き換えを拾う）
 - `internal/fileopen/` — 文書・include・リポジトリのファイルの読み取り。Windows では、読んでいる間も名前の変更と削除を許して開く（標準の `os.Open` は許さない）
-- `internal/session/` — 文書ごとの最新描画、取り消しと時間制限、ファイル文書・include・図の保持と破棄。描画器はインターフェースで受け取り、試験では偽物を使う
+- `internal/session/` — 文書ごとの最新描画、描画の番号と原文・行対応の保持、状態を変えない試しの描画とファイルの即時読み直し、取り消しと時間制限、ファイル文書・include・図の保持と破棄。描画器はインターフェースで受け取り、試験では偽物を使う
 - `internal/pagefiles/` — 埋め込みページの設定と、固定情報の大きさ・sha256 を照合するライブラリの読み取り
 - `internal/server/` — 127.0.0.1 の HTTP と SSE。要求は `net/http.ReadRequest` で解析し、パス整理・接続再利用・Expect の自動応答を使わない
 - `internal/stdio/`・`internal/cli/` — Neovim との版1の取り決め、コマンドの引数、ブラウザ起動と終了処理、`render`・`install-style` の入口。描画エンジンの用意・PlantUML・公式スタイルは外から渡す関数で接続する
 - `internal/export/` — 単一 HTML の書き出し。入力の検査、ルート内の相対 URL の書き換え、本文と印刷用スタイル、文書に必要な KaTeX・mermaid と woff2 の埋め込み、スクリプトごとの CSP のハッシュ、PlantUML の図の埋め込みと原文への復帰、一時ファイルからの入れ替え。`extras.js` は書き出した HTML の中で数式と図を描くスクリプト
-- `internal/pipeline/` — 描画の流れ（消毒・フィルター・配色・取り込み・知らせ）。`api.go` の型と入口（`Renderer.Render`）をほかのパッケージが使う。処理と状態は文書ごとに持ち、取り消しと深さの上限を確認する
+- `internal/pipeline/` — 描画の流れ（消毒・フィルター・配色・取り込み・知らせ）と、展開・front matter・CR を考慮した原文の行対応。`api.go` の型と入口（`Renderer.Render`）をほかのパッケージが使う。処理と状態は文書ごとに持ち、取り消しと深さの上限を確認する
 - `internal/htmltree/`・`internal/sanitize/`・`internal/filters/` — HTML の木の操作と GitLab の許可リスト、消毒前後のフィルター
 - `internal/highlight/` — Chroma の字句と Rouge 系の短いクラス、行ごとの包み。使う言語だけ遅延して準備する
-- `internal/include/`・`internal/paths/`・`internal/notices/` — include の展開と行の対応、相対パス、完成した木を変えない知らせの収集
+- `internal/include/`・`internal/paths/`・`internal/notices/` — include の展開と原文・展開後の双方向の行対応、相対パス、完成した木を変えない知らせの収集
 - `internal/plantumlsource/` — 図の原文の SHA-256 と標準入力の開始・終了の補完
 - `internal/pagetest/` — ブラウザの試験（`test/page.test.mjs`）だけが使う、試験用のサーバーのコマンド。`internal/server` を、標準入力の JSON の行で動かす（偽の文書の状態・本物の `internal/session` と描画・偽の図・合成の公式資産を切り替える）。製品の実行ファイルには入らない
 - `internal/pipeline/fixtures_test.go`・`internal/pipeline/testdata/known_differences.json` — GitLab の本物の出力（`test/fixtures/*.gitlab.html`）との比べ。許した5つの正規化のほかは、要素・属性・文字を厳密に比べる。GitLab のデータや設定が要って直せない差だけを、場所・理由・両側の値を固定して表に置く

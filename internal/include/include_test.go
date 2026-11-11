@@ -21,6 +21,40 @@ func expand(tb testing.TB, source, file string, reader func(string) Read) Expans
 	}
 	return e
 }
+func TestExpandedLine(t *testing.T) {
+	source := "前\n" + directive("one.md") + "\n間\n" + directive("missing.md") + "\n" + directive("two.md") + "\n後"
+	e := expand(t, source, "", func(path string) Read {
+		switch path {
+		case "one.md":
+			return Read{Kind: Text, Text: "一\n二\n"}
+		case "two.md":
+			return Read{Kind: Text, Text: "三\n四"}
+		}
+		return Read{Kind: Missing}
+	})
+	for i, want := range []int{1, 2, 5, 6, 7, 9} {
+		orig := i + 1
+		if got := e.ExpandedLine(orig); got != want || e.OriginalLine(got) != orig {
+			t.Errorf("原文の %d 行: 展開後=%d、期待=%d", orig, got, want)
+		}
+	}
+	for line := 1; line <= 9; line++ {
+		orig := e.OriginalLine(line)
+		start := e.ExpandedLine(orig)
+		if start > line || e.OriginalLine(start) != orig || (!e.IsIncludedLine(line) && start != line) {
+			t.Errorf("展開後の %d 行: 原文=%d、範囲の先頭=%d", line, orig, start)
+		}
+	}
+	if e.ExpandedLine(0) != 0 || e.ExpandedLine(-1) != 0 {
+		t.Fatal("正でない行を受け入れた")
+	}
+	for _, body := range []string{"", "一行", "一行\n"} {
+		e := expand(t, directive("one.md")+"\n後", "", func(string) Read { return Read{Kind: Text, Text: body} })
+		if e.ExpandedLine(1) != 1 || e.ExpandedLine(2) != 2+strings.Count(body, "\n") {
+			t.Fatal(body, e)
+		}
+	}
+}
 func TestSyntax(t *testing.T) {
 	if !IsHTTP(`http://example.com\path`) {
 		t.Fatal("WHATWG URL が受け入れる逆斜線付きの HTTP URL")

@@ -34,7 +34,7 @@ type Options struct {
 }
 type Document struct {
 	Path, Name, Text string
-	Rev              any
+	Rev, Buf         any
 }
 type entryContext struct{ root, path, file, dir string }
 type entry struct {
@@ -42,6 +42,9 @@ type entry struct {
 	context                             entryContext
 	generation                          uint64
 	render                              Data
+	source                              *Source
+	text                                string
+	textOK, dirtyForce                  bool
 	diagrams                            map[string]string
 	input                               *Document
 	tabs                                map[*subscriber]bool
@@ -66,6 +69,8 @@ type job struct {
 	generation uint64
 	text       string
 	rev        any
+	buf        any
+	path       string
 	context    entryContext
 }
 type Session struct {
@@ -84,6 +89,7 @@ type Session struct {
 	cancel        context.CancelFunc
 	closed        bool
 	sequence      uint64
+	renders       uint64
 	wake          chan struct{}
 	done          chan struct{}
 	watchDone     []<-chan struct{}
@@ -179,11 +185,20 @@ func (s *Session) cancelEntry(e *entry) {
 	}
 }
 func (s *Session) enqueue(e *entry, text string, rev any) {
+	var buf any
+	path := ""
 	if e == s.active {
-		e.input = &Document{Text: text, Rev: rev}
+		if e.input == nil {
+			e.input = &Document{}
+		}
+		e.input.Text, e.input.Rev = text, rev
+		buf, path = e.input.Buf, e.input.Path
+	}
+	if e.source != nil {
+		e.source.Stale = true
 	}
 	e.generation++
-	j := &job{e, e.generation, text, rev, e.context}
+	j := &job{entry: e, generation: e.generation, text: text, rev: rev, buf: buf, path: path, context: e.context}
 	for i, old := range s.pending {
 		if old.entry == e {
 			s.pending[i] = j
@@ -194,16 +209,21 @@ func (s *Session) enqueue(e *entry, text string, rev any) {
 	s.pending = append(s.pending, j)
 	s.signal()
 }
-func (s *Session) publish(j *job, data Data, actions *[]func()) {
+func (s *Session) publish(j *job, data Data, source *Source, actions *[]func()) {
 	e := j.entry
 	if s.closed || e.disposed || e.generation != j.generation {
 		return
 	}
-	d := Data{"file": j.context.file, "dir": j.context.dir, "rev": j.rev}
+	s.renders++
+	d := Data{"file": j.context.file, "dir": j.context.dir, "rev": j.rev, "render": s.renders}
 	for k, v := range data {
 		d[k] = v
 	}
 	e.render = d
+	e.source = source
+	if source != nil {
+		source.Render = s.renders
+	}
 	if e == s.active {
 		if s.opts.OnRender != nil {
 			value := copyData(d)
@@ -225,8 +245,10 @@ func (s *Session) fail(j *job, message string, actions *[]func()) {
 	if j.generation == j.entry.generation {
 		s.clearIncludes(j.entry)
 		j.entry.diagrams = nil
+		// 描けなかった本文は覚えない。同じ本文のまま見張りが知らせたときに、描き直せるようにする。
+		j.entry.textOK = false
 	}
-	s.publish(j, Data{"error": message, "markdown": j.text}, actions)
+	s.publish(j, Data{"error": message, "markdown": j.text}, nil, actions)
 }
 
 // 1 つの goroutine で文書を順番に描く。取り消した描画が戻るまで次を始めない。
@@ -310,7 +332,9 @@ func (s *Session) run() {
 				if result.Notices == nil {
 					result.Notices = []pipeline.Notice{}
 				}
-				s.publish(j, Data{"html": result.HTML, "headings": result.Headings, "includes": result.Includes, "notices": result.Notices}, &actions)
+				source := &Source{Rev: j.rev, Buf: j.buf, DocPath: j.path, Text: j.text, HTML: result.HTML, Lines: result.Source,
+					Root: j.context.root, Path: j.context.path, File: j.context.file, Dir: j.context.dir}
+				s.publish(j, Data{"html": result.HTML, "headings": result.Headings, "includes": result.Includes, "notices": result.Notices}, source, &actions)
 			}
 		}
 		s.mu.Unlock()
@@ -340,6 +364,15 @@ func documentRoot(path, override string) (string, error) {
 
 type resolved struct{ key, name, path string }
 
+func documentName(raw string) string {
+	parts := []string{}
+	for _, p := range strings.Split(raw, "/") {
+		if p != "" && p != "." {
+			parts = append(parts, p)
+		}
+	}
+	return strings.Join(parts, "/")
+}
 func (s *Session) resolveDocument(raw string) *resolved {
 	if s.root == "" || !documents.IsMarkdown(raw) {
 		return nil
@@ -352,13 +385,7 @@ func (s *Session) resolveDocument(raw string) *resolved {
 	if e != nil || !st.Mode().IsRegular() {
 		return nil
 	}
-	parts := []string{}
-	for _, p := range strings.Split(raw, "/") {
-		if p != "" && p != "." {
-			parts = append(parts, p)
-		}
-	}
-	name := strings.Join(parts, "/")
+	name := documentName(raw)
 	return &resolved{key(name), name, r.Path}
 }
 func (s *Session) sameFile(r *resolved) bool {
@@ -373,6 +400,7 @@ func (s *Session) drop(e *entry) {
 	}
 	e.disposed = true
 	e.diagrams = nil
+	e.source = nil
 	s.cancelEntry(e)
 	delete(s.documents, e.key)
 }
@@ -446,9 +474,9 @@ func (s *Session) bind(sub *subscriber, r *resolved, actions *[]func()) {
 		e = &entry{key: r.key, name: r.name, tabs: map[*subscriber]bool{}, context: entryContext{s.root, r.path, r.name, dir}}
 		s.documents[e.key] = e
 		target := filepath.Join(s.root, filepath.FromSlash(r.name))
-		e.stop = s.addWatch(target, func() { s.refresh(e) }, watch.Options{OnMissing: func() { s.refresh(e) }})
+		e.stop = s.addWatch(target, func() { s.refresh(e, false) }, watch.Options{OnMissing: func() { s.refresh(e, false) }})
 		s.reads.Add(1)
-		go func() { defer s.reads.Done(); s.refresh(e) }()
+		go func() { defer s.reads.Done(); s.refresh(e, true) }()
 	}
 	if e.expiry != nil {
 		e.expiry.Stop()
@@ -473,7 +501,7 @@ func (s *Session) addWatch(path string, change func(), o watch.Options) func() {
 	s.watchDone = append(s.watchDone, done)
 	return stop
 }
-func (s *Session) refresh(e *entry) {
+func (s *Session) refresh(e *entry, force bool) {
 	s.mu.Lock()
 	if e.disposed || s.closed {
 		s.mu.Unlock()
@@ -481,12 +509,15 @@ func (s *Session) refresh(e *entry) {
 	}
 	if e.loading {
 		e.dirty = true
+		e.dirtyForce = e.dirtyForce || force
 		s.mu.Unlock()
 		return
 	}
 	e.loading = true
 	for {
 		e.dirty = false
+		force = force || e.dirtyForce
+		e.dirtyForce = false
 		r := s.resolveDocument(e.name)
 		max := s.opts.MaxBytes
 		s.mu.Unlock()
@@ -529,6 +560,8 @@ func (s *Session) refresh(e *entry) {
 		if readErr != nil || tooLarge {
 			s.cancelEntry(e)
 			e.diagrams = nil
+			e.source = nil
+			e.textOK = false
 			e.render = unavailable(e.name)
 			if tooLarge {
 				e.render["error"] = "文書が大きすぎます。"
@@ -536,7 +569,8 @@ func (s *Session) refresh(e *entry) {
 			for sub := range e.tabs {
 				notify(&actions, sub.listener, "render", e.render)
 			}
-		} else if !e.dirty {
+		} else if !e.dirty && (force || !e.textOK || text != e.text) {
+			e.text, e.textOK = text, true
 			e.rev++
 			s.enqueue(e, text, e.rev)
 		}
@@ -601,7 +635,7 @@ func (s *Session) updateIncludes(j *job, includes []pipeline.Include) {
 				s.mu.Unlock()
 			} else {
 				s.mu.Unlock()
-				s.refresh(e)
+				s.refresh(e, true)
 			}
 		}
 		stop := s.addWatch(target, changed, watch.Options{OnMissing: changed, IsAllowed: func() bool { return watch.IncludePath(root, name) != "" }})
@@ -666,6 +700,7 @@ func (s *Session) SetDocument(d Document) error {
 	if key(real) != key(s.active.context.path) || changedRoot {
 		s.clearIncludes(s.active)
 		s.active.render = nil
+		s.active.source = nil
 		s.active.diagrams = nil
 		s.scroll = nil
 	}
@@ -701,6 +736,7 @@ func (s *Session) SetDocument(d Document) error {
 			s.bind(sub, r, &actions)
 		}
 	}
+	s.active.input = &d
 	s.enqueue(s.active, d.Text, d.Rev)
 	s.mu.Unlock()
 	emit(actions)
@@ -815,6 +851,7 @@ func (s *Session) Close() error {
 	if !s.closed {
 		s.closed = true
 		s.active.diagrams = nil
+		s.active.source = nil
 		s.clearIncludes(s.active)
 		if s.cancel != nil {
 			s.cancel()
