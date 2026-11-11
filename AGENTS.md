@@ -58,7 +58,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `internal/pipeline/testdata/golden/pipeline.jsonl.gz` — Node.js 版（`80784dd`）の `renderDocument` の入力と出力 2,715 件（Node.js 版の試験が通した入力と、公開の文書）。出力を、HTML は木で、ほかは JSON で比べる見本。手で書き換えない
 
 - `engine/` — 描画エンジンの Rust の crate。`src/glfm.rs`・`src/formatter.rs` は gem の写し、`src/lib.rs` は WebAssembly から呼ぶ入口（Ruby の橋渡しの代わり）。`gitlab/glfm_markdown.rb` は GitLab がこの gem に渡すオプションのソースの写し（`go test ./engine` が `engine/engine.go` の `GitLabOptions()` と比べる）、`glfm_markdown.wasm` はビルドした成果物、`engine.lock.json` は GitLab・gem・comrak・コンテナのイメージ・`.wasm` の固定値、`licenses/` は `.wasm` に入る crate のライセンスの原文、`build.sh` は作り直す手順
-- `page/` — ブラウザの表示。文書の移動・一覧・見出し欄・表の操作・GitLab との違いの知らせ・印刷の表示を扱い、KaTeX・mermaid・md-table-sticky は同じサーバーから読む
+- `page/` — ブラウザの表示。文書の移動・一覧・見出し欄・表の操作・GitLab との違いの知らせ・印刷の表示を扱い、KaTeX・mermaid・md-table-sticky は同じサーバーから読む。`preview.js` は本文の写しと画面の対応で差分更新し、変わらない要素と表の操作状態を残す。md-table-sticky の内部への依存を表の固定の節へ集め、食い違いでは全置換へ戻す。後の編集 UI には `window.gpPreview` と `gp:render` で接続する
 - `page/lib/` — ブラウザに配る KaTeX・mermaid・md-table-sticky と原文のライセンス。`lock.json` に版、npm の integrity または Git の取得元とコミット、各ファイルの sha256・大きさを固定する
 - `tools/update-page-libs.mjs` — 開発用。`node_modules` の KaTeX・mermaid と、指定した clone の md-table-sticky の原文を写し直し、`--check` で固定情報・原文との一致を検査する
 - `docs/install.md` — AlmaLinux 10・Windows 11 の導入・更新の手順
@@ -149,7 +149,7 @@ git diff --check
 
 - Go の試験は消毒・フィルター・配色・include・知らせ・悪意のある入力、パスの境界、HTTP / SSE、文書の保持と監視、JSON 行の入出力、PlantUML・公式資産、HTML への書き出し・CLI を確かめる。GitLab の本物の出力との比較は `internal/pipeline/fixtures_test.go` にある。既知の差の表は件数・見本の名前・種類・場所・理由・固定した値も検査する
 - `test/page-libs.test.mjs` — 合成の npm パッケージと使い捨ての Git リポジトリで、原文のバイト・コミットの固定・変更のある写し元の拒否・md-table-sticky を指定しない更新での保持を確かめる。公開レジストリへ接続しない
-- `test/page.test.mjs` — サーバー（`internal/pagetest` を試験の最初に `go build` して子プロセスで起こす）・本物の KaTeX・mermaid によるブラウザ試験。書き出しの試験は `mdpreview render` を使う。Go が無い場合も理由を付けて skip する。文書の移動・戻ると進む・一覧・見出し欄・違いの知らせの安全な表示と行への移動・include の再描画・印刷と、外部要求の試みがないことを確認する。書き出した単一 HTML を `file://` で開き、数式・図・配色、CSP 違反・外部要求が無いことも確かめる。合成の公式資産と偽の図で、公式スタイルの読み込みと失敗時の復帰、PlantUML の表示・失敗・使い回しを確かめる。Playwright（`PLAYWRIGHT_MODULE` または `playwright`）と Edge / Chrome / Chromium がない場合は理由を付けて skip する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる
+- `test/page.test.mjs` — サーバー（`internal/pagetest` を試験の最初に `go build` して子プロセスで起こす）・本物の KaTeX・mermaid によるブラウザ試験。書き出しの試験は `mdpreview render` を使う。Go が無い場合も理由を付けて skip する。文書の移動・戻ると進む・一覧・見出し欄・違いの知らせの安全な表示と行への移動・include の再描画・印刷と、外部要求の試みがないことを確認する。見本の行の変更と表のセル・行の更新後の木を新しく開いたページと比較し、要素・details・数式・図の保持、全置換への復帰、固定・検索・全幅表示中の表の記録と内側の span、`gpPreview` の表の順・スクロール保持・編集時のジャンプ停止も確かめる。書き出した単一 HTML を `file://` で開き、数式・図・配色、CSP 違反・外部要求が無いことも確かめる。合成の公式資産と偽の図で、公式スタイルの読み込みと失敗時の復帰、PlantUML の表示・失敗・使い回しを確かめる。Playwright（`PLAYWRIGHT_MODULE` または `playwright`）と Edge / Chrome / Chromium がない場合は理由を付けて skip する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる
 - `test/helpers.mjs` — 作業ツリー内の一時ファイル、試験用サーバーと書き出しコマンドのビルド・起動・終了、JSON 行の応答待ちの補助
 - `test/assets-fixture.mjs` — ブラウザの試験で使う合成の公式資産と固定情報の作成
 - 描画に関わる変更は、試験に例を足す。GitLab の出力と比べて確かめたことだけを「同じ」と書く
