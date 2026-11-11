@@ -712,30 +712,6 @@
     }
   }
 
-  // 引用符内の改行・タブと二重の引用符を含む TSV を読む。
-  function parseTSV(text) {
-    const rows = [];
-    let row = [], value = '', quoted = false, start = true;
-    text = text.replace(/\r\n?/g, '\n');
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i];
-      if (quoted) {
-        if (char === '"' && text[i + 1] === '"') { value += '"'; i++; }
-        else if (char === '"') quoted = false;
-        else value += char;
-      } else if (char === '"' && start) { quoted = true; start = false; }
-      else if (char === '\t' || char === '\n') {
-        row.push(value); value = ''; start = true;
-        if (char === '\n') { rows.push(row); row = []; }
-      } else { value += char; start = false; }
-    }
-    if (quoted) throw new Error('貼り付ける値の引用符が閉じていません');
-    row.push(value);
-    rows.push(row);
-    while (rows.length && rows.at(-1).every((cell) => cell === '')) rows.pop();
-    return rows;
-  }
-
   let undoState = {};
   const actions = [
     ['row-before', '上に行を挿入'], ['row-after', '下に行を挿入'], ['row-delete', '行を削除'],
@@ -955,7 +931,7 @@
     operationStart();
     if (/[\t\r\n]/.test(text)) {
       try {
-        const values = parseTSV(text);
+        const values = window.gpEditGrid.parseTSV(text);
         if (values.length) enqueue({ point: { ...selected }, op: { type: 'paste', row: selected.row, col: selected.col, values } });
       } catch (error) { notice(error.message, true); }
     } else beginEdit({ replace: true, value: text });
