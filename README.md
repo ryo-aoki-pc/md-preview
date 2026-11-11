@@ -29,7 +29,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - Markdown を HTML に書き出す。スタイルと、文書に必要な数式・図のライブラリを埋め込み、サーバーを起こさずにブラウザで開ける形にする
 - ブラウザから印刷する。印刷用の表示では操作欄・見出し欄・知らせを隠す
 - 配色（システム・ライト・ダーク）と本文幅（全幅・固定幅）を切り替える。任意で GitLab の公式スタイルとフォントを取得し、プレビューに使う
-- Neovim（[LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter)）からは、カーソルに合わせたスクロールと、プレビューのダブルクリックによるエディタの行への移動も行う
+- Neovim（[LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter)）からは、カーソルに合わせたスクロールと、プレビューのダブルクリックによるエディタの行への移動も行う。プレビューの画面の「編集」で直した内容は、ファイルではなく Neovim のバッファへ入る（保存は `:w`、取り消しは `u`）
 
 ## 導入
 
