@@ -54,6 +54,7 @@ export async function renderGoPageDocument({ file, root, output }) {
   });
 }
 
+// options の edit: 'file' と live: true は、実ファイルへ書く編集 API も接続する。
 export async function startGoPageServer(t, options = {}) {
   const commands = await prepareGoPageTests();
   assert.equal(commands.skip, false, 'ページ試験用サーバーが使える');

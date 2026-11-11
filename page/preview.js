@@ -503,6 +503,7 @@
         connMsg = 'プレビューを止めた';
       }
       updateBanner();
+      document.dispatchEvent(new CustomEvent('gp:stop', { detail: m }));
     });
     es.addEventListener('render', (e) => {
       clearTimeout(dropTimer);
@@ -758,6 +759,7 @@
     config: CONFIG, base: BASE, doc: query.get('doc'), current: () => last, tables,
     holdScroll: (hold) => { scrollHeld = Boolean(hold); },
     setEditing: (active) => { editing = Boolean(active); },
+    rememberAppearance, appearance: savedAppearance,
   };
 
   async function render(m) {

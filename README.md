@@ -22,6 +22,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - 本文の相対リンクから別の Markdown へ移り、ブラウザの戻る・進むで行き来する。「一覧」でルート内の文書を選び、「見出し」で見出しの一覧を左に出し入れする
 - 「GitLab との違い」で、参照・図・提案・取り込み・絵文字・メディアの知らせを読み、本文の該当する行へ移る
 - 「表を固定」で、表の先頭行・列の固定、折り返し、全幅表示を使う
+- `--edit` を付けると、プレビューの画面で表を直接編集し、Markdown のファイルへ書き戻せる。「表を固定」で固定・全幅表示にしたまま編集できる
 - `::include{file=…}` でルート内のファイルを取り込む。取り込むファイルの変更・削除・作成に合わせて描き直す
 - 数式（KaTeX）と図（mermaid）を、同梱のライブラリで描く。PlantUML の図は、`plantuml` コマンドが入っていれば、手元のそのコマンドで描く
 - 表の操作には、同梱の md-table-sticky（[原文の写し](page/lib/md-table-sticky/)）を使う
@@ -34,10 +35,10 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 
 Go の単体の実行ファイルを、GitHub Releases から取得して置く。利用する端末に Go・Node.js・git は要らない。取得したファイルは sha256 で確かめる。
 
-| OS | 導入・更新の手順 |
-| --- | --- |
-| AlmaLinux 10 | [md-preview を導入・更新する](docs/install.md#md-preview-を導入更新する) |
-| Windows 11 | [Windows 11 で md-preview を導入・更新する](docs/install.md#windows-11-で-md-preview-を導入更新する) |
+| OS | 導入・更新の手順 | 表の編集を試す |
+| --- | --- | --- |
+| AlmaLinux 10 | [md-preview を導入・更新する](docs/install.md#md-preview-を導入更新する) | [プレビューで表を編集する](docs/usage.md#mdpreview-のプレビューで表を編集する) |
+| Windows 11 | [Windows 11 で md-preview を導入・更新する](docs/install.md#windows-11-で-md-preview-を導入更新する) | [プレビューで表を編集する](docs/usage.md#windows-11-の-mdpreview-のプレビューで表を編集する) |
 
 公式スタイルは任意。[AlmaLinux 10 の取得手順](docs/install.md#md-preview-の公式スタイルを取得する)・[Windows 11 の取得手順](docs/install.md#windows-11-で-md-preview-の公式スタイルを取得する)に従う。未導入なら同梱のスタイルで表示する。
 
@@ -49,6 +50,7 @@ PlantUML の図も任意。Windows 11 は [Windows 11 で PlantUML を入れる]
 mdpreview README.md                  # ファイルを開く
 mdpreview docs                       # フォルダーの Markdown の一覧を開く
 mdpreview --no-open README.md        # ブラウザを開かず、URL を出す
+mdpreview --edit README.md           # 画面で表を編集してファイルへ書く
 mdpreview render -o preview.html README.md  # HTML に書き出す
 mdpreview --help
 mdpreview --licenses                 # 同梱しているもののライセンスの原文を出す
@@ -59,6 +61,11 @@ mdpreview --licenses                 # 同梱しているもののライセン�
 - `--port <番号>` で待ち受けるポートを、`--browser <実行ファイル>` で開くブラウザを指定する。Ctrl+C で終わる
 
 ファイルを作って確かめる手順、画面の操作、HTML への書き出しは [md-preview の使い方](docs/usage.md) にある。Neovim からは、[LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter) の `<leader>cp` で使う。
+
+| OS | プレビューで表を編集する手順 |
+| --- | --- |
+| AlmaLinux 10 | [mdpreview のプレビューで表を編集する](docs/usage.md#mdpreview-のプレビューで表を編集する) |
+| Windows 11 | [Windows 11 の mdpreview のプレビューで表を編集する](docs/usage.md#windows-11-の-mdpreview-のプレビューで表を編集する) |
 
 ## 外へ通信する場面
 
