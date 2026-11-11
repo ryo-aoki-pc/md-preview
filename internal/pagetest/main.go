@@ -15,6 +15,7 @@ import (
 
 	"github.com/ryo-aoki-pc/md-preview/engine"
 	"github.com/ryo-aoki-pc/md-preview/internal/assets"
+	"github.com/ryo-aoki-pc/md-preview/internal/edit"
 	"github.com/ryo-aoki-pc/md-preview/internal/pagefiles"
 	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
 	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
@@ -27,6 +28,7 @@ type request struct {
 	Op         string           `json:"op"`
 	Root       string           `json:"root"`
 	Live       bool             `json:"live"`
+	Edit       string           `json:"edit"`
 	Jump       bool             `json:"jump"`
 	Directory  bool             `json:"directory"`
 	Plantuml   bool             `json:"plantuml"`
@@ -135,6 +137,9 @@ type application struct {
 }
 
 func (a *application) start(r request, out *output) error {
+	if r.Edit != "" && (r.Edit != "file" || !r.Live) {
+		return errors.New("画面の編集の試験には live: true と edit: file が必要です")
+	}
 	var state server.State
 	if r.Live {
 		var err error
@@ -159,11 +164,27 @@ func (a *application) start(r request, out *output) error {
 		a.fixture = &fixtureState{root: root, render: r.Render, scroll: r.Scroll}
 		state = a.fixture
 	}
-	page, err := pagefiles.Load(pagefiles.Options{Jump: r.Jump, Directory: r.Directory})
+	pageOptions := pagefiles.Options{Jump: r.Jump, Directory: r.Directory}
+	var editor *edit.Service
+	if r.Edit == "file" {
+		var mu sync.Mutex
+		var rev uint64
+		editor = edit.New(edit.Options{Host: a.live, Mode: edit.File, Written: func(src session.Source, text string) {
+			mu.Lock()
+			defer mu.Unlock()
+			rev++
+			_ = a.live.SetDocument(session.Document{Path: src.DocPath, Text: text, Rev: rev, Buf: src.Buf})
+		}})
+		pageOptions.Edit = editor.Config()
+	}
+	page, err := pagefiles.Load(pageOptions)
 	if err != nil {
 		return err
 	}
 	opts := server.Options{Session: state, Page: page}
+	if editor != nil {
+		opts.Edit = editor
+	}
 	if r.Jump {
 		opts.OnJump = func(line int64) { _ = out.send(map[string]any{"type": "jump", "line": line}) }
 	}

@@ -72,6 +72,7 @@ func TestMainProcess(t *testing.T) {
 		t.Fatalf("コマンドをビルドできない: %v\n%s", err, output)
 	}
 	isolateEnvironment(t)
+	t.Run("実プロセスの画面の編集", func(t *testing.T) { testEditProcess(t, binary) })
 	for _, item := range []struct {
 		arg    string
 		code   int

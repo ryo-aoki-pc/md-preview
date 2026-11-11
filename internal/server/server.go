@@ -21,7 +21,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/ryo-aoki-pc/md-preview/internal/documents"
 	"github.com/ryo-aoki-pc/md-preview/internal/fileopen"
@@ -62,6 +61,7 @@ type Options struct {
 	OnJump        func(int64)
 	OnClientCount func(int)
 	Libraries     *pagefiles.Libraries
+	Edit          Editor
 }
 type Server struct {
 	URL         string
@@ -354,21 +354,21 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 			if response, ok := conn.(*responseConn); ok && response.headersSent {
 				_ = conn.Close()
 			} else {
-				send(conn, r, 500, nil, nil)
+				s.reject(conn, r, 500)
 			}
 		}
 	}()
 	if r.Host == "" {
-		send(conn, r, 400, nil, nil)
+		s.reject(conn, r, 400)
 		return
 	}
 	if r.Host != fmt.Sprintf("127.0.0.1:%d", s.Port) && r.Host != fmt.Sprintf("localhost:%d", s.Port) {
-		send(conn, r, 403, nil, nil)
+		s.reject(conn, r, 403)
 		return
 	}
 	site := strings.Join(r.Header.Values("Sec-Fetch-Site"), ", ")
 	if site != "" && site != "none" && site != "same-origin" {
-		send(conn, r, 403, nil, nil)
+		s.reject(conn, r, 403)
 		return
 	}
 	path := pathOf(r)
@@ -383,13 +383,19 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 	}
 	authorized := subtle.ConstantTimeCompare([]byte(segment), []byte(s.Token)) == 1
 	jumpRoute := s.opts.OnJump != nil && authorized && rest == "/_/jump"
+	editRoute := s.opts.Edit != nil && authorized && rest == "/_/edit"
+	editGet := s.opts.Edit != nil && authorized && (rest == "/_/edit/tables" || rest == "/_/edit/source")
+	if r.Method == "POST" && editRoute || (r.Method == "GET" || r.Method == "HEAD") && editGet {
+		s.edit(conn, r, rest)
+		return
+	}
 	if r.Method == "POST" && jumpRoute {
 		s.jump(conn, r)
 		return
 	}
 	if r.Method != "GET" && r.Method != "HEAD" {
 		h := http.Header{"Allow": []string{"GET, HEAD"}}
-		if jumpRoute {
+		if jumpRoute || editRoute {
 			h.Set("Allow", "GET, HEAD, POST")
 		}
 		send(conn, r, 405, h, nil)
@@ -404,7 +410,7 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 		return
 	}
 	if !authorized {
-		send(conn, r, 404, nil, nil)
+		s.reject(conn, r, 404)
 		return
 	}
 	rel := rest[1:]
@@ -562,28 +568,17 @@ func SafeInteger(v any) bool {
 	return ok && n >= 1 && n <= 9007199254740991 && n == float64(int64(n))
 }
 func (s *Server) jump(conn net.Conn, r *http.Request) {
-	_ = conn.SetReadDeadline(time.Now().Add(300 * time.Second))
 	origin := strings.Join(r.Header.Values("Origin"), ", ")
 	if origin != fmt.Sprintf("http://127.0.0.1:%d", s.Port) && origin != fmt.Sprintf("http://localhost:%d", s.Port) {
 		send(conn, r, 403, nil, nil)
 		return
 	}
-	if !regexp.MustCompile(`(?i)^application/json(?:\s*;[^\r\n]*)?$`).MatchString(r.Header.Get("Content-Type")) {
-		send(conn, r, 415, nil, nil)
+	v, e := postJSON(conn, r, 1024)
+	if e != nil {
+		send(conn, r, e.Status, nil, nil)
 		return
 	}
-	if r.ContentLength > 1024 {
-		send(conn, r, 413, nil, nil)
-		return
-	}
-	body, e := io.ReadAll(io.LimitReader(r.Body, 1025))
-	if len(body) > 1024 {
-		send(conn, r, 413, nil, nil)
-		return
-	}
-	parsed, parseErr := DecodeJSON(body)
-	v, _ := parsed.(map[string]any)
-	if e != nil || !utf8.Valid(body) || parseErr != nil || v == nil || !SafeInteger(v["line"]) {
+	if !SafeInteger(v["line"]) {
 		send(conn, r, 400, nil, nil)
 		return
 	}

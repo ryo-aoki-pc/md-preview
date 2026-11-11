@@ -20,6 +20,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - 消毒は `internal/sanitize` の規則で行う。正規表現で HTML の文字列を直接書き換えて消毒しない
 - `test/fixtures/*.gitlab.html` は GitLab が返した HTML そのままで、手で書き換えない。見本の入力（`test/fixtures/*.md`）は合成の文章だけにし、実在の利用者・プロジェクトに解決される参照（`@名前` など）を入れない（GitLab が返す HTML に、その人の名前が入る）
 - サーバーは 127.0.0.1 だけで待ち受け、URL に推測できない token を入れる。`Host` と `Sec-Fetch-Site` を確かめ、CORS のヘッダーは付けない。ファイルは `internal/resolve` の `Resolve` でルートの内側の実ファイルに限る（`..`・`\`・Windows の `:`・末尾の点と空白・デバイス名・`.git`・リンクでの脱出を拒む）。これらを緩めない
+- Markdown への書き込みは `--edit` を付けたときだけ行う。書く先は要求の本文や URL から取らず、サーバーが描画している文書だけにし、`?doc=` は今までどおり `Resolve` で検査する。`POST _/edit` は token・Host・Sec-Fetch-Site・要求の Host と同じ Origin・JSON の型・本文の上限を確かめる。描画のもとの本文と今のファイルが違えば書かない。これらを緩めない
 - 取り込んだファイルの監視も `internal/resolve` の `Resolve` でルート内を確かめ、文書ごとに32個までにする。失敗した include は、安全な親の下で出現を待つ。編集中の文書の再描画には最後に受けた本文を使う
 - `page/lib/` は KaTeX・mermaid・md-table-sticky の原文の写し。手で直さず、`tools/update-page-libs.mjs` で `lock.json`・ライセンスと一緒に更新する。CSS に残る woff / ttf の参照は変えず、配るフォントは woff2 だけにする
 - ページの CSP は `script-src 'self'`。ページに入れるスクリプトとライブラリは、同じサーバーから配る。配るライブラリは `page/lib/lock.json` にあるファイルだけにし、`node_modules` をそのまま見せない
@@ -44,6 +45,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `internal/watch/` — 標準ライブラリの定期確認による変更・削除・再作成の監視と、存在しない include の親の検査。書かれた直後に見たファイルは中身のハッシュを覚え、更新時刻の刻みが過ぎてから1回だけ確かめ直す（同じ大きさ・同じ更新時刻の書き換えを拾う）
 - `internal/fileopen/` — 文書・include・リポジトリのファイルの読み取り。Windows では、読んでいる間も名前の変更と削除を許して開く（標準の `os.Open` は許さない）
 - `internal/session/` — 文書ごとの最新描画、描画の番号と原文・行対応の保持、状態を変えない試しの描画とファイルの即時読み直し、取り消しと時間制限、ファイル文書・include・図の保持と破棄。描画器はインターフェースで受け取り、試験では偽物を使う
+- `internal/edit/` — 描画と原文の表の対応づけ、表・範囲・チェックボックスの編集、ファイルの再検査と書き戻し、文書ごとの差分履歴。試しの描画は最終 HTML の比較にだけ使う
 - `internal/pagefiles/` — 埋め込みページの設定と、固定情報の大きさ・sha256 を照合するライブラリの読み取り
 - `internal/server/` — 127.0.0.1 の HTTP と SSE。要求は `net/http.ReadRequest` で解析し、パス整理・接続再利用・Expect の自動応答を使わない
 - `internal/stdio/`・`internal/cli/` — Neovim との版1の取り決め、コマンドの引数、ブラウザ起動と終了処理、`render`・`install-style` の入口。描画エンジンの用意・PlantUML・公式スタイルは外から渡す関数で接続する
@@ -133,6 +135,8 @@ gofmt -l .
 ルートを受け取る関数（`resolve.Resolve`・`documents.ListMarkdown`・`session.FileContext`・`watch.IncludePath` など）は、ルートが実パスであることを前提にする。試験で一時フォルダーをルートにするときは、`resolve.RealPath(t.TempDir())` で実パスにしてから渡す（Windows の一時フォルダーのパスには、8.3 形式の短い名前が入ることがある）。
 
 依存を足す・上げるとき、Go の版を上げるときは、`licenses/manifest.json` と `licenses/go/` の原文の写しも合わせる（試験が、`go.mod`・Go のモジュールのキャッシュ・`engine/Cargo.lock`・`page/lib/lock.json` と比べる）。版を上げるときは、`internal/version/version.go` と `licenses/manifest.json` の md-preview の版を同じ値にする（配布の workflow は、タグと `version.go` の版が違うと止まる）。
+
+`GOPROXY=off` で試験する前に、通信できる環境で一度 `go mod download` を実行し、固定した依存をキャッシュへ用意しておく。
 
 `-race` には C のコンパイラーが要る。Go の試験は描画の見本、GitLab のオプション、異常終了・取り消しからの復帰、メモリー上限、同時呼び出し、埋め込んだ資産の大きさと sha256、コマンドの出力を確かめる。
 

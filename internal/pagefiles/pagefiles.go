@@ -16,6 +16,7 @@ import (
 type Options struct {
 	Theme, Width    string
 	Jump, Directory bool
+	Edit            any
 }
 type Page struct{ HTML, JS, CSS, Fallback string }
 
@@ -27,6 +28,9 @@ func Load(o Options) (Page, error) {
 		o.Width = "fluid"
 	}
 	config := map[string]any{"appearance": map[string]string{"theme": o.Theme, "width": o.Width}, "assets": nil, "notice": "", "jump": o.Jump, "directory": o.Directory}
+	if o.Edit != nil {
+		config["edit"] = o.Edit
+	}
 	p := Page{}
 	for name, dest := range map[string]*string{"index.html": &p.HTML, "preview.js": &p.JS, "preview.css": &p.CSS, "fallback.css": &p.Fallback} {
 		b, e := page.Files.ReadFile(name)
