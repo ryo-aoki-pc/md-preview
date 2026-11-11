@@ -31,7 +31,7 @@ func TestEmbeddedFiles(t *testing.T) {
 		t.Fatal("資産の固定値にパッケージがない")
 	}
 	expected := map[string]bool{"lib/lock.json": true}
-	for _, name := range []string{"index.html", "preview.js", "preview.css", "fallback.css"} {
+	for _, name := range []string{"index.html", "preview.js", "edit.js", "preview.css", "fallback.css"} {
 		expected[name] = true
 		got, err := Files.ReadFile(name)
 		if err != nil {

@@ -321,3 +321,129 @@ body {
     display: none !important;
   }
 }
+
+/* 編集の UI（書き出す本文のスタイルには含めない） */
+#gp-edit-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483647;
+  color: var(--gp-fg);
+  font: 13px/1.5 sans-serif;
+}
+#gp-edit-layer [hidden] {
+  display: none !important;
+}
+/* 全幅表示の中で選んだセルを、下の操作欄の後ろへ入れない（scrollIntoView が読む余白。配置は変わらない） */
+:root[data-edit='on'] [data-md-table-sticky-float-panel] * {
+  scroll-padding-bottom: var(--gp-edit-bottom, 64px);
+}
+#gp-edit-selection,
+#gp-edit-input,
+.gp-edit-pending {
+  position: fixed;
+  box-sizing: border-box;
+  border: 2px solid var(--gp-fg);
+  border-radius: 0;
+  margin: 0;
+}
+#gp-edit-selection {
+  pointer-events: none;
+  z-index: 2;
+}
+#gp-edit-selection[data-pending='true'],
+.gp-edit-pending {
+  border-color: var(--gp-border);
+  border-style: dashed;
+}
+.gp-edit-pending {
+  padding: 6px 12px;
+  color: var(--gp-fg);
+  background: var(--gp-bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+#gp-edit-input {
+  padding: 6px 12px;
+  color: var(--gp-fg);
+  background: var(--gp-bg);
+  resize: none;
+  outline: none;
+  overflow: auto;
+  pointer-events: auto;
+  z-index: 3;
+}
+#gp-edit-layer[data-typing='off'] #gp-edit-input {
+  opacity: 0;
+  padding: 0;
+  border: 0;
+}
+#gp-edit-source-label {
+  position: fixed;
+  padding: 1px 5px;
+  border: 1px solid var(--gp-border);
+  color: var(--gp-fg);
+  background: var(--gp-bg);
+  pointer-events: auto;
+  z-index: 4;
+}
+#gp-edit-actions {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 6px;
+  border: 1px solid var(--gp-border);
+  border-radius: 5px;
+  color: var(--gp-fg);
+  background: var(--gp-bg);
+  pointer-events: auto;
+  z-index: 5;
+}
+#gp-edit-actions button {
+  border: 1px solid var(--gp-border);
+  border-radius: 3px;
+  padding: 3px 7px;
+  color: var(--gp-fg);
+  background: var(--gp-bg);
+  font: inherit;
+  cursor: pointer;
+}
+#gp-edit-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+#gp-edit-status {
+  position: fixed;
+  bottom: 76px;
+  right: 12px;
+  max-width: min(480px, calc(100vw - 40px));
+  max-height: 30vh;
+  overflow: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--gp-border);
+  border-radius: 4px;
+  color: var(--gp-fg);
+  background: var(--gp-bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+  z-index: 6;
+}
+#gp-edit-status[data-kind='error'] {
+  border-width: 2px;
+}
+@media print {
+  #gp-edit-layer {
+    display: none !important;
+  }
+}

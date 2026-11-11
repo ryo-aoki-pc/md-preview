@@ -18,7 +18,7 @@ type Options struct {
 	Jump, Directory bool
 	Edit            any
 }
-type Page struct{ HTML, JS, CSS, Fallback string }
+type Page struct{ HTML, JS, EditJS, CSS, Fallback string }
 
 func Load(o Options) (Page, error) {
 	if o.Theme == "" {
@@ -32,7 +32,7 @@ func Load(o Options) (Page, error) {
 		config["edit"] = o.Edit
 	}
 	p := Page{}
-	for name, dest := range map[string]*string{"index.html": &p.HTML, "preview.js": &p.JS, "preview.css": &p.CSS, "fallback.css": &p.Fallback} {
+	for name, dest := range map[string]*string{"index.html": &p.HTML, "preview.js": &p.JS, "edit.js": &p.EditJS, "preview.css": &p.CSS, "fallback.css": &p.Fallback} {
 		b, e := page.Files.ReadFile(name)
 		if e != nil {
 			return p, e
