@@ -65,6 +65,8 @@ func TestTableAndFootnoteCheckboxWrites(t *testing.T) {
 		{"脚注", "本文[^a]\n\n[^a]: 定義\n\n    - [ ] 作業\n"},
 		{"脚注の表", "本文[^a]\n\n[^a]: 定義\n\n    | 列 |\n    | --- |\n    | [ ] |\n"},
 		{"先行する表とセル内の二番目", pipeTable + "\n<table><tr><td>\n\n- [ ] 前\n- [ ] 作業\n\n</td></tr></table>\n"},
+		// 前の表が対応できなくても、表の番号がずれず、後ろの編集できる表のタスクを受ける。
+		{"対応できない表の後ろの表", "<table><tfoot><tr><td>\n\n- [x] 前\n\n</td></tr></tfoot><tbody><tr><td>本文</td></tr></tbody></table>\n\n| 列 |\n| --- |\n| [ ] |\n"},
 	} {
 		for _, mode := range []Mode{File, Buffer} {
 			for _, ending := range []string{"\n", "\r\n"} {

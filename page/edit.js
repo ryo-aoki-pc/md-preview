@@ -1536,7 +1536,8 @@
     // コメントへの切り替えは、入力を確定せず busy() の確認へ渡す。
     if (event.target.closest?.('#gp-review-toggle')) return;
     cancelSource();
-    const checkbox = checkboxOf(event.target);
+    // 表の固定の「セルを選んで固定」の最中は、セルの中のタスクを押しても境界の選択だけに任せる。
+    const checkbox = !window.__mdTableSticky?.picking && checkboxOf(event.target);
     if (checkbox && documentEditable && infoRender === preview.current()?.render && !dragged) {
       event.stopPropagation();
       if (editor) endEdit(true);

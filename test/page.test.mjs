@@ -2663,6 +2663,34 @@ test('表と脚注のタスクの切り替え・連続操作・再描画を確�
     assert.equal(readFileSync(file, 'utf8'), original.replace('前のセル', '直したセル').replace('[ ]', '[x]'));
     assert.equal(await page.locator('#gp-edit-selection').isVisible(), false);
   });
+  await t.test('表の固定でセルを選んで固定する間は、セルの中のタスクを切り替えず境界だけを選ぶ', async (t) => {
+    const original = '| 列 | 状態 |\n| --- | --- |\n| 一 | [ ] |\n| 二 | 値 |\n';
+    const { page, file } = await editablePage(t, browser, original);
+    const sent = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/_/edit')) sent.push(request.postDataJSON());
+    });
+    await page.locator('#gp-sticky-toggle').click();
+    await page.waitForSelector('[data-md-table-sticky-bar]');
+    const override = () => page.evaluate(() => {
+      const record = window.__mdTableSticky.records.get(window.gpPreview.tables()[0]);
+      return [record.override.rows, record.override.cols];
+    });
+    const before = await override();
+    await page.locator('[data-md-table-sticky-action="pick"]').click();
+    const checkbox = page.locator('#gp-content input.task-list-item-checkbox');
+    await checkbox.click();
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.deepEqual(sent, []);
+    assert.equal(await checkbox.isChecked(), false);
+    assert.equal(readFileSync(file, 'utf8'), original);
+    assert.notDeepEqual(await override(), before);
+    assert.equal(await page.evaluate(() => Boolean(window.__mdTableSticky.picking)), false);
+    // 選び終えたら、また切り替えられる。
+    await checkbox.click();
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original.replace('[ ]', '[x]'));
+  });
   await t.test('全幅表示中のタスクを切り替え、表の情報を失ったら無効に戻す', async (t) => {
     const original = '| 列 |\n| --- |\n| [ ] |\n';
     const { page, file, server } = await editablePage(t, browser, original);
