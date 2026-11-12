@@ -74,28 +74,39 @@
     for (const key of ['prev', 'next']) if (value[key]) target[key] = { tag: value[key].tag, range: value[key].range };
     return target;
   }
+  // サーバー（internal/server/review.go）と同じく、タブと改行のほかの制御文字を受けない。
+  const controlPattern = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+  const length = (value) => Array.from(value).length;
+  const textOK = (value) => typeof value === 'string' && value.trim() !== '' && length(value) <= 2000 && !controlPattern.test(value);
+  const shortOK = (value, max) => typeof value === 'string' && length(value) <= max && !controlPattern.test(value);
+  // 1 つの文書の分を読む。形が違えば、その文書の分だけを捨てる（ほかの文書のコメントは残す）。
+  function readItems(items) {
+    if (!Array.isArray(items) || items.length > 200) return null;
+    const seen = new Set();
+    const list = [];
+    for (const item of items) {
+      const target = validTarget(item?.target);
+      if (!plain(item) || typeof item.id !== 'string' || !/^[0-9A-Za-z-]{1,64}$/.test(item.id) || seen.has(item.id) || !target ||
+        !shortOK(item.label, 200) || !textOK(item.text) || !integer(item.render) || item.render === 0 ||
+        !['pending', 'copied'].includes(item.state) || typeof item.stale !== 'boolean' || !shortOK(item.error, 500) ||
+        (item.selection !== undefined && !textOK(item.selection)))
+        return null;
+      seen.add(item.id);
+      list.push({ id: item.id, target, label: item.label, text: item.text, render: item.render,
+        state: item.state, stale: item.stale, error: item.error, ...(item.selection ? { selection: item.selection } : {}) });
+    }
+    return list;
+  }
   function readStorage() {
     const empty = () => ({ version: 1, docs: Object.create(null) });
     try {
       const saved = JSON.parse(sessionStorage.getItem(storageKey));
       if (!plain(saved) || saved.version !== 1 || !plain(saved.docs)) return empty();
       const result = empty();
-      for (const [key, items] of Object.entries(saved.docs)) {
-        if (!Array.isArray(items)) return empty();
-        const seen = new Set();
-        result.docs[key] = [];
-        for (const item of items) {
-          const target = validTarget(item?.target);
-          if (!plain(item) || typeof item.id !== 'string' || !item.id || seen.has(item.id) || !target ||
-            typeof item.label !== 'string' || typeof item.text !== 'string' || !item.text.trim() ||
-            Array.from(item.text).length > 2000 || !integer(item.render) || item.render === 0 ||
-            !['pending', 'copied'].includes(item.state) || typeof item.stale !== 'boolean' || typeof item.error !== 'string' ||
-            (item.selection !== undefined && (typeof item.selection !== 'string' || !item.selection.trim() || Array.from(item.selection).length > 2000)))
-            return empty();
-          seen.add(item.id);
-          result.docs[key].push({ id: item.id, target, label: item.label, text: item.text, render: item.render,
-            state: item.state, stale: item.stale, error: item.error, ...(item.selection ? { selection: item.selection } : {}) });
-        }
+      for (const [key, items] of Object.entries(saved.docs).slice(0, 100)) {
+        if (!shortOK(key, 2100)) continue;
+        const list = readItems(items);
+        if (list) result.docs[key] = list;
       }
       return result;
     } catch { return empty(); }
@@ -157,7 +168,9 @@
     quote.textContent = selected?.selection ? '選んだ文字: ' + selected.selection : '';
     quote.hidden = !selected?.selection;
     input.disabled = locked();
-    add.textContent = editing ? '保存' : '追加';
+    // 直している間に別の対象を選ぶと、そのコメントの対象を変える。黙って変えないよう文言に出す。
+    const original = editing && comments.find((item) => item.id === editing);
+    add.textContent = !editing ? '追加' : original && selected && !sameTarget(original.target, selected.target) ? '保存（対象を変える）' : '保存';
     const reason = stopped ? 'プレビューが終了しています' : preparing || copying ? '処理が終わるまでお待ちください' :
       !selected ? '本文のブロックか表のセルを選んでください' : !input.value.trim() ? 'コメントを入力してください' : '';
     add.disabled = Boolean(reason);
@@ -218,8 +231,11 @@
   };
   const blockLabels = { p: '段落', li: 'リストの項目', ul: 'リスト', ol: 'リスト', dl: '説明リスト',
     dt: '用語', dd: '説明', blockquote: '引用', pre: 'コード', hr: '水平線', div: '注記', img: '図' };
+  // 表の固定の全幅表示は、表を本文の外（body の直下の欄）へ移す。対応づけたセルなら本文の外でも受ける。
+  const cellOutside = (element) => Boolean(element?.closest && byCell.get(element.closest('td, th')) && infoRender === preview.current()?.render);
+  const inBody = (element) => Boolean(element?.closest) && (content.contains(element) || cellOutside(element));
   function targetOf(element) {
-    if (!element?.closest || !content.contains(element)) return null;
+    if (!inBody(element)) return null;
     const table = element.closest('table');
     if (table) {
       const cell = byCell.get(element.closest('td, th'));
@@ -253,6 +269,7 @@
     const text = input.value.trim();
     if (!text) return;
     if (Array.from(text).length > 2000) { notice('コメントが長すぎます（2,000 文字まで）'); return; }
+    if (controlPattern.test(text)) { notice('コメントに使えない制御文字が入っています。'); return; }
     if (comments.filter((item) => item.state === 'pending' && item.id !== editing).length >= 50) {
       notice('一度に依頼できるコメントは 50 件までです。依頼文をコピーしてから追加してください。'); return;
     }
@@ -265,7 +282,7 @@
     editing = null;
     input.value = '';
     changed();
-    notice('コメントを追加しました。');
+    notice(index >= 0 ? 'コメントを保存しました。' : 'コメントを追加しました。');
   }
   input.addEventListener('input', draw);
   input.addEventListener('keydown', (event) => {
@@ -359,7 +376,8 @@
     if (!startsInside && !endsInside) return false;
     const first = startsInside && targetOf(selectionElement(range.startContainer, range.startOffset, false));
     const last = endsInside && targetOf(selectionElement(range.endContainer, range.endOffset, true));
-    const text = selection.toString().trim();
+    // 表示の文字の引用なので、サーバーが受けない制御文字は落とす（タブと改行は残す）。
+    const text = selection.toString().replace(new RegExp(controlPattern.source, 'g'), '').trim();
     if (!text) return false;
     if (!first || !last || !sameTarget(first.target, last.target)) {
       if (selected) { delete selected.selection; draw(); }
@@ -373,7 +391,7 @@
   }
   document.addEventListener('selectionchange', () => { if (mode && !stopped) readSelection(); });
   window.addEventListener('click', (event) => {
-    if (!mode || stopped || ignored(event.target) || !content.contains(event.target)) return;
+    if (!mode || stopped || ignored(event.target) || !inBody(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
     if (readSelection()) return;
@@ -384,7 +402,7 @@
     notice(model?.reason || 'ここにはコメントを付けられません');
   }, true);
   window.addEventListener('dblclick', (event) => {
-    if (!mode || stopped || ignored(event.target) || !content.contains(event.target)) return;
+    if (!mode || stopped || ignored(event.target) || !inBody(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
   }, true);
@@ -435,6 +453,8 @@
       models = [];
       byCell = new WeakMap();
       infoRender = 0;
+      // 表とセルを確かめられないので、セルのコメントは要確認にする。
+      checkTargets(true);
       if (mode) notice(error.message);
     } finally {
       if (number === tableNumber) tableFetching = null;
@@ -460,6 +480,8 @@
       if (number !== prepareNumber || stopped || render !== preview.current()?.render) return;
       if (!response.ok) {
         const message = messageOf(data) || '依頼文を作れませんでした';
+        // 前の失敗の印は消し、今回断られた 1 件（番号があるときだけ）に付け直す。
+        for (const item of sent) item.error = '';
         if (integer(data?.error?.index) && sent[data.error.index]) sent[data.error.index].error = message;
         save();
         throw new Error(message);

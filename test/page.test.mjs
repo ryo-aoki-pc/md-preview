@@ -611,6 +611,84 @@ test('画面のコメント', { skip, timeout: 240000 }, async (t) => {
     await page.waitForSelector('#gp-review-toggle');
     await enter(page);
     assert.equal(await page.locator('.gp-review-card').count(), 0);
+    // 壊れた文書の分だけを捨て、ほかの文書のコメントは残す。制御文字や長すぎる値も壊れたものとして扱う。
+    const good = { id: 'a1', target: { kind: 'block', tag: 'p', range: '3:1-3:27' }, label: '段落: 残る', text: '残るコメント',
+      render: 1, state: 'pending', stale: false, error: '' };
+    await page.evaluate((good) => sessionStorage.setItem('gitlab-preview-review', JSON.stringify({ version: 1, docs: {
+      current: [good], 'file:other.md': [{ ...good, text: '制御文字\u0001' }], 'file:long.md': [{ ...good, label: 'x'.repeat(201) }] } })), good);
+    await page.reload();
+    await page.waitForSelector('#gp-review-toggle');
+    await enter(page);
+    assert.equal(await page.locator('.gp-review-card').count(), 1);
+    assert.match(await page.locator('.gp-review-card').textContent(), /残るコメント/);
+  });
+
+  await t.test('制御文字のコメントを断り、直す間の対象の変更と保存を知らせる', async (t) => {
+    const { page } = await reviewPage(t);
+    await enter(page);
+    await page.locator('#gp-content > p').first().click();
+    await page.locator('#gp-review-input').evaluate((element) => {
+      element.value = '制御文字\u0007入り';
+      element.dispatchEvent(new Event('input'));
+    });
+    await page.locator('#gp-review-add').click();
+    assert.match(await page.locator('#gp-review-status').textContent(), /制御文字/);
+    assert.equal(await page.locator('.gp-review-card').count(), 0);
+    await page.locator('#gp-review-input').fill('最初のコメント');
+    await page.locator('#gp-review-add').click();
+    assert.match(await page.locator('#gp-review-status').textContent(), /追加しました/);
+    await page.getByRole('button', { name: '直す', exact: true }).click();
+    assert.equal(await page.locator('#gp-review-add').textContent(), '保存');
+    await page.locator('#gp-content > p').nth(1).click();
+    assert.equal(await page.locator('#gp-review-add').textContent(), '保存（対象を変える）');
+    await page.locator('#gp-review-add').click();
+    assert.match(await page.locator('#gp-review-status').textContent(), /保存しました/);
+    assert.match(await page.locator('.gp-review-card').textContent(), /次の段落/);
+  });
+
+  await t.test('前の失敗の印を消し、表を確かめられないときはセルを要確認にする', async (t) => {
+    const { page } = await reviewPage(t);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content > p').first(), '一つ目');
+    await addComment(page, page.locator('#gp-content td').first(), 'セルへ');
+    // 1 回目は 2 件目を断り、2 回目は番号の無い失敗にする。
+    let calls = 0;
+    await page.route('**/_/review/prepare*', (route) => route.fulfill({ status: 422, contentType: 'application/json',
+      body: JSON.stringify(++calls === 1 ? { error: { code: 'excluded', message: '断られた対象', index: 1 } } : { error: { code: 'changed', message: '文書が変わりました' } }) }));
+    await page.locator('#gp-review-prepare').click();
+    await page.waitForFunction(() => /誤り: 断られた対象/.test(document.querySelector('#gp-review-cards').textContent));
+    await page.locator('#gp-review-prepare').click();
+    await page.waitForFunction(() => /文書が変わりました/.test(document.querySelector('#gp-review-status').textContent));
+    assert.doesNotMatch(await page.locator('#gp-review-cards').textContent(), /誤り/);
+    await page.unroute('**/_/review/prepare*');
+    // 表の情報を取れなければ、セルのコメントは要確認にする。
+    await page.route('**/_/review/tables*', (route) => route.fulfill({ status: 500, contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'internal', message: '試験用の失敗' } }) }));
+    await page.locator('#gp-review-close').click();
+    await page.locator('#gp-review-toggle').click();
+    await page.waitForFunction(() => /要確認/.test(document.querySelector('#gp-review-cards').textContent));
+    assert.match(await card(page, 'セルへ').textContent(), /要確認/);
+    assert.doesNotMatch(await card(page, '一つ目').textContent(), /要確認/);
+  });
+
+  await t.test('表の固定の全幅表示に移ったセルにも、コメントを付けられる', async (t) => {
+    const { page } = await reviewPage(t);
+    await page.locator('#gp-sticky-toggle').click();
+    await page.waitForSelector('[data-md-table-sticky-bar]');
+    await enter(page);
+    await page.locator('[data-md-table-sticky-action="float"]').first().click();
+    await page.waitForSelector('[data-md-table-sticky-float-panel]');
+    const cell = page.locator('[data-md-table-sticky-float-panel] td').first();
+    await cell.click();
+    assert.equal(await page.locator('#gp-review-target').textContent(), '表 1 の 2 行 1 列');
+    // 枠と右の欄は、全幅表示より上に出る。
+    const rect = await cell.boundingBox();
+    assert.equal(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('[data-md-table-sticky-float-panel]') !== null, { x: rect.x + 2, y: rect.y + 2 }), true);
+    const panel = await page.locator('#gp-review-input').boundingBox();
+    assert.equal(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.id, { x: panel.x + 5, y: panel.y + 5 }), 'gp-review-input');
+    await page.locator('#gp-review-input').fill('全幅のセルへ');
+    await page.locator('#gp-review-add').click();
+    assert.match(await card(page, '全幅のセルへ').textContent(), /表 1 の 2 行 1 列/);
   });
 });
 

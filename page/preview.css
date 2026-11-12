@@ -583,7 +583,8 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 12;
+  /* 表の固定の全幅表示（2147483646）より上に枠を出す。編集の層と同じ順。 */
+  z-index: 2147483647;
 }
 #gp-review-layer[hidden],
 #gp-review-layer [hidden],
@@ -605,7 +606,8 @@ body {
 #gp-review-panel {
   position: fixed;
   inset: var(--gp-header-height) 0 0 auto;
-  z-index: 20;
+  /* 全幅表示の中のセルにもコメントを書けるよう、全幅表示より上に出す。 */
+  z-index: 2147483647;
   box-sizing: border-box;
   width: 360px;
   padding: 12px;
@@ -677,7 +679,8 @@ body {
 #gp-review-status {
   position: fixed;
   inset: auto 12px 12px auto;
-  z-index: 30;
+  /* 編集の操作欄（編集の層）にも隠れないようにする。 */
+  z-index: 2147483647;
   box-sizing: border-box;
   max-width: min(600px, calc(100vw - 24px));
   max-height: 25vh;
