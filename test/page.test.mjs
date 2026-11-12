@@ -3853,6 +3853,22 @@ test('ローカルのプレビューページ', { skip, timeout: 180000 }, async
       await waitOutlineWidth(page, width);
       assert.equal(await savedOutlineWidth(page), width);
     }
+    // 修飾キー付きの矢印・Home は、ブラウザの操作に任せて幅を変えない。
+    // Alt+← は試験のページを戻してしまうので、同じ判定を通る Ctrl・Meta で確かめる。
+    for (const key of ['Control+ArrowLeft', 'Control+Home', 'Control+Shift+ArrowLeft', 'Meta+ArrowLeft']) {
+      await resizer.evaluate((element) => element.addEventListener('keydown', (event) => {
+        setTimeout(() => { element.dataset.testPrevented = String(event.defaultPrevented); });
+      }, { once: true }));
+      await page.keyboard.press(key);
+      await page.waitForFunction(() => document.querySelector('#gp-outline-resizer').dataset.testPrevented !== undefined);
+      assert.equal(await resizer.evaluate((element) => {
+        const value = element.dataset.testPrevented;
+        delete element.dataset.testPrevented;
+        return value;
+      }), 'false', key);
+      assert.equal(await resizer.getAttribute('aria-valuenow'), '480', key);
+      assert.equal(await savedOutlineWidth(page), 480, key);
+    }
     await page.keyboard.press('Enter');
     await waitOutlineWidth(page, 260);
     assert.equal(await savedOutlineWidth(page), undefined);
@@ -3871,8 +3887,15 @@ test('ローカルのプレビューページ', { skip, timeout: 180000 }, async
     assert.equal(await savedOutlineWidth(page), 270);
     await resizer.dblclick();
     assert.equal(await savedOutlineWidth(page), undefined);
+    await dragOutline(page, 40);
+    await waitOutlineWidth(page, 300);
     await page.locator('#gp-outline-toggle').click();
     assert.equal(await resizer.isVisible(), false);
+    // 開き直すと、つまみと変えた幅が戻る。
+    await page.locator('#gp-outline-toggle').click();
+    await waitOutlineWidth(page, 300);
+    assert.equal(await resizer.isVisible(), true);
+    assert.equal(await savedOutlineWidth(page), 300);
   });
 
   await t.test('見出し欄のドラッグを Esc・pointercancel・捕捉の喪失で取り消し、変更なしでは保存しない', async (t) => {
@@ -3885,6 +3908,8 @@ test('ローカルのプレビューページ', { skip, timeout: 180000 }, async
       await startOutlineDrag(page, 80);
       await waitOutlineWidth(page, 440);
       assert.equal(await savedOutlineWidth(page), 360);
+      // ドラッグ中は文字の選択を止める印が付く。
+      assert.equal(await page.locator('html').getAttribute('data-outline-resizing'), '');
       if (cancel === 'Escape') await page.keyboard.press('Escape');
       else await page.locator('#gp-outline-resizer').evaluate((element, cancel) => {
         const id = Number(element.dataset.testPointer);

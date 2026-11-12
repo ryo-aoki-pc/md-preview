@@ -288,7 +288,8 @@
     event.stopImmediatePropagation();
   }, true);
   outlineResizer.addEventListener('keydown', (event) => {
-    if (!canResizeOutline() || outlineDrag) return;
+    // Alt+← の「戻る」や Ctrl+Home などのブラウザの操作は止めない。Shift だけを幅の刻みに使う。
+    if (!canResizeOutline() || outlineDrag || event.ctrlKey || event.altKey || event.metaKey) return;
     const width = clampOutlineWidth(outlineWidth);
     let next;
     switch (event.key) {
