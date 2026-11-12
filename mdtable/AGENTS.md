@@ -13,14 +13,14 @@ Windows 11 の導入・更新の手順は [docs/install.md](docs/install.md)、�
 - `LICENSE` — md-table-excel の MIT ライセンス。`--licenses` の最初に出す
 - ルートの `go.mod`・`go.sum` — `mdpreview` と `mdtable` で共通の Go のモジュールと依存
 - `cmd/mdtable/` — コマンドの入口。処理は `internal/cli/`
-- `tableedit/` — ほかの Go のプログラムから使う表の解析・セルと行・列の編集・行と列の複製と移動・範囲の写しの取り出しと挿入・上書き・原文の差し替えの公開の窓口
+- `tableedit/` — ほかの Go のプログラムから使う表の解析・セルと行・列の編集・行と列の複製と移動・範囲の写しの取り出しと挿入・上書き・原文の差し替え・表の変換と削除・セルの結合と解除・揃えと見出しセルの変更・行の並べ替えの公開の窓口。`ConvertTable`・`DeleteTable`・`MergeCells`・`MergeCellsAsHTML`・`UnmergeCells`・`SetAlign`・`SetHeader`・`SortRows` と、理由を返す `Table.ConvertLocked`・`Table.DeleteLocked`、`CellsLocked`・`Sections`・`SortLocked` などの表情報を持つ
 - `internal/blocks/`・`internal/inline/` — comrak と同じ規則のブロック解析と、コードスパン・生の HTML・数式などの走査
 - `internal/htmltok/`・`internal/cellfromhtml/` — HTML の字句解析と、HTML のセルから Markdown への変換
-- `internal/table/` — 文書の読み書き、表の検出・番号、パイプ表と HTML の表の解析・書き戻し、行と列の複製・移動と写しの差し込み
+- `internal/table/` — 文書の読み書き、表の検出・番号、パイプ表と HTML の表の解析・書き戻し、行と列の複製・移動と写しの差し込み、変換の事前検査、結合・解除・揃え・見出しセルの属性の書き換え、行の並べ替えと値の比較
 - `internal/cellsyntax/` — Excel のセルの Markdown と、パイプ表・HTML の表のセルの間の変換
 - `internal/model/`・`internal/textwidth/` — 表のモデルとセルの文字の正規化、文字の表示幅
 - `internal/changes/`・`internal/sync/` — 変更の要約とセルの一覧、書き出し・取り込み・書き戻した結果の確認
-- `internal/verify/` — Excel に依存しない、書き戻した表と前後の Markdown の解釈、表のセル・行の原文のバイトの検査
+- `internal/verify/` — Excel に依存しない、書き戻した表と前後の Markdown の解釈、表のセル・行の原文のバイトの検査、表の削除後に残る表と前後の解釈の検査
 - `internal/workbook/` — ブックの書き出しと読み込み。書き出しは自前の XML と ZIP、読み込みは excelize
 - `internal/pycompat/` — 文字・差分・数値などの互換処理。`gen_tables.py`・`gen_testdata.py` は Unicode などの表と正解データを作り直すためのスクリプトで、そのときだけ Python 3 が要る
 - ルートの `internal/version/version.go` — `mdpreview` と `mdtable` に共通の版を置く所。`licenses/manifest.json` の md-table-excel の版も同じにする（テストが照合する）
