@@ -107,6 +107,8 @@ func (s *Service) Tables(ctx context.Context, doc *string, render uint64) (any, 
 		return nil, e
 	}
 	result := m.response
+	start := documentInsertionPoint(src, "start")
+	result.InsertStart, result.Empty = start.cut, start.empty
 	result.Origin = s.origin(src)
 	if s.opts.Mode == File {
 		result.Undo = s.history.status(pathKey(src.Path), text)

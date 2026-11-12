@@ -533,7 +533,8 @@ body {
 #gp-edit-range[data-invalid] .gp-edit-range {
   border-style: dotted;
 }
-#gp-edit-actions button[aria-haspopup='menu']::after {
+#gp-edit-actions button[aria-haspopup='menu']::after,
+#gp-edit-add[aria-haspopup='menu']::after {
   content: ' ▾' / '';
 }
 .gp-edit-menu {

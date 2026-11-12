@@ -467,7 +467,7 @@ func (s *Service) verifyCandidate(ctx context.Context, src session.Source, m *bl
 	oldRoot.RemoveChild(oldMark)
 	newRoot.RemoveChild(mark)
 	delta := strings.Count(replacement, "\n") - strings.Count(src.Text[start:end], "\n")
-	if !insertionPreserves(ctx, m, after, renderHTMLRoot(oldRoot), renderHTMLRoot(newRoot), last+1, delta) {
+	if !insertionPreserves(ctx, m, after, renderHTMLRoot(oldRoot), renderHTMLRoot(newRoot), last+1, delta, 0) {
 		return false
 	}
 	return true
