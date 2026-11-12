@@ -1,8 +1,8 @@
 package tableedit
 
 import (
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
 )
 
 func (d *Document) shape(t Target, index int, side Side, count int, rows, insert bool) (*Result, error) {

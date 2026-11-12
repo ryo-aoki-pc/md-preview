@@ -2,7 +2,7 @@
 package inline
 
 import (
-	"github.com/ryo-aoki-pc/md-table-excel/internal/pycompat"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/pycompat"
 	"regexp"
 	"strings"
 	"unicode/utf8"

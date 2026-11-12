@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-table-excel/tableedit"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/tableedit"
 	"golang.org/x/net/html"
 )
 

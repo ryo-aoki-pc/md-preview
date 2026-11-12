@@ -2,12 +2,12 @@ package table
 
 import (
 	"fmt"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/blocks"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/cellsyntax"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/htmltok"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/inline"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/pycompat"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/blocks"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/cellsyntax"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/htmltok"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/inline"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/pycompat"
 	"regexp"
 	"strings"
 )

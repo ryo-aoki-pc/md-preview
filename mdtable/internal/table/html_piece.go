@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
 )
 
 // htmlRowLayout は基準の行のセルの間にある空白だけを取り出す。

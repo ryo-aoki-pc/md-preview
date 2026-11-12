@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
 )
 
 // 同じ文書から写した HTML のセルは終了タグが省略されていることがある。

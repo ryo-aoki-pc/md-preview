@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	tablesync "github.com/ryo-aoki-pc/md-table-excel/internal/sync"
+	tablesync "github.com/ryo-aoki-pc/md-tools/mdtable/internal/sync"
 )
 
 type goldenResult struct {

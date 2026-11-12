@@ -16,9 +16,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/pycompat"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/pycompat"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
 	"github.com/xuri/excelize/v2"
 )
 

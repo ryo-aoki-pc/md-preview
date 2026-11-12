@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/tableedit"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/tableedit"
 )
 
 func checkPieceText(t *testing.T, input, want string, op func(*tableedit.Document) (*tableedit.Result, error)) {

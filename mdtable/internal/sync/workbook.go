@@ -7,14 +7,14 @@ import (
 	"path/filepath"
 	"reflect"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/cellsyntax"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/changes"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/pycompat"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/verify"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/version"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/workbook"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/cellsyntax"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/changes"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/pycompat"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/verify"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/version"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/workbook"
 )
 
 func DefaultOutput(path string) string {

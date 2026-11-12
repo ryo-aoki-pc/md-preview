@@ -1,7 +1,7 @@
 package cellfromhtml
 
 import (
-	"github.com/ryo-aoki-pc/md-table-excel/internal/htmltok"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/htmltok"
 	"testing"
 )
 

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/version"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/version"
 )
 
 func licenseManifest(t *testing.T) []LicenseComponent {
@@ -69,38 +69,95 @@ func TestLicenseManifestFiles(t *testing.T) {
 }
 
 func TestLicenseGoModules(t *testing.T) {
-	data, err := os.ReadFile("go.mod")
+	data, err := os.ReadFile("../go.mod")
 	if err != nil {
 		t.Fatal(err)
 	}
 	versions := map[string]string{}
 	for _, c := range licenseManifest(t) {
-		if c.Name != "Go" && strings.HasPrefix(c.Files[0], "licenses/go/") {
+		if len(c.Files) > 0 && c.Name != "Go" && strings.HasPrefix(c.Files[0], "licenses/go/") {
+			if _, exists := versions[c.Name]; exists {
+				t.Fatalf("一覧の Go のモジュールが重複しています: %s", c.Name)
+			}
 			versions[c.Name] = c.Version
 		}
 	}
-	// 直接・間接の require を両方読み、追加・更新・削除時の同梱漏れを検知する。
-	modules := goModRequirements(string(data))
-	if len(modules) == 0 {
-		t.Fatal("go.mod のモジュールがありません")
-	}
-	for _, module := range modules {
-		if versions[module[1]] != module[2] {
-			t.Errorf("Go のモジュールの版が違うか一覧にありません: %s go.mod=%s 一覧=%s", module[1], module[2], versions[module[1]])
+	for name, version := range executableGoModules(t) {
+		if versions[name] != version {
+			t.Errorf("Go のモジュールの版が違うか一覧にありません: %s 依存=%s 一覧=%s", name, version, versions[name])
 		}
-		delete(versions, module[1])
+		delete(versions, name)
 	}
 	if len(versions) > 0 {
-		t.Errorf("go.mod に無いモジュール: %v", versions)
+		t.Errorf("実行ファイルの依存に無い Go のモジュール: %v", versions)
 	}
 	if regexp.MustCompile(`(?m)^\s*(replace|exclude)\s`).Match(data) {
 		t.Fatal("replace・exclude を使うときは、同梱ライセンスと依存の照合方法を見直してください")
 	}
 }
 
-func goModRequirements(data string) [][]string {
-	requirement := regexp.MustCompile(`(?m)^\s*(?:require\s+)?([^\s()]+)\s+(v[^\s]+)(?:\s+//[^\n]*)?$`)
-	return requirement.FindAllStringSubmatch(data, -1)
+func executableGoModules(t *testing.T) map[string]string {
+	t.Helper()
+	cmd := exec.Command("go", "list", "-deps", "-f", "{{with .Module}}{{if not .Main}}{{.Path}} {{.Version}}{{end}}{{end}}", "./cmd/mdtable")
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=readonly", "CGO_ENABLED=0", "GOOS=windows", "GOARCH=amd64")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("mdtable の依存を取得できません (windows/amd64): %v\n%s", err, stderr.String())
+	}
+	modules := map[string]string{}
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if len(fields) != 2 {
+			t.Fatalf("Go のモジュールの出力が不正です: %s", line)
+		}
+		if version, exists := modules[fields[0]]; exists && version != fields[1] {
+			t.Fatalf("Go のモジュールの版が重複しています: %s %s / %s", fields[0], version, fields[1])
+		}
+		modules[fields[0]] = fields[1]
+	}
+	if len(modules) == 0 {
+		t.Fatal("mdtable の Go のモジュールがありません")
+	}
+	return modules
+}
+
+func TestLicenseGoVersion(t *testing.T) {
+	data, err := os.ReadFile("../go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directive := regexp.MustCompile(`(?m)^go (\d+\.\d+\.\d+)$`).FindStringSubmatch(string(data))
+	if directive == nil {
+		t.Fatal("go.mod の go の行は、修正版まで含む版にしてください")
+	}
+	for _, c := range licenseManifest(t) {
+		if c.Name == "Go" {
+			if c.Version != directive[1] {
+				t.Fatalf("Go の版が違います: 一覧=%s go.mod=%s", c.Version, directive[1])
+			}
+			return
+		}
+	}
+	t.Fatal("一覧に Go がありません")
+}
+
+func TestLicenseMatchesRoot(t *testing.T) {
+	license, err := os.ReadFile("LICENSE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.ReadFile("../LICENSE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(license, root) {
+		t.Fatal("mdtable の LICENSE がルートの LICENSE とバイト単位で一致しません")
+	}
 }
 
 func TestLicenseGoOriginals(t *testing.T) {

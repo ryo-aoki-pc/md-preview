@@ -110,7 +110,7 @@ comrak の主な規則:
 
 ## 公開の窓口 `tableedit`
 
-Go のプログラムから `github.com/ryo-aoki-pc/md-table-excel/tableedit` を import して、Excel を通さずに表を編集できます。公開のパッケージの依存には excelize と、ブックの読み書き・コマンドの取り込み処理を含めません。
+Go のプログラムから `github.com/ryo-aoki-pc/md-tools/mdtable/tableedit` を import して、Excel を通さずに表を編集できます。公開のパッケージの依存には excelize と、ブックの読み書き・コマンドの取り込み処理を含めません。
 
 `Parse` に BOM を除いた UTF-8 の本文を渡し、`Tables` または `Table` で表を選びます。表とセルの行・列、文書の行は 0 起点、表の番号は 1 起点です。`Text` は入力と同じ本文を返します。解析結果の `Document` は不変で、同時に呼び出せます。取得した表・セル・警告は独立した写しなので、書き換えても文書に影響しません。
 

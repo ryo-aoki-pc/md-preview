@@ -30,15 +30,17 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 
 ## 構成
 
-- `go.mod`・`go.sum` — Go のモジュールと依存の固定値。`go` の行は修正版まで書き、配布のビルドに使う Go の版を固定する
+- `go.mod`・`go.sum` — `mdpreview` と `mdtable` で共通の Go のモジュールと依存の固定値。`go` の行は修正版まで書き、配布のビルドに使う Go の版を固定する
 - `engine/engine.go` — 埋め込んだ `.wasm` を wazero で動かす Go の描画エンジン。出力は消毒していない。取り消し・異常終了後とメモリー上限超過時に実体を作り直す
 - `engine/testdata/golden.json` — Node.js 版が作った描画結果の見本。出力とバイト単位で比べる
 - `page/embed.go` — ページと `page/lib/` の資産の埋め込み。Go のソースは含めない
 - `cmd/mdpreview/` — コマンド。描画エンジンを起動ごとに1回だけ用意し（`--help`・`--version`・`--licenses`・`install-style` では用意しない）、PATH の `plantuml` と公式スタイルを、プレビュー・Neovim の JSON 行・書き出しにつなぐ
+- `mdtable/` — Markdown の表を Excel で編集する `mdtable`。決まりは `mdtable/AGENTS.md`
 - `internal/version/` — 既定の版と、ビルド時に差し替える変数
-- `licenses.go`・`licenses/` — 実行ファイルに入るもののライセンスの原文の同梱と、`mdpreview --licenses` の出力。`licenses/manifest.json` は出す順の一覧（名前・版・種類・原文の場所）、`licenses/go/` は Go 本体と Go のモジュールの原文の写し（書き換えない）。描画エンジンの crate の原文は `engine/licenses/`（`engine/licenses.go` が埋め込む）、KaTeX・mermaid・md-table-sticky の原文は `page/lib/` を、元の場所のまま使う
+- `licenses.go`・`licenses/` — `mdpreview` に入るもののライセンスの原文の同梱と、`mdpreview --licenses` の出力。`licenses/manifest.json` は出す順の一覧（名前・版・種類・原文の場所）、`licenses/go/` は Go 本体と Go のモジュールの原文の写し（書き換えない）。`mdtable` の一覧と原文は `mdtable/licenses/` に置く。描画エンジンの crate の原文は `engine/licenses/`（`engine/licenses.go` が埋め込む）、KaTeX・mermaid・md-table-sticky の原文は `page/lib/` を、元の場所のまま使う
 - `scripts/build-release.sh` — 配布用のビルド。`windows/amd64`・`linux/amd64`・`linux/arm64` 向けの実行ファイルを、同じ設定（CGO 無し・`-trimpath`・版の埋め込み）で作る。GitHub Actions の検査と配布の両方が呼ぶ
-- `.github/workflows/test.yml`・`release.yml` — 検査（ubuntu・windows）と、`v` + 数字3つのタグでの配布（検査・ビルド・`SHA256SUMS`・`THIRD-PARTY-LICENSES.txt`・GitHub Releases）
+- `.github/workflows/test.yml`・`test-mdtable.yml` — `mdpreview` 側と `mdtable` 側の検査（ubuntu・windows）と配布物のビルド
+- `.github/workflows/release.yml` — `v` + 数字3つのタグでの配布（検査・ビルド・`SHA256SUMS`・`THIRD-PARTY-LICENSES.txt`・GitHub Releases）
 - `internal/plantuml/` — 絶対パスの PATH の探索、原文を標準入力だけに渡す手元の描画、共有・直列の待ち行列・成功のキャッシュ。取り消し・時間切れ・終了では子孫も止める
 - `assets/embed.go` — 公式資産そのものを含めず、`assets/assets.lock.json` の元のバイト列だけを埋め込む
 - `internal/assets/` — 固定した公式資産の取得・CSS の相対化・一時領域からの入れ替えと、通信しない導入状態の検査。検査済みのバイト列の写しだけを許可リストで渡す
@@ -134,9 +136,11 @@ go test -race ./...
 gofmt -l .
 ```
 
+`./...` は `mdtable/` のパッケージも含む。`mdtable/` の `-race` は時間がかかるので、まとめて動かすときは `-timeout 20m` を付ける。GitHub Actions は、`mdtable/` を除いた検査（`test.yml`）と、`mdtable/` だけの検査（`test-mdtable.yml`。`mdtable/**`・`go.mod`・`go.sum`・`LICENSE`・`.gitattributes` が変わったときだけ）に分けて動かす。`mdtable/` だけを確かめるコマンドは `mdtable/AGENTS.md` にある。
+
 ルートを受け取る関数（`resolve.Resolve`・`documents.ListMarkdown`・`session.FileContext`・`watch.IncludePath` など）は、ルートが実パスであることを前提にする。試験で一時フォルダーをルートにするときは、`resolve.RealPath(t.TempDir())` で実パスにしてから渡す（Windows の一時フォルダーのパスには、8.3 形式の短い名前が入ることがある）。
 
-依存を足す・上げるとき、Go の版を上げるときは、`licenses/manifest.json` と `licenses/go/` の原文の写しも合わせる（試験が、`go.mod`・Go のモジュールのキャッシュ・`engine/Cargo.lock`・`page/lib/lock.json` と比べる）。版を上げるときは、`internal/version/version.go` と `licenses/manifest.json` の md-preview の版を同じ値にする（配布の workflow は、タグと `version.go` の版が違うと止まる）。
+依存を足す・上げるとき、Go の版を上げるときは、各実行ファイルの `licenses/manifest.json` と `licenses/go/` の原文の写しも合わせる。試験は `go list -deps` で `mdpreview` の windows/amd64・linux/amd64・linux/arm64 の依存の和と、`mdtable` の windows/amd64 の依存を求め、それぞれの一覧と比べる。両一覧の和はルートの `go.mod` の直接・間接の require と比べ、原文とほかの部品の版は Go のモジュールのキャッシュ・`engine/Cargo.lock`・`page/lib/lock.json` と比べる。版を上げるときは、`internal/version/version.go` と `licenses/manifest.json` の md-preview の版を同じ値にする（配布の workflow は、タグと `version.go` の版が違うと止まる）。
 
 `GOPROXY=off` で試験する前に、通信できる環境で一度 `go mod download` を実行し、固定した依存をキャッシュへ用意しておく。
 

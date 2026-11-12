@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
 )
 
 // 原文の対応は並びに依存せず、対応が欠けた表だけを対象外にする。

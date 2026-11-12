@@ -1,6 +1,6 @@
 package table
 
-import "github.com/ryo-aoki-pc/md-table-excel/internal/model"
+import "github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
 
 // Expectation は書き戻す前に組み立てる原文の期待値。
 type Expectation struct {

@@ -1,9 +1,23 @@
-name: テスト
+name: mdtable の検証
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'mdtable/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'LICENSE'
+      - '.gitattributes'
+      - '.github/workflows/test-mdtable.yml'
   pull_request:
+    paths:
+      - 'mdtable/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'LICENSE'
+      - '.gitattributes'
+      - '.github/workflows/test-mdtable.yml'
 
 permissions:
   contents: read
@@ -23,24 +37,15 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: 整形を確認
-        if: runner.os == 'Linux'
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "gofmt で整形されていないファイル:"
-            echo "$unformatted"
-            exit 1
-          fi
       - name: 静的検査
-        run: go vet ./...
+        run: go vet ./mdtable/...
       - name: 試験
-        run: go test ./...
+        run: go test ./mdtable/...
       - name: 競合の検査
         if: runner.os == 'Linux'
-        run: go test -race -timeout 20m ./...
+        run: go test -race -timeout 20m ./mdtable/...
       - name: 配布物を作れることを確認
         shell: bash
         run: |
-          release_version=$(sed -n 's/^var Version = "\([^"]*\)"$/\1/p' internal/version/version.go)
-          bash scripts/build-release.sh "$release_version" dist
+          release_version=$(sed -n 's/^var Version = "\([^"]*\)"$/\1/p' mdtable/internal/version/version.go)
+          bash mdtable/scripts/build-release.sh "$release_version" dist

@@ -3,9 +3,9 @@ package table
 import (
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/blocks"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/cellsyntax"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/blocks"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/cellsyntax"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
 )
 
 // PatchPipeCells は既存の書き戻しで表現可能かを調べ、変えたセルの本文だけを差し替える。

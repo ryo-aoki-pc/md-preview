@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/pycompat"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/pycompat"
 )
 
 // 組み込み番号も openpyxl の BUILTIN_FORMATS と同じ文字列で判定する。

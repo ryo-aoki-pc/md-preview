@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
 )
 
 // Python: test_workbook.ExportImportTest.test_merged_cells_keep_text_format

@@ -132,7 +132,7 @@ func pythonEvaluate(t *testing.T,c pythonCase)(any,error) {
  };t.Fatalf("未知の操作: %s",c.Op);return nil,nil
 }
 '''),
-"cellfromhtml": (["github.com/ryo-aoki-pc/md-table-excel/internal/htmltok"],r'''
+"cellfromhtml": (["github.com/ryo-aoki-pc/md-tools/mdtable/internal/htmltok"],r'''
 func pythonEvaluate(t *testing.T,c pythonCase)(any,error) {
  s:=pythonDecode[string](t,c.Input);tree:=htmltok.BuildTree(htmltok.Tokenize(s,0,len(s)));return Convert(tree.Children,s),nil
 }
@@ -144,7 +144,7 @@ func pythonEvaluate(t *testing.T,c pythonCase)(any,error) {
  result:=pythonModelValue(sheet);if len(sheet.Cells)>0 {sheet.Cells[0].Text="コピーの確認"};if !reflect.DeepEqual(pythonModelValue(m),before) {t.Fatal("元のセルや穴の位置が変わった")};return result,nil
 }
 '''),
-"changes": (["sort","time","github.com/ryo-aoki-pc/md-table-excel/internal/model"],r'''
+"changes": (["sort","time","github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"],r'''
 func pythonEvaluate(t *testing.T,c pythonCase)(any,error) {
  a:=pythonDecode[[]pythonModel](t,c.Input);started:=time.Now();v:=CompareModels(a[0].model(),a[1].model());cells:=[]any{}
  if c.Test=="test_changes.ChangesTest.test_large_table_with_merges_is_fast" && time.Since(started)>5*time.Second {t.Fatal("結合のある大きな表の突き合わせが 5 秒を超えた")}
@@ -152,7 +152,7 @@ func pythonEvaluate(t *testing.T,c pythonCase)(any,error) {
  return map[string]any{"summary":v.Summary(),"details":v.Details(20),"full":v.Details(28),"cells":cells},nil
 }
 '''),
-"table": (["sort","github.com/ryo-aoki-pc/md-table-excel/internal/model"],r'''
+"table": (["sort","github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"],r'''
 func pythonEvaluate(t *testing.T,c pythonCase)(any,error) {
  switch c.Op {
  case "regions","find":return pythonRegionsValue(FindTables(NewMarkdown("<test>",pythonDecode[string](t,c.Input),false))),nil
@@ -164,9 +164,9 @@ func pythonEvaluate(t *testing.T,c pythonCase)(any,error) {
 '''),
 }
 
-BOOK_IMPORTS = ["archive/zip", "bytes", "encoding/hex", "encoding/xml", "io", "path/filepath", "sort", "strconv", "strings", "sync", "github.com/xuri/excelize/v2", "github.com/ryo-aoki-pc/md-table-excel/internal/version"]
+BOOK_IMPORTS = ["archive/zip", "bytes", "encoding/hex", "encoding/xml", "io", "path/filepath", "sort", "strconv", "strings", "sync", "github.com/xuri/excelize/v2", "github.com/ryo-aoki-pc/md-tools/mdtable/internal/version"]
 BOOK_HELPERS = (ROOT / "testdata" / "book_helpers.txt").read_text(encoding="utf-8")
-DISPATCH["workbook"] = (BOOK_IMPORTS + ["github.com/ryo-aoki-pc/md-table-excel/internal/model"], r'''
+DISPATCH["workbook"] = (BOOK_IMPORTS + ["github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"], r'''
 func pythonEvaluate(t *testing.T,c pythonCase)(any,error) {
  switch c.Op {
  case "check":s:=CheckCellText(pythonDecode[string](t,c.Input));if s=="" {return nil,nil};return s,nil
@@ -192,7 +192,7 @@ func pythonEvaluate(t *testing.T,c pythonCase)(any,error) {
  t.Fatalf("未知の操作: %s",c.Op);return nil,nil
 }
 ''')
-DISPATCH["sync"] = (BOOK_IMPORTS + ["github.com/ryo-aoki-pc/md-table-excel/internal/model", "github.com/ryo-aoki-pc/md-table-excel/internal/table"], r'''
+DISPATCH["sync"] = (BOOK_IMPORTS + ["github.com/ryo-aoki-pc/md-tools/mdtable/internal/model", "github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"], r'''
 func pythonReport(r *Report) any {
  var output any;if r.Output!="" {output=r.Output};return map[string]any{"messages":r.Messages,"warnings":r.Warnings,"errors":r.Errors,"diff":r.Diff,"changed":r.Changed,"output":output}
 }

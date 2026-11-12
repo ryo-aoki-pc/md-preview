@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/tableedit"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/tableedit"
 )
 
 func copyRect(t *testing.T, d *tableedit.Document, r tableedit.Rect) *tableedit.Fragment {

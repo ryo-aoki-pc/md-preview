@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/pycompat"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/sync"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/workbook"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/pycompat"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/sync"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/workbook"
 )
 
 func cmdImport(ctx context.Context, a args) (int, error) {
