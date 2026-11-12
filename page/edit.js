@@ -99,7 +99,7 @@
   const menus = new Map();
   const menuItems = [];
   const openMenus = [];
-  const keyOf = (point) => point.range ? (point.insert ? 'insert:' + point.insert + ':' : 'range:') + point.range : [point.table, point.row, point.col].join(':');
+  const keyOf = (point) => point.range ? (point.insert ? 'insert:' + point.insert + ':' : 'range:') + (point.html ? JSON.stringify(point.html) : point.range) : [point.table, point.row, point.col].join(':');
   const samePoint = (a, b) => a && b && keyOf(a) === keyOf(b);
   const allowed = () => !preview.config.list &&
     (config.scope === 'all' || (config.scope === 'current' && preview.doc === null &&
@@ -133,8 +133,16 @@
     return null;
   }
   const outerLabels = { list: 'リスト全体を編集', quote: '引用全体を編集', deflist: '説明リスト全体を編集',
-    alert: '注記全体を編集', item: '項目全体を編集', description: '説明全体を編集' };
+    alert: '注記全体を編集', item: '項目全体を編集', description: '説明全体を編集', html: 'HTML のブロック全体を編集' };
+  const findBlock = (target) => target?.tag === 'html' ? preview.findHTML(target)[0] : target && preview.findSource(target.tag, target.range);
+  function rawBlockOf(element) {
+    if (!element?.closest || !element.closest('#gp-content') || element.closest('table, .section-nav, .markdown-code-block, section[data-footnotes]')) return null;
+    // 位置を持つ祖先の内側は、今までどおりそのブロックの原文で扱う。
+    if (element.closest('[data-sourcepos]')) return null;
+    return preview.htmlOf(element);
+  }
   function outerElement(element, target) {
+    if (target?.tag === 'html') return findBlock(preview.htmlOf(element));
     if (!target || typeof target.tag !== 'string' || !rangePattern.test(target.range || '')) return null;
     const live = preview.findSource(target.tag, target.range);
     return live && live !== element && live.contains(element) && blockOf(live) === live ? live : null;
@@ -143,26 +151,28 @@
     if (!editor?.point.range || editor.insert || composing || sourceFetching) return;
     const inner = editor.inner || [];
     // 描き直しで画面から外れた内側の要素は飛ばす。
-    const rest = inner.filter((item) => preview.findSource(item.tag, item.range));
+    const rest = inner.filter(findBlock);
     const target = outside ? null : rest.pop();
-    const element = outside ? outerElement(editor.element, editor.outer?.[0]) : target && preview.findSource(target.tag, target.range);
+    const element = outside ? outerElement(editor.element, editor.outer?.[0]) : findBlock(target);
     if (!element?.isConnected) {
       if (!outside) { editor.inner = []; innerButton.hidden = true; }
       return;
     }
-    beginBlock(element, { preserve: true, inner: outside ? [...rest, editor.target] : rest });
+    beginBlock(element, { preserve: true, inner: outside ? [...rest, editor.target] : rest,
+      target: outside && editor.outer?.[0]?.tag === 'html' ? preview.htmlOf(editor.element) : target });
   }
   outerButton.addEventListener('click', () => moveBlock(true));
   innerButton.addEventListener('click', () => moveBlock(false));
   function beginInsert(side) {
     if (!editor?.anchor || editor.insert || composing || sourceFetching) return;
     const anchor = editor.anchor;
-    const element = preview.findSource(anchor.tag, anchor.range);
+    const target = anchor.tag === 'html' ? editor.target : { tag: anchor.tag, range: anchor.range };
+    const element = findBlock(target);
     if (!element?.isConnected) return;
     saveDraft();
     editor = null;
-    openBlock({ point: { range: anchor.actual, insert: side }, insert: { anchor: anchor.actual, side },
-      anchor, element, target: { tag: anchor.tag, range: anchor.range }, render: preview.current().render,
+    openBlock({ point: { range: anchor.actual, insert: side, ...(target.tag === 'html' ? { html: target } : {}) }, insert: { anchor: anchor.actual, side },
+      anchor, element, target, render: preview.current().render,
       version: externalVersion, original: '', value: '', outer: [], inner: [], previousHTML: preview.current().html });
   }
   beforeButton.addEventListener('click', () => beginInsert('before'));
@@ -579,7 +589,7 @@
     if (!editor?.point.range || editor.element.isConnected) return;
     // 探し直すのは、数式・図の描き直しや配色の切り替えで置き換わったときだけ。
     // 文書が外で変わった後は、同じ位置に別の内容が来ているかもしれないので付け替えない。
-    const element = editor.version === externalVersion && preview.findSource(editor.target.tag, editor.target.range);
+    const element = editor.version === externalVersion && findBlock(editor.target);
     if (element) editor.element = element;
     else {
       clearSelection();
@@ -603,6 +613,14 @@
     frame.hidden = Boolean(editor?.point.range);
     frame.dataset.pending = String([...queue, ...(busy ? [busy.item] : [])].some((item) => samePoint(item.point, selected)));
     let rect = place(frame, cell.element);
+    if (editor?.target?.tag === 'html') {
+      const boxes = preview.findHTML(editor.target).map((n) => n.getBoundingClientRect());
+      if (boxes.length) {
+        const left = Math.min(...boxes.map((r) => r.left)), top = Math.min(...boxes.map((r) => r.top));
+        const right = Math.max(...boxes.map((r) => r.right)), bottom = Math.max(...boxes.map((r) => r.bottom));
+        rect = { left, top, right, bottom, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
+      }
+    }
     input.hidden = false;
     input.style.left = rect.left + 'px';
     input.style.top = rect.top + 'px';
@@ -693,25 +711,30 @@
   }
   async function loadBlock() {
     const pending = pendingBlock;
-    let element = pending && preview.findSource(pending.target.tag, pending.target.range);
+    let element = pending && findBlock(pending.target);
     if (!element || sourceFetching || busy || queue.length || failed || stopped || !mode ||
       infoRender !== preview.current()?.render) return;
     pendingBlock = null;
     if (!documentEditable) { notice(documentReason || 'この文書は編集できません', true); return; }
-    if (!element.isConnected || blockOf(element) !== element) return;
+    if (!element.isConnected || pending.target.tag !== 'html' && blockOf(element) !== element) return;
     const source = pending.target;
     const render = preview.current().render, version = externalVersion, number = ++sourceNumber;
     const controller = new AbortController();
     sourceFetching = controller;
     const target = url('/source');
     target.searchParams.set('render', render);
-    target.searchParams.set('range', source.range);
+    if (source.tag === 'html') {
+      for (const side of ['prev', 'next']) if (source[side]) {
+        target.searchParams.set(side + 'Tag', source[side].tag);
+        target.searchParams.set(side + 'Range', source[side].range);
+      }
+    } else target.searchParams.set('range', source.range);
     target.searchParams.set('tag', source.tag);
     try {
       const response = await fetch(target, { signal: controller.signal });
       if (number !== sourceNumber || response.status === 409) return;
       const data = await response.json();
-      element = preview.findSource(source.tag, source.range);
+      element = findBlock(source);
       if (!mode || stopped || number !== sourceNumber || render !== preview.current()?.render ||
         version !== externalVersion || !element) return;
       if (!response.ok) {
@@ -728,7 +751,7 @@
       }
       if (data.render !== render || typeof data.text !== 'string' || typeof data.range !== 'string' ||
         !rangePattern.test(data.range)) throw new Error('原文の応答の形が正しくありません');
-      const point = { range: data.range }, saved = drafts.get(keyOf(point));
+      const point = { range: data.range, ...(source.tag === 'html' ? { html: source } : {}) }, saved = drafts.get(keyOf(point));
       const value = saved?.original === data.text ? saved.value : data.text;
       drafts.delete(keyOf(point));
       openBlock({ point, kind: data.kind, element, target: source, render, version, original: data.text, value,
@@ -742,8 +765,8 @@
       if (number === sourceNumber) sourceFetching = null;
     }
   }
-  function beginBlock(element, { preserve = false, inner = [], fallbackNotice = '' } = {}) {
-    const target = preview.sourceOf(element);
+  function beginBlock(element, { preserve = false, inner = [], fallbackNotice = '', target = null } = {}) {
+    target ||= preview.sourceOf(element) || rawBlockOf(element);
     if (!target) return;
     cancelSource();
     if (editor && !preserve) endEdit(true);
@@ -905,9 +928,33 @@
     if (busy?.ok && preview.current()?.render > busy.render && infoRender === preview.current()?.render)
       finishSend(true, true);
   }
+  // 連なりの前後に段落が増えると、その段落が新しい境になる。
+  // 追加前の入力の要素で下書きを照合し、追加しなかった側の境から現在の連なりへ移す。
+  function rebindHTMLDraft(item) {
+    if (item.target?.tag !== 'html') return;
+    const candidates = new Map();
+    for (const node of document.querySelector('#gp-content').children) {
+      const target = preview.htmlOf(node);
+      if (target) candidates.set(JSON.stringify(target), target);
+    }
+    const side = item.insert.side === 'before' ? 'next' : 'prev';
+    const same = (a, b) => !a && !b || Boolean(a && b && a.tag === b.tag && a.range === b.range);
+    for (const [key, draft] of [...drafts]) {
+      if (draft.target?.tag !== 'html' || draft.element !== item.element || draft.version !== item.version) continue;
+      const targets = [...candidates.values()].filter((target) => same(target[side], draft.target[side]));
+      if (targets.length !== 1) continue;
+      const target = targets[0], point = { ...draft.point, html: target };
+      drafts.delete(key);
+      drafts.set(keyOf(point), { ...draft, point, target, element: findBlock(target), render: preview.current().render });
+    }
+  }
   // 前へ追加したときは、既存の原文は同じまま行だけがずれる。追加前の下書きも、その同じ対象へ戻せるようにする。
   function shiftInsertDrafts(item) {
-    if (item.insert?.side !== 'before' || typeof item.previousHTML !== 'string' || typeof preview.current()?.html !== 'string') return;
+    if (!item.insert) return;
+    if (item.insert.side !== 'before' || typeof item.previousHTML !== 'string' || typeof preview.current()?.html !== 'string') {
+      rebindHTMLDraft(item);
+      return;
+    }
     const positioned = (html) => {
       const template = document.createElement('template');
       // 入れるのは、サーバーが消毒した pipeline.Result.HTML のみ。
@@ -916,28 +963,38 @@
         ({ tag: element.localName, range: element.getAttribute('data-sourcepos') }));
     };
     const before = positioned(item.previousHTML), after = positioned(preview.current().html);
-    const index = before.findIndex((target) => target.tag === item.anchor.tag && target.range === item.anchor.range);
-    const anchor = after[index + after.length - before.length];
     const coordinates = (range) => rangePattern.test(range || '') ? range.split(/[:-]/).map(Number) : null;
-    const from = coordinates(item.anchor.range), to = coordinates(anchor?.range);
-    if (index < 0 || anchor?.tag !== item.anchor.tag || !from || !to || from[1] !== to[1] || from[3] !== to[3] ||
-      to[0] <= from[0] || to[0] - from[0] !== to[2] - from[2]) return;
+    const raw = item.target?.tag === 'html';
+    const cut = coordinates(item.anchor.actual)?.[0];
+    const reference = raw ? item.target.next || before.find((target) => coordinates(target.range)?.[0] >= cut) : item.anchor;
+    const index = reference ? before.findIndex((target) => target.tag === reference.tag && target.range === reference.range) : -1;
+    const anchor = index < 0 ? null : after[index + after.length - before.length];
+    const from = coordinates(reference?.range), to = coordinates(anchor?.range);
+    // 後ろに位置が一つもなければ、連なりの境は変わらず、行をずらす下書きもない。
+    if (index < 0 || anchor?.tag !== reference.tag || !from || !to || from[1] !== to[1] || from[3] !== to[3] ||
+      to[0] <= from[0] || to[0] - from[0] !== to[2] - from[2]) { rebindHTMLDraft(item); return; }
     const delta = to[0] - from[0];
     const shift = (range) => {
       const c = coordinates(range);
-      if (!c || c[0] < from[0]) return range;
-      return `${c[0] + delta}:${c[1]}-${c[2] + delta}:${c[3]}`;
+      if (!c || c[0] < cut) return range;
+      return (c[0] + delta) + ':' + c[1] + '-' + (c[2] + delta) + ':' + c[3];
     };
+    const shiftTarget = (target) => target?.tag === 'html'
+      ? { tag: 'html', prev: target.prev && { ...target.prev, range: shift(target.prev.range) },
+        next: target.next && { ...target.next, range: shift(target.next.range) } }
+      : target && { ...target, range: shift(target.range) };
     const shifted = [];
     for (const [key, draft] of drafts) {
       if (!draft.point.range || draft.insert || draft.version !== item.version) continue;
       const range = shift(draft.point.range);
       if (range === draft.point.range) continue;
       drafts.delete(key);
-      const target = { ...draft.target, range: shift(draft.target.range) };
-      shifted.push({ ...draft, point: { range }, target, render: preview.current().render });
+      const target = shiftTarget(draft.target);
+      const point = { range, ...(target?.tag === 'html' ? { html: target } : {}) };
+      shifted.push({ ...draft, point, target, inner: draft.inner?.map(shiftTarget), render: preview.current().render });
     }
     for (const draft of shifted) drafts.set(keyOf(draft.point), draft);
+    rebindHTMLDraft(item);
   }
   function reopen(item) {
     failed = item.value === undefined ? null : item;
@@ -1581,10 +1638,10 @@
       event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
     const cell = byCell.get(event.target.closest?.('td, th'));
     if (!cell) {
-      const block = blockOf(event.target);
-      if (!block) return;
+      const block = blockOf(event.target), raw = !block && rawBlockOf(event.target);
+      if (!block && !raw) return;
       event.preventDefault();
-      beginBlock(block);
+      beginBlock(block || findBlock(raw), { target: raw || null });
       return;
     }
     event.preventDefault();
@@ -1603,14 +1660,18 @@
   }, true);
   // 載せた位置とダブルクリックの対象を同じ関数で決め、本文には印を足さない。
   function updateHover(element) {
-    let target = mode && !stopped && !ignored(element) && blockOf(element);
-    const path = [];
-    while (target && target.id !== 'gp-content') {
-      path.unshift(':nth-child(' + (Array.prototype.indexOf.call(target.parentElement.children, target) + 1) + ')');
-      target = target.parentElement;
+    const block = mode && !stopped && !ignored(element) && blockOf(element);
+    const raw = mode && !stopped && !ignored(element) && !block && rawBlockOf(element);
+    const selectors = [];
+    for (let target of block ? [block] : raw ? preview.findHTML(raw) : []) {
+      const path = [];
+      while (target && target.id !== 'gp-content') {
+        path.unshift(':nth-child(' + (Array.prototype.indexOf.call(target.parentElement.children, target) + 1) + ')');
+        target = target.parentElement;
+      }
+      if (target && path.length) selectors.push('#gp-content > ' + path.join(' > '));
     }
-    const css = target && path.length ? '#gp-content > ' + path.join(' > ') +
-      ' { outline: 1px dashed var(--gp-border); outline-offset: 2px; }' : '';
+    const css = selectors.length ? selectors.join(',\n') + ' { outline: 1px dashed var(--gp-border); outline-offset: 2px; }' : '';
     if (hoverStyle.textContent !== css) hoverStyle.textContent = css;
   }
   let hoverPoint = null;

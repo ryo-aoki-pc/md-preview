@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,9 @@ func (e *testEditor) Text(_ context.Context, doc *string, render uint64, tag str
 		return e.text()
 	}
 	return map[string]any{"render": render, "range": r, "tag": tag, "doc": doc}, nil
+}
+func (e *testEditor) HTMLText(_ context.Context, doc *string, render uint64, prev, next *edit.HTMLBoundary) (any, *edit.Error) {
+	return map[string]any{"render": render, "prev": prev, "next": next}, nil
 }
 func (e *testEditor) Apply(ctx context.Context, doc *string, body map[string]any) (any, *edit.Error) {
 	if e.apply != nil {
@@ -222,5 +226,27 @@ func TestEditSourceErrorOuter(t *testing.T) {
 	r = request(t, s, "GET", "_/edit/source?render=1&tag=li&range=bad", "", nil)
 	if r.status != 400 || strings.Contains(r.body, `"outer"`) {
 		t.Fatal(r)
+	}
+}
+
+func TestHTMLBoundaryArguments(t *testing.T) {
+	for _, query := range []string{"prevTag=p", "prevRange=1:1-1:3", "nextTag=p", "nextRange=2:1-2:3", "prevTag=P&prevRange=1:1-1:3", "prevTag=p-x&prevRange=1:1-1:3", "prevTag=p&prevRange=bad", "nextTag=p&nextRange=1:1-1:0", "prevTag=p&prevTag=p&prevRange=1:1-1:3", "range=1:1-1:3", "prevTag=&prevRange="} {
+		p, _ := url.ParseQuery(query)
+		if _, _, e := htmlBoundaries(p); e == nil || e.Status != 400 {
+			t.Fatalf("引数=%q、誤り=%v", query, e)
+		}
+	}
+	for _, query := range []string{"", "prevTag=p&prevRange=1:1-1:3", "nextTag=pre&nextRange=3:1-5:3", "prevTag=p&prevRange=1:1-1:3&nextTag=hr&nextRange=5:1-4:0"} {
+		p, _ := url.ParseQuery(query)
+		if _, _, e := htmlBoundaries(p); e != nil {
+			t.Fatalf("引数=%q、誤り=%v", query, e)
+		}
+	}
+	s, _, _ := fixture(t, func(o *Options) { o.Edit = &testEditor{} })
+	for _, query := range []string{"", "&prevTag=p&prevRange=1:1-1:3", "&nextTag=pre&nextRange=3:1-5:3"} {
+		r := request(t, s, "GET", "_/edit/source?render=1&tag=html"+query, "", nil)
+		if r.status != 200 {
+			t.Fatal(r)
+		}
 	}
 }

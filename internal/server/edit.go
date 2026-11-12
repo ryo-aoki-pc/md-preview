@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ type Editor interface {
 	Config() map[string]any
 	Tables(context.Context, *string, uint64) (any, *edit.Error)
 	Text(context.Context, *string, uint64, string, edit.Range) (any, *edit.Error)
+	HTMLText(context.Context, *string, uint64, *edit.HTMLBoundary, *edit.HTMLBoundary) (any, *edit.Error)
 	Apply(context.Context, *string, map[string]any) (any, *edit.Error)
 }
 
@@ -118,10 +120,18 @@ func (s *Server) edit(conn net.Conn, r *http.Request, route string) {
 			editError(conn, r, &edit.Error{Status: 400, Code: "invalid", Message: "編集の要求の形が正しくありません。"})
 			return
 		}
-		var value edit.Range
-		value, e = edit.ParseSourceRange(tag, p.Get("range"))
-		if e == nil {
-			result, e = s.opts.Edit.Text(r.Context(), doc, render, tag, value)
+		if tag == "html" {
+			var prev, next *edit.HTMLBoundary
+			prev, next, e = htmlBoundaries(p)
+			if e == nil {
+				result, e = s.opts.Edit.HTMLText(r.Context(), doc, render, prev, next)
+			}
+		} else {
+			var value edit.Range
+			value, e = edit.ParseSourceRange(tag, p.Get("range"))
+			if e == nil {
+				result, e = s.opts.Edit.Text(r.Context(), doc, render, tag, value)
+			}
 		}
 	}
 	if e != nil {
@@ -129,4 +139,34 @@ func (s *Server) edit(conn net.Conn, r *http.Request, route string) {
 	} else {
 		editJSON(conn, r, 200, result)
 	}
+}
+
+// 境は要素名と位置を組で受け取り、先頭と末尾では組ごと省く。
+func htmlBoundaries(p url.Values) (*edit.HTMLBoundary, *edit.HTMLBoundary, *edit.Error) {
+	invalid := func() *edit.Error {
+		return &edit.Error{Status: 400, Code: "invalid", Message: "編集の要求の形が正しくありません。"}
+	}
+	if p.Has("range") {
+		return nil, nil, invalid()
+	}
+	parse := func(prefix string) (*edit.HTMLBoundary, *edit.Error) {
+		t, r := prefix+"Tag", prefix+"Range"
+		if !p.Has(t) && !p.Has(r) {
+			return nil, nil
+		}
+		if len(p[t]) != 1 || len(p[r]) != 1 || !tagPattern.MatchString(p.Get(t)) {
+			return nil, invalid()
+		}
+		value, e := edit.ParseSourceRange(p.Get(t), p.Get(r))
+		if e != nil {
+			return nil, e
+		}
+		return &edit.HTMLBoundary{Tag: p.Get(t), Range: value}, nil
+	}
+	prev, e := parse("prev")
+	if e != nil {
+		return nil, nil, e
+	}
+	next, e := parse("next")
+	return prev, next, e
 }

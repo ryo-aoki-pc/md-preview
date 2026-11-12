@@ -154,7 +154,7 @@ func (s *Service) Text(ctx context.Context, doc *string, render uint64, tag stri
 	if ctx.Err() != nil {
 		return nil, fault(422, "cancelled", "原文の読み取りを取り消しました。")
 	}
-	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": b.kind, "outer": m.outerBlocks(b), "anchor": m.anchor(b)}, nil
+	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": b.kind, "outer": s.htmlOuter(ctx, src, m, b, m.outerBlocks(b)), "anchor": m.anchor(b)}, nil
 }
 func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (any, *Error) {
 	s.mu.Lock()
@@ -231,6 +231,9 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 			var start, end, line int
 			if r.kind == "range" {
 				b, err := m.writable(r.rangeValue)
+				if err != nil && err.Code == "target" {
+					b, err = s.htmlWritable(ctx, src, m, r.rangeValue)
+				}
 				if err != nil {
 					return nil, err
 				}
