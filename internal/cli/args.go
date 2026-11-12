@@ -9,12 +9,12 @@ import (
 	"strings"
 )
 
-const Help = "使い方: mdpreview [--port <番号>] [--root <フォルダー>] [--no-open] [--browser <実行ファイル>] [--assets-dir <保存先>] [--no-official-style] [--no-plantuml] [--edit] <file.md | フォルダー>\n       mdpreview --stdio [--port <番号>] [--assets-dir <保存先>] [--no-official-style] [--no-plantuml]\n       mdpreview install-style [--dir <保存先>] [--check]\n       mdpreview render [--root <フォルダー>] [--theme system|light|dark] [--width fluid|fixed] [--no-plantuml] [-o <out.html>] <file.md>\nPATH に plantuml があれば、PlantUML の図を手元で描きます。\n--no-plantuml を付けると、原文のコードブロックのまま表示します。\n--edit: プレビューの画面で編集して、Markdown のファイルへ書く。\n       mdpreview --help | --version | --licenses\n"
+const Help = "使い方: mdpreview [--port <番号>] [--root <フォルダー>] [--no-open] [--browser <実行ファイル>] [--assets-dir <保存先>] [--no-official-style] [--no-plantuml] [--edit] [--review] <file.md | フォルダー>\n       mdpreview --stdio [--port <番号>] [--assets-dir <保存先>] [--no-official-style] [--no-plantuml]\n       mdpreview install-style [--dir <保存先>] [--check]\n       mdpreview render [--root <フォルダー>] [--theme system|light|dark] [--width fluid|fixed] [--no-plantuml] [-o <out.html>] <file.md>\nPATH に plantuml があれば、PlantUML の図を手元で描きます。\n--no-plantuml を付けると、原文のコードブロックのまま表示します。\n--edit: プレビューの画面で編集して、Markdown のファイルへ書く。\n       mdpreview --help | --version | --licenses\n"
 
 type Options struct {
 	Command, Action, File, Root, Browser, AssetsDir, Dir, Theme, Width, Output string
 	Port                                                                       int
-	Open, OfficialStyle, Plantuml, Stdio, Check, Edit                          bool
+	Open, OfficialStyle, Plantuml, Stdio, Check, Edit, Review                  bool
 }
 
 var reportNewlines = regexp.MustCompile(`[\r\n]+`)
@@ -101,6 +101,9 @@ func ParseArgs(argv []string) (Options, error) {
 		}
 		if !positional {
 			switch arg {
+			case "--review":
+				o.Review = true
+				continue
 			case "--edit":
 				o.Edit = true
 				continue
@@ -149,7 +152,7 @@ func ParseArgs(argv []string) (Options, error) {
 		o.File = arg
 	}
 	if o.Stdio {
-		if o.File != "" || !o.Open || o.Browser != "" || o.Root != "" || o.Edit {
+		if o.File != "" || !o.Open || o.Browser != "" || o.Root != "" || o.Edit || o.Review {
 			return o, errors.New("--stdio は --port・--assets-dir・--no-official-style・--no-plantuml 以外のオプションやファイルと一緒に指定できません")
 		}
 		return o, nil

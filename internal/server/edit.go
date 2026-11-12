@@ -18,11 +18,14 @@ import (
 // tagPattern は、原文を取得する対象の要素名の形。
 var tagPattern = regexp.MustCompile(`^[a-z0-9]+$`)
 
-type Editor interface {
-	Config() map[string]any
+type sourceReader interface {
 	Tables(context.Context, *string, uint64) (any, *edit.Error)
 	Text(context.Context, *string, uint64, string, edit.Range) (any, *edit.Error)
 	HTMLText(context.Context, *string, uint64, *edit.HTMLBoundary, *edit.HTMLBoundary) (any, *edit.Error)
+}
+type Editor interface {
+	sourceReader
+	Config() map[string]any
 	Apply(context.Context, *string, map[string]any) (any, *edit.Error)
 }
 
@@ -46,15 +49,22 @@ func isEditPath(r *http.Request) bool {
 	return strings.HasSuffix(p, "/_/edit") || strings.HasSuffix(p, "/_/edit/tables") || strings.HasSuffix(p, "/_/edit/source")
 }
 func (s *Server) reject(conn net.Conn, r *http.Request, status int) {
-	if s.opts.Edit != nil && isEditPath(r) {
+	review := s.opts.Review != nil && isReviewPath(r)
+	if s.opts.Edit != nil && isEditPath(r) || review {
 		message := map[int]string{400: "要求の形が正しくありません。", 403: "この要求は許可されていません。", 404: "編集の経路がありません。", 500: "編集の処理を終えられません。"}[status]
+		if review && status == 404 {
+			message = "コメントの経路がありません。"
+		}
+		if review && status == 500 {
+			message = "コメントの処理を終えられません。"
+		}
 		editError(conn, r, &edit.Error{Status: status, Code: map[int]string{400: "invalid", 403: "forbidden", 404: "missing", 500: "internal"}[status], Message: message})
 		return
 	}
 	send(conn, r, status, nil, nil)
 }
 
-// postJSON は本文を上限まで読み、jump と edit が同じ型と符号で検査する。
+// postJSON は本文を上限まで読み、jump・edit・review が同じ型と符号で検査する。
 func postJSON(conn net.Conn, r *http.Request, limit int64) (map[string]any, *edit.Error) {
 	_ = conn.SetReadDeadline(time.Now().Add(300 * time.Second))
 	if !regexp.MustCompile(`(?i)^application/json(?:\s*;[^\r\n]*)?$`).MatchString(r.Header.Get("Content-Type")) {
@@ -104,6 +114,13 @@ func (s *Server) edit(conn net.Conn, r *http.Request, route string) {
 		}
 		return
 	}
+	s.readSource(conn, r, route, s.opts.Edit)
+}
+
+// readSource は、編集とコメントで原文の読み取りと位置の検査を共有する。
+func (s *Server) readSource(conn net.Conn, r *http.Request, route string, reader sourceReader) {
+	p := params(r)
+	doc := requestDocument(r)
 	value := p.Get("render")
 	render, err := strconv.ParseUint(value, 10, 64)
 	if err != nil || render == 0 || !regexp.MustCompile(`^[0-9]+$`).MatchString(value) {
@@ -112,8 +129,8 @@ func (s *Server) edit(conn net.Conn, r *http.Request, route string) {
 	}
 	var result any
 	var e *edit.Error
-	if route == "/_/edit/tables" {
-		result, e = s.opts.Edit.Tables(r.Context(), doc, render)
+	if strings.HasSuffix(route, "/tables") {
+		result, e = reader.Tables(r.Context(), doc, render)
 	} else {
 		tag := p.Get("tag")
 		if !tagPattern.MatchString(tag) {
@@ -124,13 +141,13 @@ func (s *Server) edit(conn net.Conn, r *http.Request, route string) {
 			var prev, next *edit.HTMLBoundary
 			prev, next, e = htmlBoundaries(p)
 			if e == nil {
-				result, e = s.opts.Edit.HTMLText(r.Context(), doc, render, prev, next)
+				result, e = reader.HTMLText(r.Context(), doc, render, prev, next)
 			}
 		} else {
 			var value edit.Range
 			value, e = edit.ParseSourceRange(tag, p.Get("range"))
 			if e == nil {
-				result, e = s.opts.Edit.Text(r.Context(), doc, render, tag, value)
+				result, e = reader.Text(r.Context(), doc, render, tag, value)
 			}
 		}
 	}
@@ -139,6 +156,15 @@ func (s *Server) edit(conn net.Conn, r *http.Request, route string) {
 	} else {
 		editJSON(conn, r, 200, result)
 	}
+}
+
+func requestDocument(r *http.Request) *string {
+	p := params(r)
+	if !p.Has("doc") {
+		return nil
+	}
+	doc := p.Get("doc")
+	return &doc
 }
 
 // 境は要素名と位置を組で受け取り、先頭と末尾では組ごと省く。
@@ -154,14 +180,10 @@ func htmlBoundaries(p url.Values) (*edit.HTMLBoundary, *edit.HTMLBoundary, *edit
 		if !p.Has(t) && !p.Has(r) {
 			return nil, nil
 		}
-		if len(p[t]) != 1 || len(p[r]) != 1 || !tagPattern.MatchString(p.Get(t)) {
+		if len(p[t]) != 1 || len(p[r]) != 1 {
 			return nil, invalid()
 		}
-		value, e := edit.ParseSourceRange(p.Get(t), p.Get(r))
-		if e != nil {
-			return nil, e
-		}
-		return &edit.HTMLBoundary{Tag: p.Get(t), Range: value}, nil
+		return parseHTMLBoundary(p.Get(t), p.Get(r))
 	}
 	prev, e := parse("prev")
 	if e != nil {
@@ -169,4 +191,15 @@ func htmlBoundaries(p url.Values) (*edit.HTMLBoundary, *edit.HTMLBoundary, *edit
 	}
 	next, e := parse("next")
 	return prev, next, e
+}
+
+func parseHTMLBoundary(tag, sourceRange string) (*edit.HTMLBoundary, *edit.Error) {
+	if !tagPattern.MatchString(tag) {
+		return nil, &edit.Error{Status: 400, Code: "invalid", Message: "編集の要求の形が正しくありません。"}
+	}
+	value, e := edit.ParseSourceRange(tag, sourceRange)
+	if e != nil {
+		return nil, e
+	}
+	return &edit.HTMLBoundary{Tag: tag, Range: value}, nil
 }

@@ -567,15 +567,8 @@ func (s *Service) HTMLText(ctx context.Context, doc *string, render uint64, prev
 	if render == 0 {
 		return nil, invalid()
 	}
-	for _, b := range []*HTMLBoundary{prev, next} {
-		if b != nil {
-			if !tagPattern.MatchString(b.Tag) {
-				return nil, invalid()
-			}
-			if _, e := ParseSourceRange(b.Tag, string(b.Range)); e != nil {
-				return nil, e
-			}
-		}
+	if e := validateHTMLBoundaries(prev, next); e != nil {
+		return nil, e
 	}
 	src, e := s.source(doc, render)
 	if e != nil {
@@ -588,6 +581,30 @@ func (s *Service) HTMLText(ctx context.Context, doc *string, render uint64, prev
 	if e != nil {
 		return nil, e
 	}
+	b, e := s.htmlTarget(ctx, src, m, prev, next)
+	if e != nil {
+		return nil, e
+	}
+	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": "html", "outer": []OuterBlock{}, "anchor": &InsertAnchor{"html", b.actual, b.actual}}, nil
+}
+
+func validateHTMLBoundaries(prev, next *HTMLBoundary) *Error {
+	for _, b := range []*HTMLBoundary{prev, next} {
+		if b == nil {
+			continue
+		}
+		if !tagPattern.MatchString(b.Tag) {
+			return invalid()
+		}
+		if _, e := ParseSourceRange(b.Tag, string(b.Range)); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+// htmlTarget は、編集とコメントで同じ最上位の連なりを検証する。呼ぶ側で s.mu を持つ。
+func (s *Service) htmlTarget(ctx context.Context, src session.Source, m *blockMapping, prev, next *HTMLBoundary) (*block, *Error) {
 	runs, e := m.htmlRuns(ctx, src)
 	if e != nil {
 		return nil, e
@@ -626,11 +643,7 @@ func (s *Service) HTMLText(ctx context.Context, doc *string, render uint64, prev
 	if found == nil {
 		return nil, blockFault("target")
 	}
-	b, e := s.verifyHTML(ctx, src, m, found)
-	if e != nil {
-		return nil, e
-	}
-	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": "html", "outer": []OuterBlock{}, "anchor": &InsertAnchor{"html", b.actual, b.actual}}, nil
+	return s.verifyHTML(ctx, src, m, found)
 }
 
 func (s *Service) htmlOuter(ctx context.Context, src session.Source, m *blockMapping, b *block, outer []OuterBlock) []OuterBlock {
