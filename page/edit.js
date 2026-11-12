@@ -90,7 +90,8 @@
   let late = null;
   let documentEditable = false;
   let documentReason = '';
-  let documentEmpty = renderedDocumentEmpty();
+  // 空の判定はサーバーの原文で行う（参照の定義やコメントだけの文書は空ではなく、末尾へ追加する）。
+  let documentEmpty = false;
   let documentStart = 1;
   let pendingBlock = null;
   let sourceFetching = null;
@@ -155,12 +156,6 @@
   }
   beforeButton.addEventListener('click', () => beginInsert('before'));
   afterButton.addEventListener('click', () => beginInsert('after'));
-  function renderedDocumentEmpty() {
-    // 差分更新の部品や利用者の属性ではなく、描画済み HTML の写しで空を判定する。
-    const template = document.createElement('template');
-    template.innerHTML = preview.current()?.html || '';
-    return template.content.children.length === 0;
-  }
   function documentInsertReason() {
     if (!mode || !allowed()) return '編集モードで操作してください';
     if (stopped) return 'プレビューが止まっています';
@@ -391,6 +386,7 @@
       documentEditable = data.document.editable === true;
       documentReason = data.document.reason || '';
       documentStart = Number.isSafeInteger(data.insertStart) && data.insertStart > 0 ? data.insertStart : 1;
+      documentEmpty = data.empty === true;
       origin = typeof data.origin === 'string' && /^[0-9a-f]{32}$/i.test(data.origin) ? data.origin : '';
       byCell = new WeakMap();
       models = data.tables.map((info, i) => {
@@ -1857,7 +1853,6 @@
   window.addEventListener('copy', (event) => copySelection(event, clipboardIntent?.kind || 'copy'), true);
   window.addEventListener('cut', (event) => copySelection(event, 'cut'), true);
   document.addEventListener('gp:render', () => {
-    documentEmpty = renderedDocumentEmpty();
     updateButtons();
     const render = preview.current()?.render;
     if (render !== observedRender) {

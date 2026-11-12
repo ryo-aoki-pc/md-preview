@@ -195,6 +195,8 @@ func TestInsertDocument(t *testing.T) {
 		{"水平線で終わるリストの先頭", "- item\n\n  ---\n\n後\n", "start", "追加\n\n- item\n\n  ---\n\n後\n"},
 		{"BOMの後ろ", "\ufeff本文\n", "start", "\ufeff追加\n\n本文\n"},
 		{"BOMを保つ末尾", "\ufeff本文\n", "end", "\ufeff本文\n\n追加\n"},
+		{"JSONのfront matterの後ろ", ";;;\n{\"a\": 1}\n;;;\n本文\n", "start", ";;;\n{\"a\": 1}\n;;;\n\n追加\n\n本文\n"},
+		{"言語付きのfront matterの後ろ", "---yaml\ntitle: x\n---\n本文\n", "start", "---yaml\ntitle: x\n---\n\n追加\n\n本文\n"},
 	} {
 		for _, mode := range []Mode{File, Buffer} {
 			for _, ending := range []string{"\n", "\r\n"} {
@@ -232,14 +234,19 @@ func TestInsertDocument(t *testing.T) {
 func TestInsertDocumentStartLine(t *testing.T) {
 	e := testEngine(t)
 	for _, c := range []struct {
-		old string
-		cut int
+		old   string
+		cut   int
+		empty bool
 	}{
-		{"本文\n", 1}, {"---\ntitle: x\n---\n本文\n", 4}, {"+++\ntitle = 'x'\n+++\n", 4},
+		{"本文\n", 1, false}, {"---\ntitle: x\n---\n本文\n", 4, false}, {"+++\ntitle = 'x'\n+++\n", 4, false},
+		// 参照の定義やコメントだけの文書は、描画に要素が無くても空ではない（末尾へ追加する）。
+		{"[a]: ./part.md\n", 1, false}, {"<!-- メモ -->\n", 1, false},
+		{"", 1, true}, {" \t\r\n\r\n", 1, true},
 	} {
 		s, h := testService(t, e, c.old, nil)
-		if got := getTables(t, s, h).InsertStart; got != c.cut {
-			t.Fatalf("下書きの移動の先頭行=%d、期待=%d", got, c.cut)
+		got := getTables(t, s, h)
+		if got.InsertStart != c.cut || got.Empty != c.empty {
+			t.Fatalf("%q: 下書きの移動の先頭行=%d・空=%v、期待=%d・%v", c.old, got.InsertStart, got.Empty, c.cut, c.empty)
 		}
 	}
 }
@@ -261,6 +268,15 @@ func TestInsertEmptyDocument(t *testing.T) {
 					}
 					if got := updated(); got != want {
 						t.Fatalf("原文=%q、期待=%q", got, want)
+					}
+					if mode == File {
+						// 全体の置き換えも 1 手で取り消し、やり直せる。
+						if _, err := applyJSON(t, s, h, `{"undo":true}`); err != nil || disk(t, h) != old {
+							t.Fatalf("取り消し=%v、原文=%q", err, disk(t, h))
+						}
+						if _, err := applyJSON(t, s, h, `{"redo":true}`); err != nil || disk(t, h) != want {
+							t.Fatalf("やり直し=%v、原文=%q", err, disk(t, h))
+						}
 					}
 				})
 			}

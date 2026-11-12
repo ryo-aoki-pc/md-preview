@@ -51,12 +51,14 @@ type tableInfo struct {
 }
 type tablesResponse struct {
 	// 文書の先頭へ追加したときに、下書きの位置をずらす最初の行（front matter の後ろ）。
-	InsertStart int           `json:"insertStart"`
-	Render      uint64        `json:"render"`
-	Document    documentState `json:"document"`
-	Undo        undoState     `json:"undo"`
-	Tables      []tableInfo   `json:"tables"`
-	Origin      string        `json:"origin"`
+	InsertStart int `json:"insertStart"`
+	// 空白と空行だけの文書。追加した文で全体を置き換える（ページは「最初のブロックを書く」にする）。
+	Empty    bool          `json:"empty"`
+	Render   uint64        `json:"render"`
+	Document documentState `json:"document"`
+	Undo     undoState     `json:"undo"`
+	Tables   []tableInfo   `json:"tables"`
+	Origin   string        `json:"origin"`
 }
 type mapping struct {
 	response tablesResponse
