@@ -137,10 +137,15 @@ func TestReviewGuards(t *testing.T) {
 
 func TestReviewRoutes(t *testing.T) {
 	s, _, _ := fixture(t, func(o *Options) { o.Review = &testReviewer{} })
-	for _, route := range []string{"_/review/tables?render=1&doc=main.md", "_/review/source?render=1&tag=p&range=1:1-1:5", "_/review/source?render=1&tag=html&prevTag=p&prevRange=1:1-1:5"} {
+	// 読み取りの口は、編集と同じ関数の結果（文書・描画・要素名・範囲）をそのまま返す。
+	for route, want := range map[string]string{
+		"_/review/tables?render=1&doc=main.md":                          `{"doc":"main.md","render":1}`,
+		"_/review/source?render=1&tag=p&range=1:1-1:5":                  `{"doc":null,"range":"1:1-1:5","render":1,"tag":"p"}`,
+		"_/review/source?render=1&tag=html&prevTag=p&prevRange=1:1-1:5": `{"next":null,"prev":{"tag":"p","range":"1:1-1:5"},"render":1}`,
+	} {
 		for _, method := range []string{"GET", "HEAD"} {
 			r := request(t, s, method, route, "", nil)
-			if r.status != 200 || method == "HEAD" && r.body != "" {
+			if r.status != 200 || method == "HEAD" && r.body != "" || method == "GET" && r.body != want {
 				t.Fatal(route, r)
 			}
 		}
