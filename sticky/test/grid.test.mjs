@@ -933,16 +933,43 @@ test("コピー用の格子は隠した rowspan のまとまりを除き、後�
   assert.deepEqual(plain(tableMatrix(buildGrid([]), [], [])), { rowCount: 0, colCount: 0, cells: [], grid: [] });
 });
 
-test("TSV はタブ・改行・引用符を含む値だけを囲み、末尾にも CRLF を付ける", () => {
+const clipboardFixtures = JSON.parse(await readFile(new URL("./fixtures/table-clipboard.json", import.meta.url), "utf8"));
+const clipboardMatrix = ({ rows, cols, cells }) => {
+  const inputs = Array.from({ length: rows }, (_, row) => cells.filter((cell) => cell.row === row).sort((a, b) => a.col - b.col));
+  const model = buildGrid(body(inputs));
+  assert.equal(model.rowCount, rows);
+  assert.equal(model.colCount, cols);
+  assert.deepEqual(plain(model.cells.map((cell) => [cell.row, cell.col])), inputs.flat().map((cell) => [cell.row, cell.col]));
+  return tableMatrix(model, inputs.flat().map((cell) => cell.text), []);
+};
+
+for (const fixture of clipboardFixtures.cases) {
+  test("共通のコピー出力: " + fixture.name, () => {
+    const matrix = clipboardMatrix(fixture);
+    assert.equal(toTsv(matrix), fixture.tsv);
+    assert.equal(toHtml(matrix), fixture.html);
+  });
+}
+
+for (const fixture of clipboardFixtures.differences) {
+  if (!fixture.sticky) continue;
+  test("コピー出力の意図した違い: " + fixture.name, () => {
+    const matrix = clipboardMatrix(fixture.input);
+    assert.equal(toTsv(matrix), fixture.sticky.tsv);
+    assert.equal(toHtml(matrix), fixture.sticky.html);
+  });
+}
+
+test("TSV はタブ・改行・引用符を含む値だけを囲み、複数の行か列では末尾に CRLF を付ける", () => {
   const matrix = { grid: [["普通", "タブ\tあり", "改行\nあり", '引用"符', ""], ["空白 あり", "\r\n", "&<>", "終わり", ""]] };
   assert.equal(toTsv(matrix), '普通\t"タブ\tあり"\t"改行\nあり"\t"引用""符"\t\r\n空白 あり\t"\r\n"\t&<>\t終わり\t\r\n');
   assert.equal(toTsv({ grid: [] }), "");
 });
 
-test("HTML は th・td と結合を残し、文字を逃がして改行を br にする", () => {
+test("HTML は th・td と結合を残し、文字を逃がして同じセルの改行にする", () => {
   const model = buildGrid(body([[th(2), th(1, 2)], [td(), td()]]));
   const matrix = tableMatrix(model, ['&<>"', "月\n次", "1", "2"], []);
-  assert.equal(toHtml(matrix), '<table><tr><th rowspan="2">&amp;&lt;&gt;&quot;</th><th colspan="2">月<br>次</th></tr><tr><td>1</td><td>2</td></tr></table>');
+  assert.equal(toHtml(matrix), '<table><tr><th rowspan="2">&amp;&lt;&gt;&quot;</th><th colspan="2">月<br style="mso-data-placement:same-cell">次</th></tr><tr><td>1</td><td>2</td></tr></table>');
   assert.equal(toHtml(tableMatrix(buildGrid([]), [], [])), "<table></table>");
 });
 

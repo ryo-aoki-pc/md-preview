@@ -39,6 +39,7 @@ git diff --check
 ```
 
 - Node.js 22 以上。依存のパッケージは無い
+- コピーの TSV・HTML は `sticky/test/fixtures/table-clipboard.json` を共通の見本にし、`sticky/test/grid.test.mjs` と `test/edit-grid.test.mjs` が読む。片方の出力を変えたら、見本と両方の試験を合わせる。
 - `mdpreview` のページのコード（ルートの `page/preview.js` の「表の固定」の節、`page/edit.js`、`page/preview.css`）は、`window.__mdTableSticky` の `records`・`floating`・`picking` と、`data-md-table-sticky-*` の属性に頼っている。これらを変えるときは、ルートで `node --test test/page.test.mjs` も通す
 - ブラウザーの試験は Edge か Chromium が要る。`MTS_BROWSER` で実行ファイルを指定できる。見つからないときは、理由を出して飛ばす
 
