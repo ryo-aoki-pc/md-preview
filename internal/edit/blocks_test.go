@@ -156,8 +156,8 @@ func TestFootnoteBoundariesAndExclusions(t *testing.T) {
 					t.Fatalf("内側の対象=%+v、結果=%v", c, err)
 				}
 			}
-			if _, err := applyJSON(t, s, h, `{"checkbox":"3:4-3:4","checked":true}`); err == nil || err.Code != "target" {
-				t.Fatalf("脚注のチェックボックス=%v", err)
+			if _, err := applyJSON(t, s, h, `{"checkbox":"3:4-3:4","checked":true}`); err == nil || err.Code != "range" {
+				t.Fatalf("原文にチェックボックスがない脚注の位置=%v", err)
 			}
 			if _, err := applyJSON(t, s, h, `{"range":"3:1-4:0","text":"[^a]: 変更"}`); err == nil || err.Code != "target" {
 				t.Fatalf("公開の終了列0の確定=%v", err)

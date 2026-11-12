@@ -972,7 +972,7 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     assert.ok(sent[1].render > sent[0].render && sent[2].render > sent[1].render);
   });
 
-  await t.test('セルの DOM を変えず、リンク・チェックボックスを動かさず、外のクリックで確定する', async (t) => {
+  await t.test('セルの DOM を変えず、リンクを動かさず、チェックボックスは切り替え、外のクリックで確定する', async (t) => {
     const { page, file } = await editablePage(t, browser,
       '| 列 |\n| --- |\n| [リンク](#先) |\n\n<table><tr><td>\n\n- [ ] 作業\n\n</td></tr></table>\n\n## 先\n');
     const cell = page.locator('#gp-content td').first();
@@ -983,8 +983,11 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     await page.keyboard.press('F2');
     assert.equal(await cell.evaluate((element) => element.outerHTML), before);
     await page.keyboard.press('Escape');
-    await page.locator('#gp-content input').click({ force: true });
-    assert.equal(await page.locator('#gp-content input').isChecked(), false);
+    // 生の HTML の表のセルの中のタスクは、編集モード中に押すと切り替わる（セルは選ばない）。
+    await page.locator('#gp-content input').click();
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-content input').isChecked(), true);
+    assert.match(readFileSync(file, 'utf8'), /- \[x\] 作業/);
     await replaceCell(page, cell, '外を押す前');
     await cell.dblclick();
     await page.locator('#gp-edit-input').fill('外を押して確定');
@@ -2028,21 +2031,21 @@ test('脚注の定義を画面で編集し、ラベルの注意とリンクの�
     assert.equal(readFileSync(file, 'utf8'), original);
   });
 
-  await t.test('脚注の内側の項目でも定義全体を開き、タスクのチェックボックスを切り替えない', async (t) => {
+  await t.test('脚注のタスクを切り替え、内側の項目では定義全体を開く', async (t) => {
     const source = '[^a]: 定義\n\n    - [ ] 脚注のタスク';
     const original = '本文[^a]\n\n' + source + '\n';
     const { page, file } = await editablePage(t, browser, original);
     const definition = page.locator(definitionSelector);
     const checkbox = definition.locator('input.task-list-item-checkbox');
-    assert.equal(await checkbox.isDisabled(), true);
-    await checkbox.dispatchEvent('click');
+    assert.equal(await checkbox.isDisabled(), false);
+    await checkbox.click();
     await editIdle(page);
-    assert.equal(readFileSync(file, 'utf8'), original);
+    assert.equal(readFileSync(file, 'utf8'), original.replace('[ ]', '[x]'));
     const item = definition.locator('li');
     await item.hover();
     assert.equal(await definition.evaluate((element) => getComputedStyle(element).outlineStyle), 'dashed');
     assert.equal(await item.evaluate((element) => getComputedStyle(element).outlineStyle), 'none');
-    await open(page, item, source);
+    await open(page, item, source.replace('[ ]', '[x]'));
     await page.keyboard.press('Escape');
   });
 });
@@ -2523,7 +2526,7 @@ test('ブロックの原文とタスクを画面で編集し、ファイルの�
     assert.equal(readFileSync(file, 'utf8'), 'もう一度外の変更。\n');
   });
 
-  await t.test('ブロックの確定とチェックを順に送り、表の中のチェックボックスはセルを選び、修飾キーのリンクは止めない', async (t) => {
+  await t.test('ブロックの確定と表内外のチェックを順に送り、修飾キーのリンクは止めない', async (t) => {
     // 開いた入力欄がチェックボックスに重ならないよう、間に段落を置く。
     const original = '段落と[リンク](#x)。\n\n間の段落 1。\n\n間の段落 2。\n\n- [ ] 作業\n\n<table><tr><td>\n\n- [x] 済み\n\n</td></tr></table>\n';
     const { page, file } = await editablePage(t, browser, original);
@@ -2539,13 +2542,15 @@ test('ブロックの原文とタスクを画面で編集し、ファイルの�
     assert.equal(readFileSync(file, 'utf8'), original.replace('段落と', '直した段落と').replace('- [ ]', '- [x]'));
     assert.deepEqual(sent.map((body) => (body.range ? 'range' : body.checkbox ? 'checkbox' : 'table')), ['range', 'checkbox']);
     assert.ok(sent[1].render > sent[0].render);
-    // 表のセルの中のチェックボックスは切り替えの対象にせず、押すとセルを選ぶ（セルの編集で直す）。
+    // 表のセルの中もチェックだけを切り替え、セルを選ばない。
     const inCell = page.locator('#gp-content td input');
     assert.equal(await inCell.count(), 1, '表のセルにチェックボックスが描かれる');
-    assert.equal(await inCell.isDisabled(), true);
-    await inCell.dispatchEvent('click');
-    assert.equal(await page.locator('#gp-edit-selection').isVisible(), true);
-    assert.equal(sent.length, 2);
+    assert.equal(await inCell.isDisabled(), false);
+    await inCell.click();
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-edit-selection').isVisible(), false);
+    assert.equal(sent.length, 3);
+    assert.equal(readFileSync(file, 'utf8'), original.replace('段落と', '直した段落と').replace('- [ ]', '- [x]').replace('- [x] 済み', '- [ ] 済み'));
     await page.keyboard.press('Escape');
     // 編集モードでは段落の中のリンクで移動しないが、Ctrl を押しながらのクリックはブラウザに任せる。
     await page.evaluate(() => {
@@ -2581,6 +2586,125 @@ test('ブロックの原文とタスクを画面で編集し、ファイルの�
     await other.page.locator('#gp-content p').dblclick();
     assert.equal(await other.page.locator('#gp-edit-layer').count(), 0);
     assert.equal(await other.page.locator('#gp-content input').isDisabled(), true);
+  });
+});
+
+test('表と脚注のタスクの切り替え・連続操作・再描画を確かめる', { skip, timeout: 120000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  for (const [name, original, checked] of [
+    ['HTML の本文セル', '<table><tr><td>\n\n- [ ] 保持\n- [ ] 作業\n\n</td></tr></table>\n', '- [x] 作業'],
+    ['HTML の見出しセル', '<table><thead><tr><th>\n\n- [ ] 作業\n\n</th></tr></thead><tbody><tr><td>本文</td></tr></tbody></table>\n', '- [x] 作業'],
+    ['パイプの表', '| 列 |\n| --- |\n| [ ] |\n', '| [x] |'],
+    ['脚注', '本文[^a]\n\n[^a]: 定義\n\n    - [ ] 作業\n', '- [x] 作業'],
+  ]) {
+    await t.test(name, async (t) => {
+      const { page, file } = await editablePage(t, browser, original);
+      const checkbox = page.locator('#gp-content input.task-list-item-checkbox').last();
+      assert.equal(await checkbox.isDisabled(), false);
+      let release;
+      let gate = new Promise((resolve) => { release = resolve; });
+      t.after(() => release());
+      const sent = [];
+      await page.route('**/_/edit', async (route) => {
+        sent.push(route.request().postDataJSON());
+        if (sent.length === 1) await gate;
+        await route.continue();
+      });
+      await checkbox.click();
+      await checkbox.click();
+      assert.equal(sent.length, 1);
+      assert.equal(await checkbox.isChecked(), false);
+      assert.equal(await page.locator('#gp-edit-selection').isVisible(), false);
+      release();
+      await editIdle(page);
+      assert.deepEqual(sent.map((body) => body.checked), [true, false]);
+      assert.ok(sent[1].render > sent[0].render);
+      assert.equal(readFileSync(file, 'utf8'), original);
+      const expected = original.replace(checked.replace('[x]', '[ ]'), checked);
+      await checkbox.focus();
+      await page.keyboard.press('Space');
+      await editIdle(page);
+      assert.equal(readFileSync(file, 'utf8'), expected);
+      await page.waitForFunction(() => document.activeElement?.matches('input.task-list-item-checkbox'));
+      assert.equal(await checkbox.evaluate((element) => element === document.activeElement), true);
+      await page.keyboard.press('Space');
+      await editIdle(page);
+      assert.equal(readFileSync(file, 'utf8'), original);
+      if (name === 'HTML の本文セル')
+        assert.equal(await page.locator('#gp-content input').first().isChecked(), false, 'セル内の番号で二番目だけを追う');
+      sent.length = 0;
+      gate = new Promise((resolve) => { release = resolve; });
+      await checkbox.dblclick();
+      assert.equal(await page.locator('#gp-edit-input').isVisible(), false);
+      assert.equal(await page.locator('#gp-edit-selection').isVisible(), false);
+      release();
+      await editIdle(page);
+      assert.deepEqual(sent.map((body) => body.checked), [true, false]);
+      assert.equal(readFileSync(file, 'utf8'), original);
+      await page.locator('#gp-edit-toggle').click();
+      assert.equal(await checkbox.isDisabled(), true);
+    });
+  }
+  await t.test('セルの入力を確定してから表内のタスクを送り、セルの選択を解く', async (t) => {
+    const original = '<table><tr><td>前のセル</td></tr></table>\n\n' +
+      '間の段落。\n\n間の段落。\n\n<table><tr><td>\n\n- [ ] 作業\n\n</td></tr></table>\n';
+    const { page, file } = await editablePage(t, browser, original);
+    const sent = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/_/edit')) sent.push(request.postDataJSON());
+    });
+    await page.locator('#gp-content td').first().dblclick();
+    await page.locator('#gp-edit-input').fill('直したセル');
+    await page.locator('#gp-content input').click();
+    await editIdle(page);
+    assert.deepEqual(sent.map((body) => body.checkbox ? 'checkbox' : 'table'), ['table', 'checkbox']);
+    assert.ok(sent[1].render > sent[0].render);
+    assert.equal(readFileSync(file, 'utf8'), original.replace('前のセル', '直したセル').replace('[ ]', '[x]'));
+    assert.equal(await page.locator('#gp-edit-selection').isVisible(), false);
+  });
+  await t.test('全幅表示中のタスクを切り替え、表の情報を失ったら無効に戻す', async (t) => {
+    const original = '| 列 |\n| --- |\n| [ ] |\n';
+    const { page, file, server } = await editablePage(t, browser, original);
+    await page.locator('#gp-sticky-toggle').click();
+    await page.waitForSelector('[data-md-table-sticky-bar]');
+    await page.locator('[data-md-table-sticky-action="float"]').first().click();
+    const checkbox = page.locator('[data-md-table-sticky-float-panel] input.task-list-item-checkbox');
+    assert.equal(await checkbox.isDisabled(), false);
+    await checkbox.click();
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original.replace('[ ]', '[x]'));
+    assert.equal(await page.locator('#gp-edit-selection').isVisible(), false);
+    await page.route('**/_/edit/tables?*', (route) => route.fulfill({ status: 500, json: { error: { message: '表の情報を取得できません' } } }));
+    await server.setDocument({ path: file, text: readFileSync(file, 'utf8'), rev: 30 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 30);
+    await page.waitForFunction(() => document.querySelector('#gp-edit-status').textContent.includes('表の情報を取得できません'));
+    assert.equal(await checkbox.isDisabled(), true);
+    // 全幅表示の重ねが操作欄の前にあるので、ボタンは要素から押す。
+    await page.evaluate(() => document.querySelector('#gp-edit-toggle').click());
+    assert.equal(await page.locator('#gp-edit-toggle').getAttribute('aria-pressed'), 'false');
+    assert.equal(await checkbox.isDisabled(), true);
+  });
+  await t.test('入れ子の内外・JSON・対応できない表・取り込んだ表のタスクは無効のまま理由を知らせる', async (t) => {
+    const task = '<table><tr><td>\n\n- [ ] 作業\n\n</td></tr></table>\n';
+    const original = '<table><tr><td>\n\n- [ ] 外側\n\n' + task + '\n</td></tr></table>\n\n' +
+      '```json:table\n{"markdown":true,"items":[{"a":"<input type=\\"checkbox\\" class=\\"task-list-item-checkbox\\" data-checkbox-sourcepos=\\"1:1-1:1\\">"}]}\n```\n\n' +
+      '<table><tfoot><tr><td>\n\n- [ ] 脚のセル\n\n</td></tr></tfoot><tbody><tr><td>本文</td></tr></tbody></table>\n\n' +
+      '::include{file=part.md}\n';
+    const { page, file } = await editablePage(t, browser, original, { files: { 'part.md': '| 列 |\n| --- |\n| [ ] |\n' } });
+    const checkboxes = page.locator('#gp-content input.task-list-item-checkbox');
+    assert.equal(await checkboxes.count(), 5);
+    const sent = [];
+    page.on('request', (request) => { if (request.method() === 'POST') sent.push(request.url()); });
+    for (let i = 0; i < 5; i++) {
+      const checkbox = checkboxes.nth(i);
+      assert.equal(await checkbox.isDisabled(), true);
+      await checkbox.dispatchEvent('click');
+      assert.equal(await page.locator('#gp-edit-status').getAttribute('data-kind'), 'error');
+      assert.match(await page.locator('#gp-edit-status').textContent(), /入れ子|JSON|対応づけられない|取り込んだ/);
+    }
+    assert.deepEqual(sent, []);
+    assert.equal(readFileSync(file, 'utf8'), original);
   });
 });
 
@@ -3099,6 +3223,38 @@ test('Neovim の橋渡しで表の編集をバッファへ頼み、拒否の知�
     assert.deepEqual(outside, []);
     assert.deepEqual(violations, []);
     assert.deepEqual(errors, []);
+  });
+  await t.test('表と脚注のタスクも Neovim に一行の置き換えで送る', async (t) => {
+    const bridge = await startGoStdio(t);
+    const context = await browser.newContext();
+    t.after(() => context.close());
+    const page = await context.newPage();
+    await page.goto(bridge.url);
+    let rev = 0;
+    for (const [original, start, line] of [
+      ['<table><tr><td>\n\n- [ ] 作業\n\n</td></tr></table>\n', 2, '- [x] 作業'],
+      ['| 列 |\n| --- |\n| [ ] |\n', 2, '| [x] |'],
+      ['本文[^a]\n\n[^a]: 定義\n\n    - [ ] 作業\n', 4, '    - [x] 作業'],
+    ]) {
+      const document = (text) => bridge.send({ type: 'doc', path: null, name: 'バッファ.md', text, buf: 7, rev: ++rev });
+      await document(original);
+      await page.waitForFunction((rev) => window.gpPreview.current()?.rev === rev, rev);
+      if (await page.locator('#gp-edit-toggle').getAttribute('aria-pressed') !== 'true') await page.locator('#gp-edit-toggle').click();
+      await editIdle(page);
+      const checkbox = page.locator('#gp-content input.task-list-item-checkbox');
+      assert.equal(await checkbox.isDisabled(), false);
+      await checkbox.click();
+      const edit = await bridge.waitFor('edit');
+      assert.equal(edit.rev, rev);
+      assert.equal(edit.buf, 7);
+      assert.deepEqual(edit.edits, [{ start, end: start + 1, lines: [line] }]);
+      await bridge.send({ type: 'edit_result', id: edit.id, ok: true });
+      await document(original.replace('[ ]', '[x]'));
+      await page.waitForFunction((rev) => window.gpPreview.current()?.rev === rev, rev);
+      await editIdle(page);
+      assert.equal(await checkbox.isChecked(), true);
+      assert.equal(await page.locator('#gp-edit-selection').isVisible(), false);
+    }
   });
   await t.test('edit を知らせない古い Lua には編集の入口を出さない', async (t) => {
     const bridge = await startGoStdio(t, { edit: false });
