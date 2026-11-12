@@ -164,7 +164,7 @@ func pythonEvaluate(t *testing.T,c pythonCase)(any,error) {
 '''),
 }
 
-BOOK_IMPORTS = ["archive/zip", "bytes", "encoding/hex", "encoding/xml", "io", "path/filepath", "sort", "strconv", "strings", "sync", "github.com/xuri/excelize/v2", "github.com/ryo-aoki-pc/md-tools/mdtable/internal/version"]
+BOOK_IMPORTS = ["archive/zip", "bytes", "encoding/hex", "encoding/xml", "io", "path/filepath", "sort", "strconv", "strings", "sync", "github.com/xuri/excelize/v2", "github.com/ryo-aoki-pc/md-tools/internal/version"]
 BOOK_HELPERS = (ROOT / "testdata" / "book_helpers.txt").read_text(encoding="utf-8")
 DISPATCH["workbook"] = (BOOK_IMPORTS + ["github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"], r'''
 func pythonEvaluate(t *testing.T,c pythonCase)(any,error) {

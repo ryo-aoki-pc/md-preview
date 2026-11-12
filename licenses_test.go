@@ -191,15 +191,19 @@ func TestExecutableDependencies(t *testing.T) {
 		pkg     string
 		targets [][2]string
 		blocked []string
+		allowed string
 	}{
-		{"./cmd/mdpreview", mdpreviewTargets, []string{"github.com/xuri/", module + "mdtable/internal/workbook", module + "mdtable/internal/sync", module + "mdtable/internal/cli"}},
-		{"./mdtable/cmd/mdtable", [][2]string{{"windows", "amd64"}}, []string{module + "engine", module + "page", module + "assets", module + "internal", module + "sticky"}},
+		{"./cmd/mdpreview", mdpreviewTargets, []string{"github.com/xuri/", module + "mdtable/internal/workbook", module + "mdtable/internal/sync", module + "mdtable/internal/cli"}, ""},
+		{"./mdtable/cmd/mdtable", [][2]string{{"windows", "amd64"}}, []string{module + "engine", module + "page", module + "assets", module + "internal", module + "sticky"}, module + "internal/version"},
 	} {
 		t.Run(test.pkg, func(t *testing.T) {
 			for _, target := range test.targets {
 				t.Run(target[0]+"/"+target[1], func(t *testing.T) {
 					for _, dependency := range goDependencies(t, test.pkg, target, "{{.ImportPath}}") {
 						dependency = strings.TrimSpace(dependency)
+						if dependency == test.allowed {
+							continue
+						}
 						for _, blocked := range test.blocked {
 							if dependency == blocked || strings.HasPrefix(dependency, strings.TrimSuffix(blocked, "/")+"/") {
 								t.Errorf("%s に不要な依存があります: %s", test.pkg, dependency)

@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/version"
+	"github.com/ryo-aoki-pc/md-tools/internal/version"
 )
 
 //go:embed LICENSE licenses/manifest.json all:licenses/go all:licenses/openpyxl

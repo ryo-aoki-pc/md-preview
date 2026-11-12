@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/version"
+	"github.com/ryo-aoki-pc/md-tools/internal/version"
 )
 
 func licenseManifest(t *testing.T) []LicenseComponent {

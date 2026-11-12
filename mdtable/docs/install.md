@@ -120,7 +120,7 @@
 **[Windows 11 で mdtable を導入・更新する](#windows-11-で-mdtable-を導入更新する)の手順 4**
 
 - 置き場所は `%USERPROFILE%\.local\bin\mdtable.exe`
-- 同梱しているもののライセンスの原文は `mdtable --licenses` で出す。GitHub Releases の `THIRD-PARTY-LICENSES.txt` も同じ内容
+- 同梱しているもののライセンスの原文は `mdtable --licenses` で出す。GitHub Releases の `mdtable-THIRD-PARTY-LICENSES.txt` も同じ内容
 
 </details>
 

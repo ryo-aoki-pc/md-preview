@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 	"reflect"
 
+	"github.com/ryo-aoki-pc/md-tools/internal/version"
 	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/cellsyntax"
 	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/changes"
 	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
 	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/pycompat"
 	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
 	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/verify"
-	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/version"
 	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/workbook"
 )
 

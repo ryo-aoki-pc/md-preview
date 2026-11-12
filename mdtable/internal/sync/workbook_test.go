@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/version"
+	"github.com/ryo-aoki-pc/md-tools/internal/version"
 	"github.com/xuri/excelize/v2"
 )
 

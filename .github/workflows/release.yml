@@ -18,6 +18,10 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: Node.js を用意
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
       - name: タグと既定の版を照合
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -45,32 +49,34 @@ jobs:
         run: go vet ./...
       - name: 試験
         run: go test ./...
-      - name: 3つの対象向けにビルド
+      - name: 競合の検査
+        run: go test -race -timeout 20m ./mdtable/...
+      - name: sticky の格子と組み立てを検証
+        run: node --test sticky/test/grid.test.mjs sticky/test/build.test.mjs
+      - name: ブックマークレットの生成物を確認
+        run: node sticky/tools/build-bookmarklet.mjs --check
+      - name: 配布物をビルド
         run: bash scripts/build-release.sh "$RELEASE_VERSION" dist
-      - name: 成果物の版とライセンスを確認
+      - name: sha256 を確認
+        run: ( cd dist && sha256sum -c SHA256SUMS )
+      - name: 配布の説明を用意
         run: |
-          actual_version=$(dist/mdpreview-linux-amd64 --version)
-          if [ "$actual_version" != "$RELEASE_VERSION" ]; then
-            echo '成果物の版が一致しません。' >&2
-            exit 1
-          fi
-          dist/mdpreview-linux-amd64 --licenses > dist/THIRD-PARTY-LICENSES.txt
-      - name: sha256 と配布の説明を用意
-        run: |
-          cd dist
-          sha256sum mdpreview-windows-amd64.exe mdpreview-linux-amd64 mdpreview-linux-arm64 THIRD-PARTY-LICENSES.txt > SHA256SUMS
-          cat > release-notes.md <<'NOTES'
-          mdpreview を、単体の実行ファイルで配布します。
+          cat > dist/release-notes.md <<'NOTES'
+          mdpreview と mdtable を、単体の実行ファイルで配布します。
 
-          | ファイル | OS | CPU |
-          | --- | --- | --- |
-          | mdpreview-windows-amd64.exe | Windows | amd64 (x86-64) |
-          | mdpreview-linux-amd64 | Linux | amd64 (x86-64) |
-          | mdpreview-linux-arm64 | Linux | arm64 (AArch64) |
+          | ファイル | 道具 | OS | CPU |
+          | --- | --- | --- | --- |
+          | mdpreview-windows-amd64.exe | mdpreview | Windows | amd64 (x86-64) |
+          | mdpreview-linux-amd64 | mdpreview | Linux | amd64 (x86-64) |
+          | mdpreview-linux-arm64 | mdpreview | Linux | arm64 (AArch64) |
+          | mdtable-windows-amd64.exe | mdtable | Windows | amd64 (x86-64) |
 
-          同梱ライセンスは THIRD-PARTY-LICENSES.txt または `mdpreview --licenses` で確認できます。
-          Linux / Git Bash では、成果物4つと SHA256SUMS を同じフォルダーへ保存し、`sha256sum -c SHA256SUMS` で確認してください。
-          PowerShell では `Get-FileHash .\mdpreview-windows-amd64.exe -Algorithm SHA256` の値を SHA256SUMS の同名の行と照合してください。
+          導入と更新の手順は [mdpreview](https://github.com/ryo-aoki-pc/md-tools/blob/main/docs/install.md) と [mdtable](https://github.com/ryo-aoki-pc/md-tools/blob/main/mdtable/docs/install.md) を参照してください。
+
+          同梱ライセンスは、mdpreview-THIRD-PARTY-LICENSES.txt または `mdpreview --licenses`、mdtable-THIRD-PARTY-LICENSES.txt または `mdtable --licenses` でそれぞれ確認できます。
+          Linux / Git Bash では、実行ファイル4つ・ライセンス2つと SHA256SUMS を同じフォルダーへ保存し、`sha256sum -c SHA256SUMS` で確認してください。
+          1つだけ取得した場合は、SHA256SUMS の名前が一致する1行を取り出し、`sha256sum -c` に渡してください。
+          PowerShell では `Get-FileHash .\mdpreview-windows-amd64.exe -Algorithm SHA256` または `Get-FileHash .\mdtable-windows-amd64.exe -Algorithm SHA256` の値を SHA256SUMS の同名の行と照合してください。
           NOTES
       - name: GitHub Releases に配布
         env:
@@ -78,4 +84,5 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file dist/release-notes.md \
             dist/mdpreview-windows-amd64.exe dist/mdpreview-linux-amd64 dist/mdpreview-linux-arm64 \
-            dist/THIRD-PARTY-LICENSES.txt dist/SHA256SUMS
+            dist/mdtable-windows-amd64.exe dist/mdpreview-THIRD-PARTY-LICENSES.txt \
+            dist/mdtable-THIRD-PARTY-LICENSES.txt dist/SHA256SUMS

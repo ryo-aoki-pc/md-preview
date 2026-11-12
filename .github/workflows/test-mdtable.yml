@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'mdtable/**'
+      - 'internal/version/**'
       - 'go.mod'
       - 'go.sum'
       - 'LICENSE'
@@ -13,6 +14,7 @@ on:
   pull_request:
     paths:
       - 'mdtable/**'
+      - 'internal/version/**'
       - 'go.mod'
       - 'go.sum'
       - 'LICENSE'
@@ -44,8 +46,3 @@ jobs:
       - name: 競合の検査
         if: runner.os == 'Linux'
         run: go test -race -timeout 20m ./mdtable/...
-      - name: 配布物を作れることを確認
-        shell: bash
-        run: |
-          release_version=$(sed -n 's/^var Version = "\([^"]*\)"$/\1/p' mdtable/internal/version/version.go)
-          bash mdtable/scripts/build-release.sh "$release_version" dist
