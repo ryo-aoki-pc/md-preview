@@ -608,6 +608,7 @@
     const target = url('/source');
     target.searchParams.set('render', render);
     target.searchParams.set('range', range);
+    target.searchParams.set('tag', element.localName);
     try {
       const response = await fetch(target, { signal: controller.signal });
       if (number !== sourceNumber || response.status === 409) return;
@@ -615,11 +616,12 @@
       if (!response.ok) throw new Error(messageOf(data) || '原文を読み込めませんでした');
       if (!mode || stopped || number !== sourceNumber || render !== preview.current()?.render ||
         version !== externalVersion || !element.isConnected) return;
-      if (data.render !== render || typeof data.text !== 'string') throw new Error('原文の応答の形が正しくありません');
-      const point = { range }, saved = drafts.get(keyOf(point));
+      if (data.render !== render || typeof data.text !== 'string' || typeof data.range !== 'string' ||
+        !rangePattern.test(data.range)) throw new Error('原文の応答の形が正しくありません');
+      const point = { range: data.range }, saved = drafts.get(keyOf(point));
       const value = saved?.original === data.text ? saved.value : data.text;
       drafts.delete(keyOf(point));
-      openBlock({ point, element, render, version, original: data.text, value });
+      openBlock({ point, kind: data.kind, element, render, version, original: data.text, value });
     } catch (error) {
       if (number === sourceNumber && error.name !== 'AbortError') notice(error.message || '原文を読み込めませんでした', true);
     } finally {

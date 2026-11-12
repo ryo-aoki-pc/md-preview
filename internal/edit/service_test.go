@@ -213,20 +213,21 @@ func TestMarkerCannotEscapeTable(t *testing.T) {
 
 func TestTextRangesAndWrites(t *testing.T) {
 	e := testEngine(t)
-	for _, c := range []struct{ name, text, r, repl, want string }{
-		{"CRLF", "前\r\n本文\r\n後", "2:1-2:6", "変更\n二行", "前\r\n変更\r\n二行\r\n後"},
-		{"末尾", "前\r\n末尾", "2:1-2:6", "新\r次", "前\r\n新\r\n次"},
-		{"一行", "本文", "1:1-1:6", "新\r\n次", "新\n次"},
-		{"終了列ゼロ", "前\r\n次", "1:1-2:0", "新\n", "新\r\n次"},
-		{"取り込みの後ろ", "::include{file=part.md}\n後ろ", "4:1-4:6", "変更", "::include{file=part.md}\n変更"},
-		{"BOM", "\ufeff本文\r\n", "1:1-1:6", "新", "\ufeff新\r\n"},
+	for _, c := range []struct{ name, text, tag, r, repl, want string }{
+		{"CRLF", "前\r\n\r\n本文\r\n\r\n後", "p", "3:1-3:6", "変更\n二行", "前\r\n\r\n変更\r\n二行\r\n\r\n後"},
+		{"末尾", "前\r\n\r\n末尾", "p", "3:1-3:6", "新\r次", "前\r\n\r\n新\r\n次"},
+		{"一行", "本文", "p", "1:1-1:6", "新\r\n次", "新\n次"},
+		{"水平線で終わる項目", "- item\r\n\r\n  ---\r\n", "li", "1:1-3:5", "- 新", "- 新\r\n"},
+		{"取り込みの後ろ", "::include{file=part.md}\n\n後ろ", "p", "5:1-5:6", "変更", "::include{file=part.md}\n\n変更"},
+		{"BOM", "\ufeff本文\r\n", "p", "1:1-1:6", "新", "\ufeff新\r\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s, h := testService(t, e, c.text, map[string]string{"part.md": "一\n二\n三"})
-			if _, err := s.Text(context.Background(), nil, h.src.Render, Range(c.r)); err != nil {
+			value, err := s.Text(context.Background(), nil, h.src.Render, c.tag, Range(c.r))
+			if err != nil {
 				t.Fatal(err)
 			}
-			v, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render, "range": c.r, "text": c.repl})
+			v, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render, "range": string(value.(map[string]any)["range"].(Range)), "text": c.repl})
 			if err != nil {
 				t.Fatal(v, err)
 			}
@@ -236,20 +237,22 @@ func TestTextRangesAndWrites(t *testing.T) {
 		})
 	}
 	for _, c := range []struct{ text, r, code string }{
-		{"本文", "1:2-1:6", "range"}, {"本文", "1:1-1:2", "range"}, {"本文", "1:1-2:0", "range"},
+		{"本文", "1:2-1:6", "range"}, {"本文", "1:1-1:2", "range"}, {"本文", "1:1-3:0", "range"},
 		{"::include{file=part.md}\n後", "1:1-4:3", "include"},
 		{"---\na: b\n---\n本文", "1:1-1:3", "frontmatter"},
 		{"前\r本文", "1:1-1:3", "shift"},
 	} {
 		s, h := testService(t, e, c.text, map[string]string{"part.md": "一\n二\n三"})
-		if _, err := s.Text(context.Background(), nil, h.src.Render, Range(c.r)); err == nil || err.Code != c.code {
+		// 消毒後の木に位置がある場合も、従来の原文の検査で断る。
+		h.src.HTML = `<p data-sourcepos="` + c.r + `">本文</p>`
+		if _, err := s.Text(context.Background(), nil, h.src.Render, "p", Range(c.r)); err == nil || err.Code != c.code {
 			t.Errorf("%q %s: %v", c.text, c.r, err)
 		}
 	}
 }
 func TestCheckboxesAndUnchanged(t *testing.T) {
 	e := testEngine(t)
-	for _, text := range []string{"- [ ] 項目\n", "| 見出し |\n| --- |\n| [ ] 項目 |\n"} {
+	for _, text := range []string{"- [ ] 項目\n", "- [X] 項目\n"} {
 		s, h := testService(t, e, text, nil)
 		root, err := htmltree.Fragment(context.Background(), h.src.HTML)
 		if err != nil {

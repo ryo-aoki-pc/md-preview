@@ -71,10 +71,10 @@ func TestBufferOperations(t *testing.T) {
 		lines            []string
 		want             string
 	}{
-		{"範囲と末尾の改行", "前\n本文\n後\n", `{"range":"2:1-2:6","text":"変更"}`, 1, 2, []string{"変更"}, "前\n変更\n後\n"},
-		{"行の追加", "前\n本文\n後\n", `{"range":"2:1-2:6","text":"本文\n追加"}`, 2, 2, []string{"追加"}, "前\n本文\n追加\n後\n"},
-		{"行の削除", "前\n本文\n後\n", `{"range":"2:1-3:0","text":""}`, 1, 2, []string{}, "前\n後\n"},
-		{"CRLF", "前\r\n本文\r\n後\r\n", `{"range":"2:1-2:6","text":"変更\n追加"}`, 1, 2, []string{"変更\r", "追加\r"}, "前\r\n変更\r\n追加\r\n後\r\n"},
+		{"範囲と末尾の改行", "前\n\n本文\n\n後\n", `{"range":"3:1-3:6","text":"変更"}`, 2, 3, []string{"変更"}, "前\n\n変更\n\n後\n"},
+		{"行の追加", "前\n\n本文\n\n後\n", `{"range":"3:1-3:6","text":"本文\n追加"}`, 3, 3, []string{"追加"}, "前\n\n本文\n追加\n\n後\n"},
+		{"行の削除", "前\n\n本文\n削除\n\n後\n", `{"range":"3:1-4:6","text":"本文"}`, 3, 4, []string{}, "前\n\n本文\n\n後\n"},
+		{"CRLF", "前\r\n\r\n本文\r\n\r\n後\r\n", `{"range":"3:1-3:6","text":"変更\n追加"}`, 2, 3, []string{"変更\r", "追加\r"}, "前\r\n\r\n変更\r\n追加\r\n\r\n後\r\n"},
 		{"チェックボックス", "- [ ] 項目\n", `{"checkbox":"1:4-1:4","checked":true}`, 0, 1, []string{"- [x] 項目"}, "- [x] 項目\n"},
 		{"HTML の複数行", "<table>\n<tr><td>前</td></tr>\n<tr><td>後</td></tr>\n</table>\n", `{"table":0,"op":{"type":"paste","row":0,"col":0,"values":[["新"],["次"]]}}`, 1, 3, []string{"<tr><td>新</td></tr>", "<tr><td>次</td></tr>"}, "<table>\n<tr><td>新</td></tr>\n<tr><td>次</td></tr>\n</table>\n"},
 	} {
@@ -82,7 +82,7 @@ func TestBufferOperations(t *testing.T) {
 			s, h, sent := bufferService(t, e, c.text)
 			if c.name == "範囲と末尾の改行" {
 				h.src.DocPath, h.src.Path, h.src.Root, h.src.File = "", "", "", ""
-				v, err := s.Text(context.Background(), nil, 1, "2:1-2:6")
+				v, err := s.Text(context.Background(), nil, 1, "p", "3:1-3:6")
 				if err != nil || v.(map[string]any)["text"] != "本文" {
 					t.Fatal(v, err)
 				}
@@ -154,7 +154,6 @@ func TestBufferUnchangedAndRejection(t *testing.T) {
 	e := testEngine(t)
 	for _, c := range []struct{ text, body string }{
 		{"本文\n", `{"range":"1:1-1:6","text":"本文"}`},
-		{"本文\n", `{"range":"1:1-2:0","text":"本文"}`},
 		{pipeTable, `{"table":0,"op":{"type":"set","cells":[{"row":1,"col":0,"text":"本文"}]}}`},
 	} {
 		s, h, sent := bufferService(t, e, c.text)

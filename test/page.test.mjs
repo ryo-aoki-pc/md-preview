@@ -1326,6 +1326,28 @@ test('ブロックの原文とタスクを画面で編集し、ファイルの�
     assert.match(readFileSync(file, 'utf8'), /Cmd で確定/);
   });
 
+  await t.test('空行なしの日本語の用語を、補正された範囲で編集する', async (t) => {
+    const original = 'りんご\n: 赤\n\n後の段落。\n';
+    const { page, file } = await editablePage(t, browser, original);
+    const term = page.locator('#gp-content dt');
+    assert.equal(await term.getAttribute('data-sourcepos'), '1:1-1:1');
+    const sources = [], writes = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/_/edit/source?')) sources.push(new URL(request.url()));
+      if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/_/edit')) writes.push(request.postDataJSON());
+    });
+    await open(page, term, 'りんご');
+    await page.locator('#gp-edit-input').fill('みかん');
+    await page.keyboard.press('Control+Enter');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), 'みかん\n: 赤\n\n後の段落。\n');
+    assert.equal(sources[0].searchParams.get('tag'), 'dt');
+    assert.equal(sources[0].searchParams.get('range'), '1:1-1:1');
+    assert.equal(writes[0].range, '1:1-1:9');
+    await open(page, page.locator('#gp-content dt'), 'みかん');
+    await page.keyboard.press('Escape');
+  });
+
   await t.test('見出し・入れ子のリスト・リスト内の段落・引用・フェンス', async (t) => {
     const original = '## 見出し\n\n- 親\n  - 子\n\n- 長い項目\n\n  項目の段落\n\n> 引用\n\n```text\nコード\n```\n';
     const { page, file } = await editablePage(t, browser, original);
