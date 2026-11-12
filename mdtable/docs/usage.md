@@ -10,7 +10,7 @@
 
 **参照**
 
-- 検証記録（setup-notes-verification の `docs/verification/windows-setup.md`・`repos/md-table-excel/docs/verification/readme.md`）
+- 検証記録（setup-notes-verification の `docs/verification/windows-setup.md`・`repos/md-tools/mdtable/docs/verification/readme.md`）
 
 </details>
 

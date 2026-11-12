@@ -1,4 +1,14 @@
-# md-preview
+# md-tools
+
+Markdown を扱う 3 つの道具をまとめたリポジトリ。
+
+| 道具 | コマンド | 内容 | 文書 |
+| --- | --- | --- | --- |
+| md-preview | `mdpreview` | Markdown を GitLab の描画で手元でプレビューし、画面で編集する | この README と [docs/](docs/) |
+| md-table-excel | `mdtable` | Markdown の表を Excel で編集して書き戻す | [mdtable/README.md](mdtable/README.md) |
+| md-table-sticky | （ブックマークレット） | GitLab の Markdown の表で先頭行・先頭列を固定し、折り返し・幅を切り替える | [sticky/README.md](sticky/README.md) |
+
+この README の残りは、md-preview（`mdpreview`）の説明。
 
 Markdown を GitLab の描画でプレビューするアプリ（`mdpreview`）。本文を GitLab に送らず、手元で HTML にする。
 
@@ -125,6 +135,6 @@ GitLab の本物の出力との比較は `go test ./...` に含まれる。保�
 
 ## ライセンス
 
-md-preview は [MIT ライセンス](LICENSE)。同梱しているものの一覧は [licenses/manifest.json](licenses/manifest.json) にあり、原文は `mdpreview --licenses` で出す。
+md-preview・md-table-excel・md-table-sticky は、どれも MIT ライセンス。原文は、それぞれ [LICENSE](LICENSE)・[mdtable/LICENSE](mdtable/LICENSE)・[sticky/LICENSE](sticky/LICENSE) にある。
 
-表の操作に使う md-table-sticky も、ルートと同じ MIT ライセンス。原文とライセンスは [sticky/](sticky/) にある。
+`mdpreview`・`mdtable` に同梱しているもののライセンスの原文は、それぞれ `mdpreview --licenses`・`mdtable --licenses` で出す。一覧は [licenses/manifest.json](licenses/manifest.json)・[mdtable/licenses/manifest.json](mdtable/licenses/manifest.json) にある。

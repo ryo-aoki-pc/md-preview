@@ -1,7 +1,7 @@
 {
-  "name": "md-preview",
+  "name": "md-tools",
   "version": "0.9.0",
-  "description": "Markdown を GitLab の描画でプレビューするアプリ（mdpreview）。GitLab に送らずに手元で描く",
+  "description": "Markdown のプレビュー、Excel での表の編集、GitLab の表の固定を行う 3 つの道具",
   "private": true,
   "type": "module",
   "engines": {

@@ -31,7 +31,7 @@
 
 **参照**
 
-- 検証記録（setup-notes-verification の `repos/md-table-sticky/docs/verification/readme.md`）
+- 検証記録（setup-notes-verification の `repos/md-tools/sticky/docs/verification/readme.md`）
 - 検証記録（setup-notes-verification の `docs/verification/windows-setup.md`）
 
 </details>
