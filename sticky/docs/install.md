@@ -23,7 +23,7 @@
 
 1. Edge を開き、ブックマークレットの全文をコピーする。
 
-   - [dist/bookmarklet.txt の Raw](https://raw.githubusercontent.com/ryo-aoki-pc/md-table-sticky/main/dist/bookmarklet.txt) を開き、Ctrl+A → Ctrl+C で全部をコピーする
+   - [dist/bookmarklet.txt の Raw](https://raw.githubusercontent.com/ryo-aoki-pc/md-tools/main/sticky/dist/bookmarklet.txt) を開き、Ctrl+A → Ctrl+C で全部をコピーする
    - 先頭が `javascript:` の文字列をコピーできればよい
    - ブックマークレットはアドレスバーには貼らない
 

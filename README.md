@@ -25,7 +25,7 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `--edit` を付けると、プレビューの画面で表、段落・見出し・リストなどの原文、タスクのチェックボックスを編集し、Markdown のファイルへ書き戻せる。「表を固定」で固定・全幅表示にしたまま表を編集できる。行・列の複製、Shift による範囲の選択、コピー・切り取り・貼り付け、行・列への挿入貼り付けと移動を扱う。Excel 向けには TSV と HTML、mdpreview の別のタブへは原文・属性を保つ写しを渡す
 - `::include{file=…}` でルート内のファイルを取り込む。取り込むファイルの変更・削除・作成に合わせて描き直す
 - 数式（KaTeX）と図（mermaid）を、同梱のライブラリで描く。PlantUML の図は、`plantuml` コマンドが入っていれば、手元のそのコマンドで描く
-- 表の操作には、同梱の md-table-sticky（[原文の写し](page/lib/md-table-sticky/)）を使う
+- 表の操作には、[sticky/](sticky/) の md-table-sticky（`sticky/src/sticky-table.js` を埋め込む）を使う
 - Markdown を HTML に書き出す。スタイルと、文書に必要な数式・図のライブラリを埋め込み、サーバーを起こさずにブラウザで開ける形にする
 - ブラウザから印刷する。印刷用の表示では操作欄・見出し欄・知らせを隠す
 - 配色（システム・ライト・ダーク）と本文幅（全幅・固定幅）を切り替える。任意で GitLab の公式スタイルとフォントを取得し、プレビューに使う
@@ -127,4 +127,4 @@ GitLab の本物の出力との比較は `go test ./...` に含まれる。保�
 
 md-preview は [MIT ライセンス](LICENSE)。同梱しているものの一覧は [licenses/manifest.json](licenses/manifest.json) にあり、原文は `mdpreview --licenses` で出す。
 
-表の操作に使う md-table-sticky も MIT ライセンス。原文の写しとライセンスは [page/lib/md-table-sticky/](page/lib/md-table-sticky/) にある。
+表の操作に使う md-table-sticky も、ルートと同じ MIT ライセンス。原文とライセンスは [sticky/](sticky/) にある。

@@ -29,8 +29,8 @@ func TestLicensesAction(t *testing.T) {
 	if code != 0 || errout.Len() != 0 {
 		t.Fatal(code, errout.String())
 	}
-	if !strings.Contains(out.String(), "名前: md-table-sticky\n") {
-		t.Fatal("表の固定のライセンスがありません")
+	if strings.Contains(out.String(), "名前: md-table-sticky\n") {
+		t.Fatal("同じモジュールの md-table-sticky が第三者のライセンスに含まれています")
 	}
 	if strings.Contains(out.String(), "名前: github.com/ryo-aoki-pc/md-table-excel\n") {
 		t.Fatal("同じモジュールの mdtable が第三者のライセンスに含まれています")

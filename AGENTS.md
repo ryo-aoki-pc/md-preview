@@ -23,8 +23,8 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - Markdown への書き込みは `--edit` を付けたとき（ファイルへ）か、Neovim の橋渡しが `hello` で `edit: 1` を知らせたとき（バッファへ。ファイルには書かない）だけ行う。書く先は要求の本文や URL から取らず、サーバーが描画している文書だけにし、`?doc=` は今までどおり `Resolve` で検査する。`POST _/edit` は token・Host・Sec-Fetch-Site・要求の Host と同じ Origin・JSON の型・本文の上限を確かめる。描画のもとの本文と今のファイルが違えば書かず、バッファへの反映は描画のもとの `buf`・`rev` を Lua が検査する。これらを緩めない
 - 独自の形式で受け取る写しは、別のサイトも書けるので信用しない。ページで形と大きさ、`internal/edit` で型と上限、`tableedit` で原文と結合を検査する。写しに端末の絶対パスとサーバーの token を入れない（文書の照合は起動ごとの乱数を鍵にした HMAC を使う）。`text/html` に原文と属性を入れない。表をまたぐ移動も 1 個の op で 1 手にする
 - 取り込んだファイルの監視も `internal/resolve` の `Resolve` でルート内を確かめ、文書ごとに32個までにする。失敗した include は、安全な親の下で出現を待つ。編集中の文書の再描画には最後に受けた本文を使う
-- `page/lib/` は KaTeX・mermaid・md-table-sticky の原文の写し。手で直さず、`tools/update-page-libs.mjs` で `lock.json`・ライセンスと一緒に更新する。CSS に残る woff / ttf の参照は変えず、配るフォントは woff2 だけにする
-- ページの CSP は `script-src 'self'`。ページに入れるスクリプトとライブラリは、同じサーバーから配る。配るライブラリは `page/lib/lock.json` にあるファイルだけにし、`node_modules` をそのまま見せない
+- `page/lib/` は KaTeX・mermaid の原文の写し。手で直さず、`tools/update-page-libs.mjs` で `lock.json`・ライセンスと一緒に更新する。CSS に残る woff / ttf の参照は変えず、配るフォントは woff2 だけにする
+- ページの CSP は `script-src 'self'`。ページに入れるスクリプトとライブラリは、同じサーバーから配る。配るライブラリは `page/lib/lock.json` にあるファイルと、埋め込んだ `sticky/src/sticky-table.js` だけにし、`node_modules` をそのまま見せない
 - ページでは、サーバーから届いた文字（見出し・知らせ・ファイル名・編集の UI の知らせやセルの文字）を `textContent` で入れる。入力欄には `value` で入れる。HTML として入れてよいのは、`pipeline.Result` の `HTML` だけ
 - `engine/glfm_markdown.wasm` を手で差し替えない。`engine/build.sh --update` で作り、`engine/engine.lock.json` と一緒にコミットする
 
@@ -36,10 +36,11 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `page/embed.go` — ページと `page/lib/` の資産の埋め込み。Go のソースは含めない
 - `cmd/mdpreview/` — コマンド。描画エンジンを起動ごとに1回だけ用意し（`--help`・`--version`・`--licenses`・`install-style` では用意しない）、PATH の `plantuml` と公式スタイルを、プレビュー・Neovim の JSON 行・書き出しにつなぐ
 - `mdtable/` — Markdown の表を Excel で編集する `mdtable`。決まりは `mdtable/AGENTS.md`
+- `sticky/` — GitLab の表を固定するブックマークレット md-table-sticky。`mdpreview` は `sticky/src/sticky-table.js` を埋め込んでページに配る。決まりは `sticky/AGENTS.md`
 - `internal/version/` — 既定の版と、ビルド時に差し替える変数
-- `licenses.go`・`licenses/` — `mdpreview` に入るもののライセンスの原文の同梱と、`mdpreview --licenses` の出力。`licenses/manifest.json` は出す順の一覧（名前・版・種類・原文の場所）、`licenses/go/` は Go 本体と Go のモジュールの原文の写し（書き換えない）。`mdtable` の一覧と原文は `mdtable/licenses/` に置く。描画エンジンの crate の原文は `engine/licenses/`（`engine/licenses.go` が埋め込む）、KaTeX・mermaid・md-table-sticky の原文は `page/lib/` を、元の場所のまま使う
+- `licenses.go`・`licenses/` — `mdpreview` に入るもののライセンスの原文の同梱と、`mdpreview --licenses` の出力。`licenses/manifest.json` は出す順の一覧（名前・版・種類・原文の場所）、`licenses/go/` は Go 本体と Go のモジュールの原文の写し（書き換えない）。`mdtable` の一覧と原文は `mdtable/licenses/` に置く。描画エンジンの crate の原文は `engine/licenses/`（`engine/licenses.go` が埋め込む）、KaTeX・mermaid の原文は `page/lib/` を、元の場所のまま使う
 - `scripts/build-release.sh` — 配布用のビルド。`windows/amd64`・`linux/amd64`・`linux/arm64` 向けの実行ファイルを、同じ設定（CGO 無し・`-trimpath`・版の埋め込み）で作る。GitHub Actions の検査と配布の両方が呼ぶ
-- `.github/workflows/test.yml`・`test-mdtable.yml` — `mdpreview` 側と `mdtable` 側の検査（ubuntu・windows）と配布物のビルド
+- `.github/workflows/test.yml`・`test-mdtable.yml` — `mdpreview` 側と `mdtable` 側の検査（ubuntu・windows）と配布物のビルド。`test.yml` の「sticky の検証」は Node.js 22 で格子・組み立てとブックマークレットの生成物を検査する
 - `.github/workflows/release.yml` — `v` + 数字3つのタグでの配布（検査・ビルド・`SHA256SUMS`・`THIRD-PARTY-LICENSES.txt`・GitHub Releases）
 - `internal/plantuml/` — 絶対パスの PATH の探索、原文を標準入力だけに渡す手元の描画、共有・直列の待ち行列・成功のキャッシュ。取り消し・時間切れ・終了では子孫も止める
 - `assets/embed.go` — 公式資産そのものを含めず、`assets/assets.lock.json` の元のバイト列だけを埋め込む
@@ -65,8 +66,8 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 
 - `engine/` — 描画エンジンの Rust の crate。`src/glfm.rs`・`src/formatter.rs` は gem の写し、`src/lib.rs` は WebAssembly から呼ぶ入口（Ruby の橋渡しの代わり）。`gitlab/glfm_markdown.rb` は GitLab がこの gem に渡すオプションのソースの写し（`go test ./engine` が `engine/engine.go` の `GitLabOptions()` と比べる）、`glfm_markdown.wasm` はビルドした成果物、`engine.lock.json` は GitLab・gem・comrak・コンテナのイメージ・`.wasm` の固定値、`licenses/` は `.wasm` に入る crate のライセンスの原文、`build.sh` は作り直す手順
 - `page/` — ブラウザの表示。文書の移動・一覧・見出し欄・表の操作・GitLab との違いの知らせ・印刷の表示を扱い、KaTeX・mermaid・md-table-sticky は同じサーバーから読む。`preview.js` は本文の写しと画面の対応で差分更新し、変わらない要素と表の操作状態を残す。md-table-sticky の内部への依存を表の固定の節へ集め、食い違いでは全置換へ戻す。`edit-grid.js` は DOM に頼らない範囲・TSV・HTML・写しの計算を `window.gpEditGrid` にまとめ、Node で試す。`edit.js` は `window.gpPreview`・`gp:render`・`gp:stop` を使い、層を重ねて表とブロックの原文を編集し、編集できるタスクのチェックボックスを編集モード中だけ有効にする
-- `page/lib/` — ブラウザに配る KaTeX・mermaid・md-table-sticky と原文のライセンス。`lock.json` に版、npm の integrity または Git の取得元とコミット、各ファイルの sha256・大きさを固定する
-- `tools/update-page-libs.mjs` — 開発用。`node_modules` の KaTeX・mermaid と、指定した clone の md-table-sticky の原文を写し直し、`--check` で固定情報・原文との一致を検査する
+- `page/lib/` — ブラウザに配る KaTeX・mermaid と原文のライセンス。`lock.json` に版、npm の integrity、各ファイルの sha256・大きさを固定する
+- `tools/update-page-libs.mjs` — 開発用。`node_modules` の KaTeX・mermaid の原文を写し直し、`--check` で固定情報・原文との一致を検査する
 - `docs/install.md` — AlmaLinux 10・Windows 11 の導入・更新の手順
 - `docs/images/` — README に載せるプレビューの画面（ライトの配色は `preview-bundled.png`・`preview-official.png`、ダークの配色は `preview-bundled-dark.png`・`preview-official-dark.png`）、比べるための gitlab.com の画面（`gitlab.png`・`gitlab-dark.png`）と、そのもとの合成の Markdown（`sample.md`）。プレビューの画面は、`mdpreview docs/images/sample.md`（同梱のスタイルは `--no-official-style` を付ける。公式スタイルは、先に `mdpreview install-style` で取得しておく）を、幅 640 px・倍率 2 のブラウザで開き、数式と図が描けてから、操作欄の上端から本文の終わりまでを撮ったもの（6 枚は、いちばん長いものの高さに揃える。並べたときに上下がずれないように）。ライトとダークは、ページの「配色」を「システム」のままにして、ブラウザの配色の設定を切り替えて撮る。表示を変えたら、プレビューの 4 枚を撮り直す。gitlab.com の画面は、公開のプロジェクトに `sample.md` を置き、そのファイルの画面をログインせずに開いて、ファイルの枠（名前の帯と本文）の幅が 640 px になるように画面の幅を合わせ、倍率 2 で、数式と図が描けてから、枠の上端から、プレビューの画面と同じ高さまでを撮ったもの。置くときのコミットには GitLab の非公開用のアドレスを使い、撮った後にプロジェクトを消す。ファイルの画面を続けて開くと、ログインなしの通信の回数の制限（429）に当たるので、間を空ける
 - `tools/make-fixtures.mjs` — 開発用。見本の入力を gitlab.com の Markdown API に送り、返った HTML を保存する。アプリからは呼ばれない
@@ -101,14 +102,6 @@ GitLab の版を上げるときは、次の順に行う。
 
 `--check` は開発依存がない導入でも sha256 と大きさを検査する。開発依存がある場合は、その版と原文にも比べる。
 
-## md-table-sticky の写しを上げる
-
-1. md-table-sticky の clone を目的のコミットに合わせ、作業ツリーに変更がないことを確かめる
-2. KaTeX・mermaid の開発依存を導入した上で、`node tools/update-page-libs.mjs --md-table-sticky <clone>` で `HEAD` の JS・ライセンスをバイトのまま写し、版・コミット・sha256・大きさを固定する。clone を指定しなければ、md-table-sticky の写しは変えない
-3. `licenses/manifest.json` の md-table-sticky の版を合わせる
-4. `node tools/update-page-libs.mjs --check` と `node tools/update-page-libs.mjs --md-table-sticky <clone> --check` を実行する。後者は固定したコミットの原文とも比べる
-5. `go test ./...`・`node --test test/page-libs.test.mjs test/page.test.mjs` を実行し、ボタンの切り替え・再読込・ブックマークレットとの併用と、外部要求・CSP 違反がないことを確かめる。写しは手で直さず、ライセンス・固定情報と一緒にレビューする
-
 ## 見本を作り直す
 
 GitLab の描画が変わったか確かめるとき、見本の入力を足したときに行う。試験（`go test ./...` と `node --test test/page.test.mjs`）は GitLab に繋がない。
@@ -140,6 +133,8 @@ gofmt -l .
 
 ルートを受け取る関数（`resolve.Resolve`・`documents.ListMarkdown`・`session.FileContext`・`watch.IncludePath` など）は、ルートが実パスであることを前提にする。試験で一時フォルダーをルートにするときは、`resolve.RealPath(t.TempDir())` で実パスにしてから渡す（Windows の一時フォルダーのパスには、8.3 形式の短い名前が入ることがある）。
 
+`sticky/src/sticky-table.js` を変えたら、`sticky/` で `npm run build`（`dist/` を作り直す）と `npm test`、ルートで `go test ./...` と `node --test test/page.test.mjs` を通す。
+
 依存を足す・上げるとき、Go の版を上げるときは、各実行ファイルの `licenses/manifest.json` と `licenses/go/` の原文の写しも合わせる。試験は `go list -deps` で `mdpreview` の windows/amd64・linux/amd64・linux/arm64 の依存の和と、`mdtable` の windows/amd64 の依存を求め、それぞれの一覧と比べる。両一覧の和はルートの `go.mod` の直接・間接の require と比べ、原文とほかの部品の版は Go のモジュールのキャッシュ・`engine/Cargo.lock`・`page/lib/lock.json` と比べる。版を上げるときは、`internal/version/version.go` と `licenses/manifest.json` の md-preview の版を同じ値にする（配布の workflow は、タグと `version.go` の版が違うと止まる）。
 
 `GOPROXY=off` で試験する前に、通信できる環境で一度 `go mod download` を実行し、固定した依存をキャッシュへ用意しておく。
@@ -159,7 +154,7 @@ git diff --check
 ```
 
 - Go の試験は消毒・フィルター・配色・include・知らせ・悪意のある入力、パスの境界、HTTP / SSE、文書の保持と監視、JSON 行の入出力、PlantUML・公式資産、HTML への書き出し・CLI を確かめる。GitLab の本物の出力との比較は `internal/pipeline/fixtures_test.go` にある。既知の差の表は件数・見本の名前・種類・場所・理由・固定した値も検査する
-- `test/page-libs.test.mjs` — 合成の npm パッケージと使い捨ての Git リポジトリで、原文のバイト・コミットの固定・変更のある写し元の拒否・md-table-sticky を指定しない更新での保持を確かめる。公開レジストリへ接続しない
+- `test/page-libs.test.mjs` — 合成の npm パッケージで、原文のバイト・版と integrity の固定・改変と一覧にないファイルの拒否を確かめる。`lock.json` に md-table-sticky があれば拒む。公開レジストリへ接続しない
 - `test/page.test.mjs` — サーバー（`internal/pagetest` を試験の最初に `go build` して子プロセスで起こす）・本物の KaTeX・mermaid によるブラウザ試験。書き出しの試験は `mdpreview render` を使う。Go が無い場合も理由を付けて skip する。文書の移動・戻ると進む・一覧・見出し欄・違いの知らせの安全な表示と行への移動・include の再描画・印刷と、外部要求の試みがないことを確認する。見本の行の変更と表のセル・行の更新後の木を新しく開いたページと比較し、要素・details・数式・図の保持、全置換への復帰、固定・検索・全幅表示中の表の記録と内側の span、`gpPreview` の表の順・スクロール保持・編集時のジャンプ停止も確かめる。書き出した単一 HTML を `file://` で開き、数式・図・配色、CSP 違反・外部要求が無いことも確かめる。合成の公式資産と偽の図で、公式スタイルの読み込みと失敗時の復帰、PlantUML の表示・失敗・使い回しを確かめる。Playwright（`PLAYWRIGHT_MODULE` または `playwright`）と Edge / Chrome / Chromium がない場合は理由を付けて skip する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる
 - `test/edit-grid.test.mjs` は範囲・TSV・HTML・写しの計算を DOM なしで確かめる。`internal/edit/testdata/page-fragments.json` は `go test ./internal/edit -update` で作り直し、`tableedit.Copy` と JavaScript の写しを比べる
 - `test/page.test.mjs` の編集では、表の範囲の選択・メニュー・クリップボード・移動・キー・貼り付け・行列・HTML 原文・取り消し、段落・見出し・リスト・引用・コードの原文、タスクの切り替え、CRLF・合成した IME・競合を実ファイルの内容まで比べる。固定・検索・全幅表示の記録とチェック切り替え後の要素の保持、編集の知らせを HTML として扱わないこと、Neovim へ送る段落・タスクの行の置き換えも確かめる。実際の IME の操作は未検証

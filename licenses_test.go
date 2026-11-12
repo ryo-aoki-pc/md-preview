@@ -193,7 +193,7 @@ func TestExecutableDependencies(t *testing.T) {
 		blocked []string
 	}{
 		{"./cmd/mdpreview", mdpreviewTargets, []string{"github.com/xuri/", module + "mdtable/internal/workbook", module + "mdtable/internal/sync", module + "mdtable/internal/cli"}},
-		{"./mdtable/cmd/mdtable", [][2]string{{"windows", "amd64"}}, []string{module + "engine", module + "page", module + "assets", module + "internal"}},
+		{"./mdtable/cmd/mdtable", [][2]string{{"windows", "amd64"}}, []string{module + "engine", module + "page", module + "assets", module + "internal", module + "sticky"}},
 	} {
 		t.Run(test.pkg, func(t *testing.T) {
 			for _, target := range test.targets {
@@ -371,8 +371,8 @@ func TestLicenseBrowserVersions(t *testing.T) {
 	if err := json.Unmarshal(data, &lock); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := lock.Packages["md-table-sticky"]; !ok {
-		t.Fatal("表の固定のライブラリがありません")
+	if _, ok := lock.Packages["md-table-sticky"]; ok {
+		t.Fatal("表の固定が第三者のライブラリの固定情報に含まれています")
 	}
 	versions := map[string]string{}
 	for _, c := range licenseManifest(t) {

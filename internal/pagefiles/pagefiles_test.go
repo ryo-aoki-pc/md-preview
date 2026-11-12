@@ -1,14 +1,17 @@
 package pagefiles
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/ryo-aoki-pc/md-tools/page"
 	"io/fs"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/ryo-aoki-pc/md-tools/page"
+	"github.com/ryo-aoki-pc/md-tools/sticky"
 )
 
 func TestEmbedded(t *testing.T) {
@@ -25,12 +28,11 @@ func TestEmbedded(t *testing.T) {
 			t.Fatal(name)
 		}
 	}
-	for _, name := range []string{"md-table-sticky/sticky-table.js", "md-table-sticky/LICENSE"} {
-		if _, ok := libs.Read(name); !ok {
-			t.Fatal("表の固定の写しを読めない: " + name)
-		}
+	found, ok := libs.Read("md-table-sticky/sticky-table.js")
+	if !ok || !bytes.Equal(found.Body, []byte(sticky.Source)) {
+		t.Fatal("表の固定の原文と異なります")
 	}
-	for _, name := range []string{"katex/../katex.min.js", "katex/%2e%2e/package.json", "lock.json", "katex/package.json", "katex/fonts/KaTeX_Main-Regular.ttf", "katex/unlisted.js", "md-table-sticky/package.json", "md-table-sticky/unlisted.js"} {
+	for _, name := range []string{"katex/../katex.min.js", "katex/%2e%2e/package.json", "lock.json", "katex/package.json", "katex/fonts/KaTeX_Main-Regular.ttf", "katex/unlisted.js", "md-table-sticky/LICENSE", "md-table-sticky/package.json", "md-table-sticky/unlisted.js"} {
 		if _, ok := libs.Read(name); ok {
 			t.Fatal(name)
 		}
@@ -60,6 +62,32 @@ func TestTamper(t *testing.T) {
 		t.Fatal("不足を見逃した")
 	}
 }
+func TestEmbeddedStickyTamper(t *testing.T) {
+	libs, err := EmbeddedLibraries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const name = "md-table-sticky/sticky-table.js"
+	original := libs.embedded[name]
+	libs.embedded[name] = append([]byte(nil), original...)
+	libs.embedded[name][0] ^= 1
+	if _, ok := libs.Read(name); ok {
+		t.Fatal("埋め込んだ原文の同じ長さの改変を見逃した")
+	}
+	libs.embedded[name] = original[:len(original)-1]
+	if _, ok := libs.Read(name); ok {
+		t.Fatal("埋め込んだ原文の大きさの違いを見逃した")
+	}
+}
+
+func TestRejectStickyLock(t *testing.T) {
+	lock, _ := json.Marshal(map[string]any{"packages": map[string]any{"md-table-sticky": map[string]any{"name": "md-table-sticky", "files": map[string]Record{}}}})
+	files := fstest.MapFS{"lock.json": &fstest.MapFile{Data: lock}}
+	if _, err := NewLibraries(files); err == nil {
+		t.Fatal("表の固定をライブラリの固定情報に含めました")
+	}
+}
+
 func TestPageConfig(t *testing.T) {
 	p, e := Load(Options{Theme: "dark", Width: "fixed", Jump: true})
 	if e != nil {

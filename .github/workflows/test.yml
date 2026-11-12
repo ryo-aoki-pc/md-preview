@@ -57,3 +57,18 @@ jobs:
       - name: 3つの対象向けにビルド
         if: runner.os == 'Linux'
         run: bash scripts/build-release.sh '0.0.0-ci' .tests/dist
+
+  sticky:
+    name: sticky の検証
+    runs-on: ubuntu-latest
+    steps:
+      - name: ソースを取得
+        uses: actions/checkout@v7
+      - name: Node.js を用意
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: 格子と組み立てを検証
+        run: node --test sticky/test/grid.test.mjs sticky/test/build.test.mjs
+      - name: ブックマークレットの生成物を確認
+        run: node sticky/tools/build-bookmarklet.mjs --check

@@ -10,7 +10,8 @@ Windows 11 の Edge での登録と更新の手順は [docs/install.md](docs/ins
 
 ## 構成
 
-- `src/sticky-table.js` — 中核の IIFE。格子と固定する範囲の純粋な関数、DOM への当て方、見張り、元へ戻す処理
+- `src/sticky-table.js` — 中核の IIFE。格子と固定する範囲の純粋な関数、DOM への当て方、見張り、元へ戻す処理。`mdpreview` も `embed.go` でこの原文を埋め込み、ページに配る
+- `embed.go`・`embed_test.go` — `mdpreview` 用の原文の埋め込みと、原文・ルートのライセンスとの一致の試験
 - `tools/build-bookmarklet.mjs` — ブックマークレットの組み立てと `--check`
 - `dist/bookmarklet.txt`・`dist/bookmarklet.html` — URL と登録用のページの生成物
 - `test/grid.test.mjs` — 格子と固定する範囲の試験
@@ -29,6 +30,8 @@ Windows 11 の Edge での登録と更新の手順は [docs/install.md](docs/ins
 
 ## テスト
 
+リポジトリのルートはこのフォルダーの 1 つ上。次のコマンドは `sticky/` で実行する。
+
 ```sh
 npm test
 for f in src/*.js tools/*.mjs test/*.mjs test/fixtures/*.mjs test/fixtures/*.js; do node --check "$f"; done
@@ -36,6 +39,7 @@ git diff --check
 ```
 
 - Node.js 22 以上。依存のパッケージは無い
+- `mdpreview` のページのコード（ルートの `page/preview.js` の「表の固定」の節、`page/edit.js`、`page/preview.css`）は、`window.__mdTableSticky` の `records`・`floating`・`picking` と、`data-md-table-sticky-*` の属性に頼っている。これらを変えるときは、ルートで `node --test test/page.test.mjs` も通す
 - ブラウザーの試験は Edge か Chromium が要る。`MTS_BROWSER` で実行ファイルを指定できる。見つからないときは、理由を出して飛ばす
 
 ## 書き方の規則
