@@ -59,6 +59,7 @@ type Table struct {
 	RowsLocked  string       `json:"rows_locked"`
 	ColsLocked  string       `json:"cols_locked"`
 	CellsLocked string       `json:"cells_locked"`
+	SortLocked  []string     `json:"sort_locked"` // 選んだ行ごとの並べ替えを断る理由。
 }
 type TagPosition struct {
 	Start   int `json:"start"`
@@ -251,6 +252,7 @@ func (d *Document) snapshot(r *table.Region) *Table {
 	t.RowsLocked, t.ColsLocked = table.ShapeLocks(r)
 	t.CellsLocked = table.CellLocks(r)
 	t.CopyLocked = table.CopyLock(r)
+	t.SortLocked = table.SortLocks(r)
 	if r.Kind == "pipe" {
 		t.Delimiters = table.PipeDelimiterCells(r)
 	} else {

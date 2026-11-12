@@ -46,6 +46,7 @@ type tableInfo struct {
 	RowsLocked    string              `json:"rowsLocked"`
 	ColsLocked    string              `json:"colsLocked"`
 	CellsLocked   string              `json:"cellsLocked"`
+	SortLocked    []string            `json:"sortLocked"`
 	Sections      []tableedit.Section `json:"sections"`
 	Warnings      []string            `json:"warnings"`
 	Cells         []cellInfo          `json:"cells"`
@@ -183,6 +184,7 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 			info.Number, info.Kind, info.Rows, info.Cols = t.Number, t.Kind, t.Rows, t.Cols
 			info.RowsLocked, info.ColsLocked = t.RowsLocked, t.ColsLocked
 			info.CellsLocked = t.CellsLocked
+			info.SortLocked = t.SortLocked
 			info.Sections = append(info.Sections, t.Sections...)
 			info.ConvertLocked = map[string]string{"html": t.ConvertLocked("html"), "pipe": t.ConvertLocked("pipe")}
 			info.DeleteLocked = t.DeleteLocked()
