@@ -108,6 +108,30 @@ func TestUnmergeHTMLCellsInContainers(t *testing.T) {
 		func(d *tableedit.Document) (*tableedit.Result, error) {
 			return d.UnmergeCells(target(d.Table(1)), 1, 1)
 		})
+	// 下の行の左が別の縦の結合だけ（穴は無い）なら、空のセルは覆っていた列に入る。
+	mergeContainers(t, "<table>\n<tr><td>前</td><td rowspan='2'>左結合</td><td rowspan='2' colspan='2'>解除</td><td>後</td></tr>\n<tr><td>前2</td><td>後2</td></tr>\n</table>\n",
+		"<table>\n<tr><td>前</td><td rowspan='2'>左結合</td><td>解除</td><td></td><td>後</td></tr>\n<tr><td>前2</td><td></td><td></td><td>後2</td></tr>\n</table>\n",
+		func(d *tableedit.Document) (*tableedit.Result, error) {
+			return d.UnmergeCells(target(d.Table(1)), 0, 2)
+		})
+}
+
+// 最初の属性が rowspan="1" のセルを横に結合すると、その削除と colspan の挿入がタグ名の直後で重なる。
+func TestMergeCellWithLeadingRowspanOne(t *testing.T) {
+	mergeContainers(t, "<table>\n<tr><td rowspan=\"1\" class='x'>残す</td><td>消す</td></tr>\n</table>\n",
+		"<table>\n<tr><td colspan=\"2\" class='x'>残す</td></tr>\n</table>\n",
+		func(d *tableedit.Document) (*tableedit.Result, error) {
+			return d.MergeCells(target(d.Table(1)), tableedit.Rect{Rows: 1, Cols: 2})
+		})
+}
+
+// 下の行の左に穴があると、空のセルは HTML の解釈で穴に入るので、解除を断る。
+func TestUnmergeRefusesHoleOnTheLeft(t *testing.T) {
+	source := "<table>\n<tr><td>A</td><td>B</td><td rowspan=\"2\">C</td></tr>\n<tr><td>D</td></tr>\n</table>\n"
+	d := tableedit.Parse(source)
+	if r, err := d.UnmergeCells(target(d.Table(1)), 0, 2); r != nil || err == nil || !strings.Contains(err.Error(), "セルの無い位置") || d.Text() != source {
+		t.Fatalf("左に穴がある行の解除を受けた: %v", err)
+	}
 }
 
 func TestMergePipeAsHTMLInContainers(t *testing.T) {

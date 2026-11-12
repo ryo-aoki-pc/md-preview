@@ -97,6 +97,13 @@ test('解除は結合したセルの左上を指し、そのセルだけを選�
   assert.match(grid.unmergeReason(html, { row: 2, col: 2 }, rect(2, 2, 1, 1)), /結合していない/);
   assert.match(grid.unmergeReason(html, point, rect(0, 0, 2, 3)), /1つ/);
   assert.equal(grid.unmergeReason({ ...html, cellsLocked: 'セルの制約' }, point, selected), 'セルの制約');
+  // 下の行の左に穴があると、空のセルを覆っていた列に置けない（サーバーと同じ理由）。
+  const holed = { kind: 'html', rows: 2, cols: 3, cells: [
+    { row: 0, col: 0, rowspan: 1, colspan: 1 }, { row: 0, col: 1, rowspan: 1, colspan: 1 },
+    { row: 0, col: 2, rowspan: 2, colspan: 1 }, { row: 1, col: 0, rowspan: 1, colspan: 1 }] };
+  assert.match(grid.unmergeReason(holed, { row: 0, col: 2 }, rect(0, 2, 2, 1)), /セルの無い位置/);
+  holed.cells.push({ row: 1, col: 1, rowspan: 1, colspan: 1 });
+  assert.equal(grid.unmergeReason(holed, { row: 0, col: 2 }, rect(0, 2, 2, 1)), '');
 });
 
 test('結合後は結合したセルを、解除後はもとの範囲を選び直す', () => {

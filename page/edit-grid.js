@@ -117,6 +117,10 @@
     if (!cell || cell.rowspan === 1 && cell.colspan === 1) return '結合していないセルは解除できません';
     if (!rect || rect.row !== cell.row || rect.col !== cell.col || rect.rows !== cell.rowspan || rect.cols !== cell.colspan)
       return '結合を解除するセルを1つ選んでください';
+    // サーバーの UnmergeHTMLCell と同じ。下の行の左に穴があると、空のセルを覆っていた列に置けない。
+    if (cell.rowspan > 1 && cell.col > 0 &&
+      holesIn(info, { row: cell.row + 1, col: 0, rows: cell.rowspan - 1, cols: cell.col }).length)
+      return '結合の下の行の左にセルの無い位置があるので、結合を解除できません';
     return '';
   }
 

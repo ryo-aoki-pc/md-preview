@@ -39,7 +39,15 @@ func cellSpanTag(c *HTMLCell, rows, cols int) string {
 			edits = append(edits, spanEdit(c, v.name, v.n))
 		}
 	}
-	sort.SliceStable(edits, func(i, j int) bool { return edits[i].start < edits[j].start })
+	// 後ろから当てるので、同じ位置では削除を挿入より後ろに並べる（先に当てる）。
+	// 最初の属性が rowspan="1" のとき、その削除とタグ名の直後への colspan の挿入が重なり、
+	// 挿入を先に当てると、削除が挿入した文字を消してしまう。
+	sort.SliceStable(edits, func(i, j int) bool {
+		if edits[i].start != edits[j].start {
+			return edits[i].start < edits[j].start
+		}
+		return edits[i].end-edits[i].start < edits[j].end-edits[j].start
+	})
 	raw := c.StartToken.Text
 	for i := len(edits) - 1; i >= 0; i-- {
 		e := edits[i]
@@ -108,6 +116,15 @@ func unmergedCell(c *HTMLCell) string {
 func UnmergeHTMLCell(r *Region, row, col int) ([]string, *model.TableModel, *Expectation, error) {
 	t := r.HTML
 	c := t.CellAt[model.Position{Row: row, Col: col}]
+	// 下の行の空のセルは、その行で左にあるセルの後ろへ入れる。左にセルの無い位置があると、
+	// HTML の解釈ではその穴に入り、覆っていた列に置けない。
+	for y := row + 1; y < row+c.Rowspan; y++ {
+		for x := 0; x < col; x++ {
+			if t.Model.Holes[model.Position{Row: y, Col: x}] {
+				return nil, nil, nil, fmt.Errorf("結合の下の行の左にセルの無い位置があるので、結合を解除できません")
+			}
+		}
+	}
 	n := copyShape(t.Model)
 	e := SourceExpectation(r)
 	tag, raw := cellSpanTag(c, 1, 1), unmergedCell(c)
