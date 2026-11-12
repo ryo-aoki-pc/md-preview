@@ -929,7 +929,7 @@
     operationStart();
     item.tableElement = models[item.point?.table]?.table;
     item.version = externalVersion;
-    item.structural = Boolean(item.insert || item.history || /^(insert|delete|duplicate|move)/.test(item.op?.type || ''));
+    item.structural = Boolean(item.insert || item.history || /^(insert|delete|duplicate|move|convert)/.test(item.op?.type || ''));
     if (first) queue.unshift(item);
     else queue.push(item);
     addMask(item);
@@ -974,6 +974,11 @@
       collapseRange();
     }
     busy = null;
+    if (ready && changed && item.op?.type === 'deleteTable') clearSelection();
+    if (ready && changed && item.op?.type === 'convert' && mode && !stopped && item.version === externalVersion) {
+      const cell = find(item.point);
+      if (cell) select(cell);
+    }
     if (ready && item.after && mode && !stopped && item.version === externalVersion)
       selectRange(item.point.table, item.after, item.afterKind);
     updateButtons();
@@ -1314,6 +1319,13 @@
   function reasonFor(action) {
     if (action === 'document-start' || action === 'document-end') return documentInsertReason();
     if (action === 'paste') return pasteInstruction;
+    if (action === 'undo' || action === 'redo') {
+      if (stopped) return 'プレビューが止まっています';
+      if (infoRender !== preview.current()?.render) return '表の情報を読み込んでいます';
+      if (busy || queue.length || sourceFetching) return '前の書き込みの反映を待っています';
+      if (composing) return '文字の入力を終えてから操作してください';
+      return undoState[action] ? '' : '履歴がありません';
+    }
     const cell = selectionCell();
     if (!cell) return 'セルを選んでください';
     if (stopped) return 'プレビューが止まっています';
@@ -1330,6 +1342,11 @@
     const model = models[cell.table], info = model.info, rect = actionRect(action);
     if (!rect) return '範囲を選び直してください';
     if (selecting) return '';
+    if (action === 'table-html' || action === 'table-pipe' || action === 'table-delete') {
+      if (sourceFetching) return '前の書き込みの反映を待っています';
+      if (composing) return '文字の入力を終えてから操作してください';
+      return action === 'table-delete' ? info.deleteLocked || '' : info.convertLocked?.[action.slice('table-'.length)] || '';
+    }
     const rowAction = action.startsWith('row-'), colAction = action.startsWith('col-');
     const copying = ['copy', 'cut'].includes(action) || /-(copy|cut)$/.test(action);
     if (!copying && rowAction && info.rowsLocked) return info.rowsLocked;
@@ -1349,7 +1366,6 @@
     if (action === 'row-delete' && rect.rows === info.rows) return 'すべての行は削除できません';
     if (action === 'col-delete' && rect.cols === info.cols) return 'すべての列は削除できません';
     if (action === 'source' && info.kind !== 'html') return 'HTML の表だけで使えます';
-    if ((action === 'undo' || action === 'redo') && !undoState[action]) return '履歴がありません';
     if (/^(row|col)-insert-/.test(action)) {
       const [axis, , side] = action.split('-'), row = axis === 'row';
       return insertReason(lastCopy, axis, rect[row ? 'row' : 'col'] + (side === 'after' ? rect[row ? 'rows' : 'cols'] - 1 : 0), side, selected.table);
@@ -1442,7 +1458,8 @@
   buildMenu('cell', 'セルの操作', [['copy', 'コピー（Ctrl+C）', 'cell-copy'], ['cut', '切り取り（Ctrl+X）', 'cell-cut'],
     ['paste', '貼り付け（Ctrl+V）', 'cell-paste'], null, ['rows', '行', 'cell-rows'], ['cols', '列', 'cell-cols'], ['table', '表', 'cell-table'], null,
     ['source', '原文を編集', 'cell-source']]);
-  buildMenu('table', '表の操作', [['table-before', '表の前にブロックを追加'], ['table-after', '表の後ろにブロックを追加']]);
+  buildMenu('table', '表の操作', [['table-before', '表の前にブロックを追加'], ['table-after', '表の後ろにブロックを追加'], null,
+    ['table-html', 'HTML の表にする'], ['table-pipe', 'パイプの表にする'], ['table-delete', '表を削除']]);
   buildMenu('document', '文書への追加', [['document-start', '文書の先頭に追加'], ['document-end', '文書の末尾に追加']]);
 
   function closeMenus(restore = false) {
@@ -1529,6 +1546,11 @@
     // 入力の確定が先に送られたなら、座標を使う次の操作は反映を待つ。
     const afterCommit = reasonFor(action);
     if (afterCommit) { notice(afterCommit, true); focusInput(); return; }
+    if (action === 'undo' || action === 'redo') {
+      enqueue({ history: action, point: { ...selected } });
+      focusInput();
+      return;
+    }
     const rect = actionRect(action), model = models[selected.table];
     if (['copy', 'cut'].includes(action) || /-(copy|cut)$/.test(action)) {
       if (action.startsWith('row-') || action.startsWith('col-'))
@@ -1548,7 +1570,9 @@
       selectRange(selected.table, rect, action.startsWith('row-') ? 'rows' : 'cols', true);
       return;
     }
-    if (action === 'undo' || action === 'redo') enqueue({ history: action, point: { ...selected } });
+    if (action === 'table-html' || action === 'table-pipe')
+      enqueue({ point: { ...selected }, op: { type: 'convert', to: action.slice('table-'.length) } });
+    else if (action === 'table-delete') enqueue({ point: { ...selected }, op: { type: 'deleteTable' } });
     else if (action === 'clear') {
       enqueue({ point: { ...selected }, op: { type: 'set', cells: editGrid.cellsIn(model, rect)
         .map((cell) => ({ row: cell.row, col: cell.col, text: '' })) } });
@@ -1612,6 +1636,8 @@
     });
   }
   function updateButtons() {
+    // 表を消して選択を外した後も、その一手を戻せるようにする。
+    if (!selected && !editor) bar.hidden = !mode || !config.undo || !(undoState.undo || undoState.redo);
     addButton.hidden = !mode;
     addButton.disabled = Boolean(documentInsertReason());
     addButton.title = documentInsertReason();
@@ -1816,6 +1842,18 @@
       return;
     }
     if (handleMenuKey(event)) return;
+    // 表を消して選択が外れた後も、履歴があれば Ctrl+Z・Ctrl+Y を操作欄のボタンと同じに扱う。
+    // ほかの入力欄（コメントや検索など）のキーは奪わない。
+    if (!selected && !editor && config.undo && event.ctrlKey && !event.altKey && !event.metaKey &&
+      ['z', 'y'].includes(event.key.toLowerCase()) &&
+      (document.activeElement === document.body || document.activeElement === input || bar.contains(document.activeElement))) {
+      const history = event.key.toLowerCase() === 'y' || event.shiftKey ? 'redo' : 'undo';
+      if (undoState[history]) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        runAction(history);
+      }
+      return;
+    }
     if ((document.activeElement !== input && !(blockPoint(editor?.point) && blockBar.contains(document.activeElement))) ||
       (!selected && !blockPoint(editor?.point))) return;
     const key = event.key;

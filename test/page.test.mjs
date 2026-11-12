@@ -5238,3 +5238,116 @@ test('最上位の表の前後への追加と、追加欄で空の表を入れ�
     assert.equal(readFileSync(file, 'utf8'), want);
   });
 });
+
+test('表メニューで変換・削除・一手の取り消しと選択を確かめる', { skip }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const pipe = '| 見出し | 次 |\n| --- | --- |\n| 本文 | 値 |\n';
+  const html = '<table>\n<tr><th>見出し</th><th>次</th></tr>\n<tr><td>本文</td><td>値</td></tr>\n</table>\n';
+  const menu = async (page, cell, context = false) => {
+    await page.locator(cell).first().click(context ? { button: 'right' } : {});
+    if (context) {
+      await page.locator('#gp-edit-cell-table').focus();
+      await page.keyboard.press('ArrowRight');
+    } else await page.locator('#gp-edit-table').click();
+    assert.equal(await page.locator('#gp-edit-menu-table').isVisible(), true);
+    for (const [id, text] of [['html', 'HTML の表にする'], ['pipe', 'パイプの表にする'], ['delete', '表を削除']])
+      assert.equal(await page.locator('#gp-edit-table-' + id).textContent(), text);
+    assert.equal(await page.locator('#gp-edit-menu-table [role="separator"]').count(), 1);
+  };
+  const action = async (page, id) => {
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.locator('#gp-edit-table-' + id).click();
+    assert.equal((await response).status(), 200);
+    await editIdle(page);
+  };
+  for (const source of [pipe, html]) for (const ending of ['\n', '\r\n']) for (const cell of ['th', 'td'])
+    await t.test((source === pipe ? 'パイプ' : 'HTML') + 'の ' + cell + ' からの変換 ' + JSON.stringify(ending), async (t) => {
+      const to = source === pipe ? 'html' : 'pipe', from = source === pipe ? 'pipe' : 'html';
+      const original = ('前\n\n' + source + '\n後\n').replaceAll('\n', ending);
+      const { page, file } = await editablePage(t, browser, original);
+      await menu(page, '#gp-content ' + cell, source === html);
+      assert.equal(await page.locator('#gp-edit-table-' + from).getAttribute('aria-disabled'), 'true');
+      assert.match(await page.locator('#gp-edit-table-' + from).getAttribute('title'), /すでに/);
+      assert.equal(await page.locator('#gp-edit-table-' + to).getAttribute('aria-disabled'), 'false');
+      await action(page, to);
+      const changed = readFileSync(file, 'utf8');
+      assert.notEqual(changed, original);
+      assert.equal(changed.includes('<table>'), to === 'html');
+      assert.equal(changed.startsWith('前\n\n'.replaceAll('\n', ending)), true);
+      assert.equal(changed.endsWith('\n後\n'.replaceAll('\n', ending)), true);
+      assert.equal(await page.evaluate((tag) => {
+        const selected = document.querySelector('#gp-edit-selection').getBoundingClientRect();
+        const cell = document.querySelector('#gp-content ' + tag).getBoundingClientRect();
+        return selected.left === cell.left && selected.top === cell.top;
+      }, cell), true);
+      await page.locator('#gp-edit-undo').click();
+      await editIdle(page);
+      assert.equal(readFileSync(file, 'utf8'), original);
+      await page.locator('#gp-edit-redo').click();
+      await editIdle(page);
+      assert.equal(readFileSync(file, 'utf8'), changed);
+    });
+
+  for (const source of [pipe, html]) await t.test((source === pipe ? 'パイプ' : 'HTML') + 'の削除後は選択を外し、最後の表も戻せる', async (t) => {
+    const original = '前\n\n\n' + source + '\n\n後\n';
+    const { page, file } = await editablePage(t, browser, original);
+    await menu(page, '#gp-content td', source === html);
+    await action(page, 'delete');
+    assert.equal(readFileSync(file, 'utf8'), '前\n\n後\n');
+    assert.equal(await page.locator('#gp-content table').count(), 0);
+    assert.equal(await page.locator('#gp-edit-selection').isVisible(), false);
+    assert.equal(await page.locator('#gp-edit-undo').isEnabled(), true);
+    await page.locator('#gp-edit-undo').click();
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original);
+    assert.equal(await page.locator('#gp-content table').count(), 1);
+    // 選択の無いまま、Ctrl+Y・Ctrl+Z のキーでもやり直し・元に戻すができる。
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('Control+y');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '前\n\n後\n');
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('Control+z');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original);
+  });
+
+  for (const source of [pipe.replace('| 本文 |', '| [ ] |'), html.replace('>本文<', '>[X]<')])
+    await t.test('タスクの印だけのセルは変換の理由を出す ' + (source.startsWith('|') ? 'パイプ' : 'HTML'), async (t) => {
+      const { page, file } = await editablePage(t, browser, source);
+      await menu(page, '#gp-content th', true);
+      const item = page.locator('#gp-edit-table-' + (source.startsWith('|') ? 'html' : 'pipe'));
+      await item.focus();
+      assert.equal(await item.getAttribute('aria-disabled'), 'true');
+      assert.match(await page.locator('#gp-edit-menu-table-reason').textContent(), /チェックボックス/);
+      await item.click({ force: true });
+      assert.equal(readFileSync(file, 'utf8'), source);
+    });
+
+  await t.test('項目と同じ行の表は削除できず、サーバーの理由を文字として出す', async (t) => {
+    const original = '- | 見出し |\n  | --- |\n  | 本文 |\n';
+    const { page, file } = await editablePage(t, browser, original);
+    await menu(page, '#gp-content td');
+    await page.locator('#gp-edit-table-delete').focus();
+    assert.equal(await page.locator('#gp-edit-table-delete').getAttribute('aria-disabled'), 'true');
+    assert.match(await page.locator('#gp-edit-menu-table-reason').textContent(), /項目全体/);
+    await page.locator('#gp-edit-table-delete').click({ force: true });
+    assert.equal(readFileSync(file, 'utf8'), original);
+    const reason = '<img src=x onerror=alert(1)>操作できない';
+    await page.route('**/_/edit/tables?*', async (route) => {
+      const response = await route.fetch(), data = await response.json();
+      data.tables[0].deleteLocked = reason;
+      data.tables[0].convertLocked.html = reason;
+      await route.fulfill({ json: data });
+    });
+    await page.reload();
+    await page.waitForFunction(() => Number(document.querySelector('#gp-edit-layer').dataset.render) > 0);
+    await menu(page, '#gp-content td');
+    for (const id of ['delete', 'html']) {
+      await page.locator('#gp-edit-table-' + id).focus();
+      assert.equal(await page.locator('#gp-edit-menu-table-reason').textContent(), reason);
+      assert.equal(await page.locator('#gp-edit-menu-table img').count(), 0);
+    }
+  });
+});

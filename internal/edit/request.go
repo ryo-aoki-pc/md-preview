@@ -35,6 +35,7 @@ type operation struct {
 	cells           []tableedit.CellEdit
 	values          [][]string
 	source          string
+	to              string
 	fragment        *tableedit.Fragment
 	from            moveSource
 }
@@ -173,6 +174,18 @@ func parseOperation(m map[string]any) (operation, *Error) {
 	get := func(name string, min int) int { n, valid := integer(m[name], min); ok = ok && valid; return n }
 	ok = true
 	switch o.kind {
+	case "convert":
+		if !fields(m, "type", "to") {
+			return o, invalid()
+		}
+		o.to, _ = m["to"].(string)
+		if o.to != "html" && o.to != "pipe" {
+			return o, invalid()
+		}
+	case "deleteTable":
+		if !fields(m, "type") {
+			return o, invalid()
+		}
 	case "set":
 		if !fields(m, "type", "cells") {
 			return o, invalid()
@@ -379,6 +392,10 @@ func (o operation) apply(ctx context.Context, d *tableedit.Document, t tableedit
 		return result, nil
 	}
 	switch o.kind {
+	case "convert":
+		return d.ConvertTable(t, o.to)
+	case "deleteTable":
+		return d.DeleteTable(t)
 	case "set":
 		return d.SetCells(t, o.cells)
 	case "paste":

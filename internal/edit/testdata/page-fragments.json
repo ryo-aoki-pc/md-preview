@@ -76,7 +76,12 @@
           ":---",
           "---:"
         ],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "",
+          "pipe": "すでにパイプの表です"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 0,
@@ -211,7 +216,12 @@
           ":---",
           "---:"
         ],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "",
+          "pipe": "すでにパイプの表です"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 1,
@@ -328,7 +338,12 @@
           ":---",
           "---:"
         ],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "",
+          "pipe": "すでにパイプの表です"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 0,
@@ -444,7 +459,12 @@
           ":---",
           "---:"
         ],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "",
+          "pipe": "すでにパイプの表です"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 1,
@@ -551,7 +571,12 @@
           ":---",
           "---:"
         ],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "",
+          "pipe": "すでにパイプの表です"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 0,
@@ -686,7 +711,12 @@
           ":---",
           "---:"
         ],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "",
+          "pipe": "すでにパイプの表です"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 0,
@@ -821,7 +851,12 @@
           ":---",
           "---:"
         ],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "",
+          "pipe": "すでにパイプの表です"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 0,
@@ -970,7 +1005,12 @@
           "\u003ctr\u003e"
         ],
         "delimiters": [],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "すでに HTML の表です",
+          "pipe": "セル結合がある"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 0,
@@ -1129,7 +1169,12 @@
           "\u003ctr\u003e"
         ],
         "delimiters": [],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "すでに HTML の表です",
+          "pipe": "セル結合がある"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 1,
@@ -1269,7 +1314,12 @@
           "\u003ctr\u003e"
         ],
         "delimiters": [],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "すでに HTML の表です",
+          "pipe": "セル結合がある"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 0,
@@ -1428,7 +1478,12 @@
           "\u003ctr\u003e"
         ],
         "delimiters": [],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "すでに HTML の表です",
+          "pipe": "セル結合がある"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 0,
@@ -1587,7 +1642,12 @@
           "\u003ctr\u003e"
         ],
         "delimiters": [],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "すでに HTML の表です",
+          "pipe": "セル結合がある"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 0,
@@ -1746,7 +1806,12 @@
           "\u003ctr\u003e"
         ],
         "delimiters": [],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "すでに HTML の表です",
+          "pipe": "セル結合がある"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 1,
@@ -1874,7 +1939,12 @@
           "\u003ctr\u003e"
         ],
         "delimiters": [],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "すでに HTML の表です",
+          "pipe": "セル結合がある"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 1,
@@ -1934,7 +2004,12 @@
           "---",
           "---"
         ],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "",
+          "pipe": "すでにパイプの表です"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 0,
@@ -1994,7 +2069,12 @@
           "---",
           "---"
         ],
-        "copyLocked": ""
+        "copyLocked": "",
+        "convertLocked": {
+          "html": "",
+          "pipe": "すでにパイプの表です"
+        },
+        "deleteLocked": ""
       },
       "rect": {
         "row": 0,
