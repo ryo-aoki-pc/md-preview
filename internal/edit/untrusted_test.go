@@ -69,7 +69,11 @@ func TestUntrustedCheckboxes(t *testing.T) {
 			} else {
 				s, h = testService(t, e, text, nil)
 			}
-			if _, err := applyJSON(t, s, h, `{"checkbox":"`+forged+`","checked":true}`); err == nil || err.Code != "untrusted" {
+			code := "untrusted"
+			if forged == "3:4-3:4" {
+				code = "ambiguous"
+			}
+			if _, err := applyJSON(t, s, h, `{"checkbox":"`+forged+`","checked":true}`); err == nil || err.Code != code {
 				t.Fatal(err)
 			}
 			if buffer && len(*sent) != 0 || !buffer && disk(t, h) != text {

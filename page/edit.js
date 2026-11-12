@@ -152,14 +152,25 @@
   beforeButton.addEventListener('click', () => beginInsert('before'));
   afterButton.addEventListener('click', () => beginInsert('after'));
   function checkboxOf(element) {
-    return element?.matches?.('input.task-list-item-checkbox[type="checkbox"][data-checkbox-sourcepos]:not([data-inapplicable])') &&
-      element.closest('#gp-content') && !element.closest('table, section[data-footnotes]') &&
-      rangePattern.test(element.getAttribute('data-checkbox-sourcepos')) ? element : null;
+    if (!element?.matches?.('input.task-list-item-checkbox[type="checkbox"][data-checkbox-sourcepos]:not([data-inapplicable])') ||
+      !rangePattern.test(element.getAttribute('data-checkbox-sourcepos'))) return null;
+    const table = element.closest('table');
+    if (table) return element.closest('td, th') && models.some((model) => model.table === table && model.editable) ? element : null;
+    return element.closest('#gp-content') ? element : null;
   }
-  // checked の属性の変更では input だけが置き換わることがある。同じ親の同じ位置だけを引き継ぐ。
+  // セルの更新では子が入れ替わるので、表の中はセル内の番号、外は同じ親の同じ位置を引き継ぐ。
+  function checkboxPosition(element) {
+    const cell = element.closest('table') && element.closest('td, th');
+    return cell ? { cell, ordinal: Array.prototype.indexOf.call(cell.querySelectorAll('input.task-list-item-checkbox'), element) }
+      : { parent: element.parentElement, index: Array.prototype.indexOf.call(element.parentElement.children, element) };
+  }
+  function checkboxAt(position) {
+    return position?.cell ? position.cell.isConnected && position.cell.querySelectorAll('input.task-list-item-checkbox')[position.ordinal]
+      : position?.parent?.isConnected && position.parent.children[position.index];
+  }
   function checkboxElement(item) {
     if (!item.checkbox || item.checkbox.isConnected) return item.checkbox;
-    const element = item.checkboxParent?.isConnected && item.checkboxParent.children[item.checkboxIndex];
+    const element = checkboxAt(item.checkboxPosition);
     if (checkboxOf(element)) item.checkbox = element;
     return item.checkbox;
   }
@@ -167,9 +178,12 @@
   function updateCheckboxes(reset = false) {
     const pendingItems = [...(busy ? [busy.item] : []), ...queue];
     for (const item of pendingItems) checkboxElement(item);
-    for (const element of document.querySelectorAll('#gp-content input.task-list-item-checkbox')) {
-      if (!checkboxOf(element)) continue;
-      element.disabled = !(mode && !stopped && documentEditable && infoRender === preview.current()?.render);
+    const elements = new Set(document.querySelectorAll('#gp-content input.task-list-item-checkbox'));
+    // 全幅表示では本文の外へ移る。対応を失った表も、プレビューが持つ表から無効に戻す。
+    for (const table of preview.tables()) if (!table.closest('#gp-content'))
+      for (const element of table.querySelectorAll('input.task-list-item-checkbox')) elements.add(element);
+    for (const element of elements) {
+      element.disabled = !(checkboxOf(element) && mode && !stopped && documentEditable && infoRender === preview.current()?.render);
       if (reset) {
         const pending = pendingItems.slice().reverse().find((item) => item.checkbox === element);
         element.checked = pending ? pending.checked : element.hasAttribute('checked');
@@ -177,7 +191,7 @@
     }
     // 切り替えたチェックボックスは、描き直しで別の要素になる。フォーカスがあったなら、また押せるようになったときに戻す。
     if (refocus && mode && infoRender === preview.current()?.render) {
-      const element = refocus.parent.isConnected && refocus.parent.children[refocus.index];
+      const element = checkboxAt(refocus);
       if (checkboxOf(element) && !element.disabled && (document.activeElement === document.body || !document.activeElement?.isConnected))
         element.focus({ preventScroll: true });
       refocus = null;
@@ -1476,7 +1490,7 @@
   window.gpEditMode = { active: () => mode, busy: () => Boolean(editor || composing || busy || queue.length || sourceFetching), exit: () => setMode(false) };
   toggle.addEventListener('click', () => setMode(!mode));
 
-  // ページと md-table-sticky の操作欄、本文の入力の部品は触らない。表のセルの中の入力（表の中のタスクのチェックボックス）は、セルの操作として扱う。
+  // ページと md-table-sticky の操作欄、本文の入力の部品は触らない。対象外の表の中の入力は、セルの操作として扱う。
   const ignored = (element) => !element || window.__mdTableSticky?.picking ||
     element.closest('#gp-controls, #gp-header, #gp-notices, #gp-outline, #gp-outline-resizer, [data-md-table-sticky-bar], [data-md-table-sticky-search], [data-md-table-sticky-columns]') ||
     (!element.closest('td, th') && element.closest('input, textarea, select, button, [contenteditable]'));
@@ -1522,15 +1536,16 @@
     // コメントへの切り替えは、入力を確定せず busy() の確認へ渡す。
     if (event.target.closest?.('#gp-review-toggle')) return;
     cancelSource();
-    const checkbox = checkboxOf(event.target);
+    // 表の固定の「セルを選んで固定」の最中は、セルの中のタスクを押しても境界の選択だけに任せる。
+    const checkbox = !window.__mdTableSticky?.picking && checkboxOf(event.target);
     if (checkbox && documentEditable && infoRender === preview.current()?.render && !dragged) {
       event.stopPropagation();
       if (editor) endEdit(true);
       clearSelection();
-      const index = Array.prototype.indexOf.call(checkbox.parentElement.children, checkbox);
-      if (document.activeElement === checkbox) refocus = { parent: checkbox.parentElement, index };
+      const position = checkboxPosition(checkbox);
+      if (document.activeElement === checkbox) refocus = position;
       enqueue({ point: { range: checkbox.getAttribute('data-checkbox-sourcepos') }, checkbox,
-        checkboxParent: checkbox.parentElement, checkboxIndex: index,
+        checkboxPosition: position,
         checked: checkbox.checked, originalChecked: !checkbox.checked });
       return;
     }
@@ -1565,6 +1580,7 @@
     }
   }, true);
   window.addEventListener('dblclick', (event) => {
+    if (checkboxOf(event.target)) return;
     if (!mode || stopped || ignored(event.target) || layer.contains(event.target) || dragged ||
       event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
     const cell = byCell.get(event.target.closest?.('td, th'));

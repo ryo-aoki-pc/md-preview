@@ -248,6 +248,24 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 				} else if reason != nil {
 					return nil, reason
 				}
+				if index, inTable := m.checkboxTables[r.rangeValue]; inTable {
+					tables, err := s.tables(ctx, src)
+					if err != nil {
+						return nil, err
+					}
+					reason := "表の対応を確かめられない"
+					editable := false
+					if index < len(tables.response.Tables) {
+						table := tables.response.Tables[index]
+						editable = table.Editable
+						if table.Reason != "" {
+							reason = table.Reason
+						}
+					}
+					if !editable {
+						return nil, fault(422, "excluded", "この表の中のタスクは切り替えられません（"+reason+"）。")
+					}
+				}
 				start, end, line, err = offsets(src, r.rangeValue)
 				if err != nil {
 					return nil, err

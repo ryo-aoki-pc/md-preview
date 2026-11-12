@@ -36,14 +36,15 @@ type positionAttribute struct {
 }
 
 type blockMapping struct {
-	html        []*htmlRun
-	htmlReady   bool
-	corrected   map[positionAttribute]Range
-	render      uint64
-	blocks      []block
-	checkboxes  map[Range]*Error
-	untrusted   map[positionAttribute]bool
-	positionErr *Error
+	html           []*htmlRun
+	htmlReady      bool
+	corrected      map[positionAttribute]Range
+	render         uint64
+	blocks         []block
+	checkboxes     map[Range]*Error
+	checkboxTables map[Range]int
+	untrusted      map[positionAttribute]bool
+	positionErr    *Error
 }
 
 func (m *blockMapping) positionReason(n *html.Node, name string) *Error {
@@ -154,10 +155,6 @@ func footnoteLabel(text string) string {
 	return label
 }
 
-func excludedCheckbox(n *html.Node) bool {
-	return n.Type == html.ElementNode && (n.Data == "table" || n.Data == "section" && htmltree.Has(n, "data-footnotes"))
-}
-
 func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping, *Error) {
 	key := pathKey(src.Path)
 	if m := s.blockCache[key]; m != nil && m.render == src.Render {
@@ -185,7 +182,24 @@ func (s *Service) buildBlocks(ctx context.Context, src session.Source) (*blockMa
 		return nil, fault(422, "render", "描画したブロックを読み取れません。")
 	}
 	m := &blockMapping{render: src.Render, checkboxes: map[Range]*Error{}, untrusted: map[positionAttribute]bool{}}
+	m.checkboxTables = map[Range]int{}
 	s.untrustedPositions(ctx, src, m)
+	tables, err := tableNodes(ctx, root)
+	if err != nil {
+		return nil, fault(422, "cancelled", "ブロックの対応の確認を取り消しました。")
+	}
+	tableIndices, excludedTables := map[*html.Node]int{}, map[*html.Node]bool{}
+	for i, table := range tables {
+		tableIndices[table] = i
+		if htmltree.Has(table, "data-table-fields") {
+			excludedTables[table] = true
+		}
+		for parent := table.Parent; parent != nil; parent = parent.Parent {
+			if parent.Type == html.ElementNode && parent.Data == "table" {
+				excludedTables[table], excludedTables[parent] = true, true
+			}
+		}
+	}
 	lines := strings.Split(src.Text, "\n")
 	starts := lineStarts(src.Text)
 	nodes := []*html.Node{}
@@ -194,11 +208,27 @@ func (s *Service) buildBlocks(ctx context.Context, src session.Source) (*blockMa
 		if n.Type != html.ElementNode {
 			return nil
 		}
-		// ページは表と脚注の中のチェックボックスを扱わない。JSON の表のセルには利用者が属性を書けるので、一覧にも入れない。
-		if n.Data == "input" && htmltree.HasClass(n, "task-list-item-checkbox") && !htmltree.Ancestor(n, excludedCheckbox) {
+		if n.Data == "input" && htmltree.HasClass(n, "task-list-item-checkbox") {
+			var table *html.Node
+			for parent := n.Parent; parent != nil; parent = parent.Parent {
+				if parent.Type == html.ElementNode && parent.Data == "table" {
+					table = parent
+					break
+				}
+			}
 			r := Range(htmltree.Get(n, "data-checkbox-sourcepos"))
-			if rangePattern.MatchString(string(r)) {
-				m.checkboxes[r] = m.positionReason(n, "data-checkbox-sourcepos")
+			reason := m.positionReason(n, "data-checkbox-sourcepos")
+			// JSON の二次描画と入れ子の表は除く。表と脚注で新たに受ける位置も、利用者の属性からは登録しない。
+			if rangePattern.MatchString(string(r)) && !excludedTables[table] &&
+				!(reason != nil && (table != nil || htmltree.Ancestor(n, footnoteSection))) {
+				if _, duplicate := m.checkboxes[r]; duplicate {
+					m.checkboxes[r] = blockFault("ambiguous")
+				} else {
+					m.checkboxes[r] = reason
+					if table != nil {
+						m.checkboxTables[r] = tableIndices[table]
+					}
+				}
 			}
 		}
 		kind := blockKind(n.Data)
