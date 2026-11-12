@@ -237,7 +237,7 @@ func TestTextRangesAndWrites(t *testing.T) {
 		})
 	}
 	for _, c := range []struct{ text, r, code string }{
-		{"本文", "1:2-1:6", "range"}, {"本文", "1:1-1:2", "range"}, {"本文", "1:1-2:0", "range"},
+		{"本文", "1:2-1:6", "range"}, {"本文", "1:1-1:2", "range"}, {"本文", "1:1-3:0", "range"},
 		{"::include{file=part.md}\n後", "1:1-4:3", "include"},
 		{"---\na: b\n---\n本文", "1:1-1:3", "frontmatter"},
 		{"前\r本文", "1:1-1:3", "shift"},

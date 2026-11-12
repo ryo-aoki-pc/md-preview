@@ -14,6 +14,9 @@ import (
 	"github.com/ryo-aoki-pc/md-tools/internal/edit"
 )
 
+// tagPattern は、原文を取得する対象の要素名の形。
+var tagPattern = regexp.MustCompile(`^[a-z0-9]+$`)
+
 type Editor interface {
 	Config() map[string]any
 	Tables(context.Context, *string, uint64) (any, *edit.Error)
@@ -107,7 +110,7 @@ func (s *Server) edit(conn net.Conn, r *http.Request, route string) {
 		result, e = s.opts.Edit.Tables(r.Context(), doc, render)
 	} else {
 		tag := p.Get("tag")
-		if !regexp.MustCompile(`^[a-z0-9]+$`).MatchString(tag) {
+		if !tagPattern.MatchString(tag) {
 			editError(conn, r, &edit.Error{Status: 400, Code: "invalid", Message: "編集の要求の形が正しくありません。"})
 			return
 		}

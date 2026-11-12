@@ -145,7 +145,8 @@ func blockRange(src session.Source, lines []string, starts []int, n *html.Node, 
 		return r, e
 	}
 	if c[3] == 0 {
-		if c[2] > src.Lines.Expanded(len(lines)) {
+		// 終了列 0 は前の行までなので、最後の行の次の行を指していてもよい。
+		if c[2]-1 > src.Lines.Expanded(len(lines)) {
 			return r, fault(422, "range", "原文の行が範囲外です。")
 		}
 		c[2]--

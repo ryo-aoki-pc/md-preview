@@ -18,6 +18,9 @@ func TestBlockRangesAndWrites(t *testing.T) {
 		{"日本語の用語", "りんご\n: 赤\n", "dt", "1:1-1:1", "1:1-1:9", "りんご", "みかん", "みかん\n: 赤\n"},
 		{"二行の用語", "Apple\nPear\n: red\n", "dt", "1:1-1:1", "1:1-2:4", "Apple\nPear", "Orange\nGrape", "Orange\nGrape\n: red\n"},
 		{"引用の用語", "> T3\n> : d3\n", "dt", "1:3-1:3", "1:3-1:4", "T3", "T4", "> T4\n> : d3\n"},
+		// 引用やリストの中の 2 行目は、段落と同じく、行頭の印やインデントを含む原文のまま直す。
+		{"引用の二行の用語", "> Apple\n> Pear\n> : red\n", "dt", "1:3-1:3", "1:3-2:6", "Apple\n> Pear", "Orange\n> Grape", "> Orange\n> Grape\n> : red\n"},
+		{"リストの二行の用語", "- Apple\n  Pear\n  : red\n", "dt", "1:3-1:3", "1:3-2:6", "Apple\n  Pear", "Orange\n  Grape", "- Orange\n  Grape\n  : red\n"},
 		{"リストの用語", "- Apple\n  : red\n", "dt", "1:3-1:3", "1:3-1:7", "Apple", "Pear", "- Pear\n  : red\n"},
 		{"チルダの定義", "Apple\n~ red\n", "dt", "1:1-1:1", "1:1-1:5", "Apple", "Pear", "Pear\n~ red\n"},
 		{"一文字と空行", "A\n\n: d\n", "dt", "1:1-1:1", "1:1-1:1", "A", "B", "B\n\n: d\n"},
@@ -63,11 +66,14 @@ func TestBlockEndColumnZero(t *testing.T) {
 		{"- item\n\n  ---\n", "1:1-4:0", "1:1-3:5", "- item\n\n  ---", "changed\n"},
 		{"1. one\n2. two\n\n次", "2:1-3:0", "2:1-2:6", "2. two", "1. one\nchanged\n\n次"},
 		{"1. one\n2. two\n \t\n\n次", "2:1-5:0", "2:1-2:6", "2. two", "1. one\nchanged\n \t\n\n次"},
+		// 終了列 0 が、最後の行の次の行を指す形。
+		{"- a\n- b", "2:1-3:0", "2:1-2:3", "- b", "- a\nchanged"},
 	} {
 		for _, ending := range []string{"\n", "\r\n"} {
 			t.Run(c.public+fmt.Sprintf("/%q", ending), func(t *testing.T) {
 				s, h := testService(t, e, strings.ReplaceAll(c.text, "\n", ending), nil)
-				// 今のエンジンでは終了列 0 を再現しないため、指定の公開位置を木へ直接渡す。
+				// 本物の出力の例は TestBlockRangesAndWrites にある。ここでは、空白だけの行や
+				// 文書の末尾との組み合わせを、位置を木へ直接渡して確かめる。
 				h.src.HTML = `<ul><li data-sourcepos="` + c.public + `">item</li></ul>`
 				value, err := s.Text(context.Background(), nil, h.src.Render, "li", Range(c.public))
 				if err != nil {
@@ -88,6 +94,26 @@ func TestBlockEndColumnZero(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestBlockAfterInclude(t *testing.T) {
+	e := testEngine(t)
+	// 取り込みで行がずれた後ろでも、終了列 0 の補正と置き換えが原文の行に当たる。
+	text := "::include{file=part.md}\n\n- a\n- b\n\n# h\n"
+	s, h := testService(t, e, text, map[string]string{"part.md": "一\n二\n三"})
+	value, err := s.Text(context.Background(), nil, h.src.Render, "li", "6:1-7:0")
+	if err != nil {
+		t.Fatalf("取得: %v\n%s", err, h.src.HTML)
+	}
+	if got := value.(map[string]any); got["range"] != Range("6:1-6:3") || got["text"] != "- b" {
+		t.Fatal(got)
+	}
+	if _, err := applyJSON(t, s, h, `{"range":"6:1-6:3","text":"- c"}`); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := disk(t, h), "::include{file=part.md}\n\n- a\n- c\n\n# h\n"; got != want {
+		t.Fatalf("原文=%q、期待=%q", got, want)
 	}
 }
 
