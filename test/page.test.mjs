@@ -3723,6 +3723,27 @@ test('数式と図の原文を編集し、描き直しと編集の枠を確か�
     await page.keyboard.press('Escape');
   });
 
+  await t.test('図の編集中に、同じ位置の図が外で変わったら、入力欄を付け替えずに閉じる', async (t) => {
+    const source = '```mermaid\ngraph TD; A-->B\n```';
+    const original = '前\n\n' + source + '\n';
+    const { page, file, server } = await editablePage(t, browser, original);
+    await page.waitForSelector('.gp-mermaid svg');
+    await open(page, '.gp-mermaid', source, 'pre');
+    await page.locator('#gp-edit-input').fill(source.replace('B', 'C'));
+    // 要素名と位置は同じ（pre の 3:1-5:3）で、中身だけが外で変わる。
+    const external = original.replace('A-->B', 'A-->Z');
+    writeFileSync(file, external);
+    await server.setDocument({ path: file, text: external, rev: 30 });
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').hidden);
+    await page.waitForFunction(() => document.querySelector('#gp-edit-status').textContent.includes('文書が変わった'));
+    await page.waitForFunction(() => document.querySelector('.gp-mermaid svg')?.textContent.includes('Z'));
+    assert.equal(readFileSync(file, 'utf8'), external);
+    await editIdle(page);
+    // 開き直すと、外で変わった後の原文が出る（前の原文に対する下書きは出さない）。
+    await open(page, '.gp-mermaid', source.replace('A-->B', 'A-->Z'), 'pre');
+    await page.keyboard.press('Escape');
+  });
+
   await t.test('図から外側へ移った入力欄と別に、項目と注記の題名には開く対象の枠を出す', async (t) => {
     const original = '- item\n\n  ```mermaid\n  graph TD; A-->B\n  ```\n- next\n\n>>> [!note] 題名\n本文\n>>>\n';
     const { page } = await editablePage(t, browser, original);
@@ -3746,6 +3767,16 @@ test('数式と図の原文を編集し、描き直しと編集の枠を確か�
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#gp-content').innerHTML(), before);
     await page.locator('#gp-header').hover();
+    assert.equal(await page.locator('#gp-edit-hover').textContent(), '');
+    // 窓からフォーカスが外れたとき・プレビューが止まったときも、枠を残さない。
+    await page.locator('.markdown-alert-title').hover();
+    assert.notEqual(await page.locator('#gp-edit-hover').textContent(), '');
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    assert.equal(await page.locator('#gp-edit-hover').textContent(), '');
+    await page.locator('#gp-header').hover();
+    await page.locator('.markdown-alert-title').hover();
+    assert.notEqual(await page.locator('#gp-edit-hover').textContent(), '');
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('gp:stop', { detail: { reason: 'exit' } })));
     assert.equal(await page.locator('#gp-edit-hover').textContent(), '');
   });
 });

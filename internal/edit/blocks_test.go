@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -674,5 +675,55 @@ func TestDiagramBoundariesAndOuter(t *testing.T) {
 				t.Fatal("信用しない位置の確定", err)
 			}
 		})
+	}
+}
+
+func TestDiagramsInContainers(t *testing.T) {
+	e := testEngine(t)
+	// 字下げ・リスト・引用の中の PlantUML も、位置は囲みの開始から始まる。
+	for _, c := range []struct{ name, text, source string }{
+		{"字下げ", "前\n\n  ```plantuml\n  A -> B\n  ```\n", "```plantuml\n  A -> B\n  ```"},
+		{"リストの中", "- item\n\n  ```plantuml\n  A -> B\n  ```\n", "```plantuml\n  A -> B\n  ```"},
+		{"引用の中", "> ```plantuml\n> A -> B\n> ```\n", "```plantuml\n> A -> B\n> ```"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, h := testService(t, e, c.text, nil)
+			result, err := h.renderer.Render(context.Background(), c.text, session.FileContext(h.src.Root, h.src.File, h.src.Dir, true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.src.HTML = result.HTML
+			public := regexp.MustCompile(`<img[^>]*data-sourcepos="([^"]+)"`).FindStringSubmatch(h.src.HTML)
+			if public == nil {
+				t.Fatal(h.src.HTML)
+			}
+			value, failure := s.Text(context.Background(), nil, h.src.Render, "img", Range(public[1]))
+			if failure != nil {
+				t.Fatalf("取得=%v\n%s", failure, h.src.HTML)
+			}
+			if got := value.(map[string]any); got["kind"] != "plantuml" || got["text"] != c.source {
+				t.Fatalf("原文の取得=%+v", got)
+			}
+		})
+	}
+	// 表と脚注の中の数式・図は、単独の対象にしない。
+	for _, text := range []string{
+		"<table><tr><td>\n\n```math\na^2\n```\n\n</td></tr></table>\n",
+		"<table><tr><td>\n\n```mermaid\ngraph TD; A-->B\n```\n\n</td></tr></table>\n",
+		"本文[^1]\n\n[^1]: 脚注\n\n    ```math\n    a^2\n    ```\n",
+	} {
+		s, h := testService(t, e, text, nil)
+		if !strings.Contains(h.src.HTML, "js-render-") {
+			t.Fatalf("数式・図として描かれていない\n%s", h.src.HTML)
+		}
+		m, err := s.blocks(context.Background(), h.src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, b := range m.blocks {
+			if b.kind == "math" || b.kind == "mermaid" || b.kind == "plantuml" {
+				t.Fatalf("表か脚注の中の %s が対象になった: %+v\n%s", b.kind, b, h.src.HTML)
+			}
+		}
 	}
 }

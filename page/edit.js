@@ -558,7 +558,9 @@
   }
   function refreshBlock() {
     if (!editor?.point.range || editor.element.isConnected) return;
-    const element = preview.findSource(editor.target.tag, editor.target.range);
+    // 探し直すのは、数式・図の描き直しや配色の切り替えで置き換わったときだけ。
+    // 文書が外で変わった後は、同じ位置に別の内容が来ているかもしれないので付け替えない。
+    const element = editor.version === externalVersion && preview.findSource(editor.target.tag, editor.target.range);
     if (element) editor.element = element;
     else {
       clearSelection();
@@ -1553,7 +1555,17 @@
     updateHover(event.relatedTarget);
   }, true);
   window.addEventListener('blur', () => { hoverPoint = null; updateHover(null); });
-  const refreshHover = () => updateHover(hoverPoint && document.elementFromPoint(hoverPoint.x, hoverPoint.y));
+  // 本文の変更やスクロールの後の枠の当て直しは、編集モードの間だけ、1 フレームに 1 回にまとめる
+  // （elementFromPoint はレイアウトを強制するので、描画のたびに呼ばない）。
+  let hoverFrame = 0;
+  const refreshHover = () => {
+    if (!mode || !hoverPoint) { updateHover(null); return; }
+    if (hoverFrame) return;
+    hoverFrame = requestAnimationFrame(() => {
+      hoverFrame = 0;
+      updateHover(mode && hoverPoint ? document.elementFromPoint(hoverPoint.x, hoverPoint.y) : null);
+    });
+  };
   window.addEventListener('scroll', refreshHover, true);
   window.addEventListener('resize', refreshHover);
   new MutationObserver(refreshHover).observe(document.getElementById('gp-content'), { childList: true, subtree: true });
