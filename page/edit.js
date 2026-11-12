@@ -127,9 +127,14 @@
   function moveBlock(outside) {
     if (!editor?.point.range || composing || sourceFetching) return;
     const inner = editor.inner || [];
-    const element = outside ? outerElement(editor.element, editor.outer?.[0]) : inner.at(-1);
-    if (!element?.isConnected) return;
-    beginBlock(element, { preserve: true, inner: outside ? [...inner, editor.element] : inner.slice(0, -1) });
+    // 描き直しで画面から外れた内側の要素は飛ばす。
+    const rest = inner.filter((item) => item.isConnected);
+    const element = outside ? outerElement(editor.element, editor.outer?.[0]) : rest.pop();
+    if (!element?.isConnected) {
+      if (!outside) { editor.inner = []; innerButton.hidden = true; }
+      return;
+    }
+    beginBlock(element, { preserve: true, inner: outside ? [...rest, editor.element] : rest });
   }
   outerButton.addEventListener('click', () => moveBlock(true));
   innerButton.addEventListener('click', () => moveBlock(false));

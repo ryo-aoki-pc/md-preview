@@ -46,6 +46,12 @@ func TestBlockRangesAndWrites(t *testing.T) {
 		{"注記で終わるリスト", "- item\n\n  >>> [!note]\n  body\n  >>>\n\n次\n", "ul", "1:1-4:6", "1:1-5:5", "- item\n\n  >>> [!note]\n  body\n  >>>", "- changed", "- changed\n\n次\n"},
 		{"リストの中の注記", "- item\n\n  >>> [!note]\n  body\n  >>>\n\n次\n", "div", "3:3-4:6", "3:3-5:5", ">>> [!note]\n  body\n  >>>", ">>> [!tip]\n  changed\n  >>>", "- item\n\n  >>> [!tip]\n  changed\n  >>>\n\n次\n"},
 		{"引用の中の注記", "> >>> [!note]\n> body\n> >>>\n", "div", "1:3-2:6", "1:3-3:5", ">>> [!note]\n> body\n> >>>", ">>> [!tip]\n> changed\n> >>>", "> >>> [!tip]\n> changed\n> >>>\n"},
+		// 項目や説明の 1 行目から始まる注記は、閉じの行の前が、印と同じ幅のインデントになる。
+		{"項目の一行目の注記", "- >>> [!note]\n  body\n  >>>\n\n次\n", "div", "1:3-2:6", "1:3-3:5", ">>> [!note]\n  body\n  >>>", ">>> [!tip]\n  changed\n  >>>", "- >>> [!tip]\n  changed\n  >>>\n\n次\n"},
+		{"一行目が注記の項目", "- >>> [!note]\n  body\n  >>>\n\n次\n", "li", "1:1-2:6", "1:1-3:5", "- >>> [!note]\n  body\n  >>>", "- changed", "- changed\n\n次\n"},
+		{"番号の項目の一行目の注記", "1. >>> [!note]\n   body\n   >>>\n", "div", "1:4-2:7", "1:4-3:6", ">>> [!note]\n   body\n   >>>", ">>> [!tip]\n   changed\n   >>>", "1. >>> [!tip]\n   changed\n   >>>\n"},
+		{"一行目が注記の説明", "Term\n: >>> [!note]\n  body\n  >>>\n\n次\n", "dd", "2:1-3:6", "2:1-4:5", ": >>> [!note]\n  body\n  >>>", ": changed", "Term\n: changed\n\n次\n"},
+		{"段落の後ろで閉じる注記", ">>> [!note]\nbody\n\n次\n\n>>>\nquote\n>>>\n", "div", "1:1-5:0", "1:1-6:3", ">>> [!note]\nbody\n\n次\n\n>>>", ">>> [!note]\nchanged\n>>>", ">>> [!note]\nchanged\n>>>\nquote\n>>>\n"},
 	} {
 		for _, ending := range []string{"\n", "\r\n"} {
 			t.Run(c.name+fmt.Sprintf("/%q", ending), func(t *testing.T) {
@@ -313,6 +319,16 @@ func TestOuterBlockChains(t *testing.T) {
 
 func TestAlertBoundaryAndPropagation(t *testing.T) {
 	e := testEngine(t)
+	// 閉じの行を決められない注記で終わる項目は、項目の終端も決められない（次の項目の行を取り込まない）。
+	s, h := testService(t, e, "- >>> [!note]\n  body\n- >>>\n", nil)
+	for _, c := range []struct{ tag, r string }{{"div", "1:3-2:6"}, {"li", "1:1-2:6"}} {
+		if _, err := s.Text(context.Background(), nil, h.src.Render, c.tag, Range(c.r)); err == nil || err.Code != "boundary" {
+			t.Fatalf("%v=%v\n%s", c, err, h.src.HTML)
+		}
+	}
+	if value, err := s.Text(context.Background(), nil, h.src.Render, "li", "3:1-3:5"); err != nil || value.(map[string]any)["text"] != "- >>>" {
+		t.Fatal("次の項目", value, err)
+	}
 	for _, suffix := range []string{"wrong", " >>>", ">>> extra"} {
 		s, h := testService(t, e, ">>> [!note]\nbody\n"+suffix+"\n", nil)
 		// 補正の規則から外れる閉じの行は、エンジンの公開の終端を固定して確かめる。

@@ -203,14 +203,22 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 		return nil, fault(422, "cancelled", "ブロックの対応の確認を取り消しました。")
 	}
 	// 注記の閉じの行が欠けた祖先も、公開の終端が同じで、注記が最後にある場合だけ補う。
+	// 注記の終端を決められなかったときは、同じ終端の祖先も決められないので断る。
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		b := &m.blocks[i]
-		if b.kind != "alert" || b.reason != nil {
+		if b.kind != "alert" {
 			continue
 		}
-		public, _ := coordinates(b.public)
-		actual, _ := coordinates(b.actual)
-		if actual[2] < public[2] || actual[2] == public[2] && actual[3] <= public[3] {
+		public, e := coordinates(b.public)
+		if e != nil {
+			continue
+		}
+		var actual [4]int
+		refused := b.reason != nil && b.reason.Code == "boundary"
+		if b.reason == nil {
+			actual, _ = coordinates(b.actual)
+		}
+		if !refused && (b.reason != nil || actual[2] < public[2] || actual[2] == public[2] && actual[3] <= public[3]) {
 			continue
 		}
 		for child := nodes[i]; child.Parent != nil; child = child.Parent {
@@ -228,6 +236,10 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 				ancestor := &m.blocks[index]
 				end, _ := coordinates(ancestor.public)
 				if end[2] == public[2] && end[3] == public[3] && (ancestor.reason == nil || ancestor.reason.Code == "boundary") {
+					if refused {
+						ancestor.reason = blockFault("boundary")
+						continue
+					}
 					end[2], end[3] = actual[2], actual[3]
 					ancestor.actual = rangeOf(end)
 					ancestor.reason = blockBoundary(src, lines, starts, ancestor.actual)
@@ -338,7 +350,15 @@ func alertRange(src session.Source, lines []string, c [4]int) ([4]int, *Error) {
 	if !strings.HasPrefix(first[c[1]-1:], ">>>") {
 		return c, nil
 	}
-	closing := first[:c[1]-1] + ">>>"
+	// 閉じの行の前に来るのは、開始行の前の文字と同じ幅のインデントか引用の印。
+	// リストや説明の印（- や 1. や :）は、続きの行ではインデントになる。
+	prefix := []byte(first[:c[1]-1])
+	for i, ch := range prefix {
+		if ch != ' ' && ch != '\t' && ch != '>' {
+			prefix[i] = ' '
+		}
+	}
+	closing := string(prefix) + ">>>"
 	// 公開の範囲が閉じの行まで含んでいれば、そのまま使う（上流の位置が直ったときに断らない）。
 	if c[2] > c[0] {
 		last, e := blockLine(src, lines, c[2])
