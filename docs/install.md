@@ -94,7 +94,7 @@
    mdpreview --version
    ```
 
-   - `0.12.0` などの版が出ればよい。GitHub Releases の最新の版と比べる
+   - `0.13.0` などの版が出ればよい。GitHub Releases の最新の版と比べる
    - `~/.local/bin` が PATH に無いときは、PATH に加えて端末を開き直し、この項の手順 5 を貼り直す
    - コマンドが無ければ PATH を直して端末を開き直し、この項の手順 5 を貼り直す
 
@@ -261,7 +261,7 @@
    mdpreview --version
    ```
 
-   - `0.12.0` などの版が出ればよい。GitHub Releases の最新の版と比べる
+   - `0.13.0` などの版が出ればよい。GitHub Releases の最新の版と比べる
    - `%USERPROFILE%\.local\bin` が PATH に無いときは、PATH に加えて PowerShell 7 を開き直し、この項の手順 5 を貼り直す
    - コマンドが無ければ PATH を直して PowerShell 7 を開き直し、この項の手順 5 を貼り直す
 
