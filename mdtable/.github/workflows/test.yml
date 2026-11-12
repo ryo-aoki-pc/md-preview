@@ -1,0 +1,46 @@
+name: テスト
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go の検査（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: ソースを取得
+        uses: actions/checkout@v7
+      - name: Go を用意
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: 整形を確認
+        if: runner.os == 'Linux'
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt で整形されていないファイル:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: 静的検査
+        run: go vet ./...
+      - name: 試験
+        run: go test ./...
+      - name: 競合の検査
+        if: runner.os == 'Linux'
+        run: go test -race -timeout 20m ./...
+      - name: 配布物を作れることを確認
+        shell: bash
+        run: |
+          release_version=$(sed -n 's/^var Version = "\([^"]*\)"$/\1/p' internal/version/version.go)
+          bash scripts/build-release.sh "$release_version" dist
