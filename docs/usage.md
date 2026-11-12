@@ -295,7 +295,7 @@
 
 1. 「コピーして Agents Window を開く」を押す。
 
-   - 依頼文がコピーされ、文書のルートで VS Code の Agents Window が開けばよい
+   - 依頼文がコピーされ、文書のルートで VS Code の Agents Window が開けばよい（AlmaLinux 10 での VS Code の起動は未検証。この項の補足を見る）
    - 初めて開くフォルダーでは、作者を信頼するかの確認が出る。フォルダーと内容を確かめてから進む
 
 1. Agents Window で、セッションの種類を Copilot か Claude、作業場所を Branch にする。
@@ -316,7 +316,7 @@
 
    - コマンドの入力に戻ればよい
 
-<details id="mdpreview-のプレビューでコメントを付けて-vs-code-の-agents-window-へ送る-の補足と注意点">
+<details id="mdpreview-のプレビューでコメントを付けてvs-code-の-agents-window-へ送る-の補足と注意点">
   <summary>mdpreview のプレビューでコメントを付けて、VS Code の Agents Window へ送る の補足と注意点</summary>
 
 **[mdpreview のプレビューでコメントを付けて、VS Code の Agents Window へ送る](#mdpreview-のプレビューでコメントを付けてvs-code-の-agents-window-へ送る)の手順 1**
@@ -340,7 +340,7 @@
 
 - VS Code が無い、`code` が PATH に無い、または起動できない場合は知らせが出る。依頼文はコピー済みなので、自分で開いた入力欄へ貼れる。Agents Window を開く必要がなければ、「コピー」だけを使う
 - コピーに失敗した場合は、依頼文の欄が選択される。Ctrl+C でコピーする
-- 同じ依頼文で Agents Window を開くのは 1 回だけ。開いている途中に押し直すと「Agents Window を開いています」と出るので、少し待つ。期限切れの知らせが出たら「依頼文を作る」を押し直す
+- 同じ依頼文で Agents Window を開くのは 1 回だけ。起動を待つ間はボタンが押せない。開いた後に押し直すと、起こし直さずに「Agents Window はもう開いています。」と出る。別のタブから同じ依頼文で同時に押すと「Agents Window を開いています。」と出るので、少し待つ。期限切れの知らせが出たら「依頼文を作る」を押し直す
 - [VS Code の公式の説明](https://code.visualstudio.com/docs/agents/run/agents-window#_limitations)では、Agents Window のプランモードは Copilot か Claude のセッションで `/plan` を使う。エージェントの一覧に Plan は無い
 - New Worktree を選ぶと別のファイルを直すので、その結果は今のプレビューに出ない。今のプレビューで確かめるときは Branch を使う
 - mdpreview は AI の API へ送らず、利用者が依頼文を貼って送る。依頼文に端末の絶対パスとサーバーの token は入れない
@@ -741,7 +741,7 @@
 
    - コマンドの入力に戻ればよい
 
-<details id="windows-11-の-mdpreview-のプレビューでコメントを付けて-vs-code-の-agents-window-へ送る-の補足と注意点">
+<details id="windows-11-の-mdpreview-のプレビューでコメントを付けてvs-code-の-agents-window-へ送る-の補足と注意点">
   <summary>Windows 11 の mdpreview のプレビューでコメントを付けて、VS Code の Agents Window へ送る の補足と注意点</summary>
 
 **[Windows 11 の mdpreview のプレビューでコメントを付けて、VS Code の Agents Window へ送る](#windows-11-の-mdpreview-のプレビューでコメントを付けてvs-code-の-agents-window-へ送る)の手順 2**
@@ -765,7 +765,7 @@
 
 - VS Code が無い、`code` が PATH に無い、または起動できない場合は知らせが出る。依頼文はコピー済みなので、自分で開いた入力欄へ貼れる。Agents Window を開く必要がなければ、「コピー」だけを使う
 - コピーに失敗した場合は、依頼文の欄が選択される。Ctrl+C でコピーする
-- 同じ依頼文で Agents Window を開くのは 1 回だけ。開いている途中に押し直すと「Agents Window を開いています」と出るので、少し待つ。期限切れの知らせが出たら「依頼文を作る」を押し直す
+- 同じ依頼文で Agents Window を開くのは 1 回だけ。起動を待つ間はボタンが押せない。開いた後に押し直すと、起こし直さずに「Agents Window はもう開いています。」と出る。別のタブから同じ依頼文で同時に押すと「Agents Window を開いています。」と出るので、少し待つ。期限切れの知らせが出たら「依頼文を作る」を押し直す
 - [VS Code の公式の説明](https://code.visualstudio.com/docs/agents/run/agents-window#_limitations)では、Agents Window のプランモードは Copilot か Claude のセッションで `/plan` を使う。エージェントの一覧に Plan は無い
 - New Worktree を選ぶと別のファイルを直すので、その結果は今のプレビューに出ない。今のプレビューで確かめるときは Branch を使う
 - mdpreview は AI の API へ送らず、利用者が依頼文を貼って送る。依頼文に端末の絶対パスとサーバーの token は入れない

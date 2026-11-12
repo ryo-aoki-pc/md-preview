@@ -162,7 +162,7 @@ copy・cut イベントは同期的に、表情報から `text/plain` の引用�
 
 コメントをためる操作と依頼文の作成では、Markdown に書かない。ページは利用者のクリックで依頼文をクリップボードへコピーし、その後に VS Code の Agents Window を文書のルートで開く。利用者が入力欄に貼り、内容を確かめて送る。mdpreview 自身は AI の API へ通信せず、依頼文をコマンドラインや URL に入れない。[VS Code の公式の説明](https://code.visualstudio.com/docs/agents/run/agents-window#_limitations)に従い、依頼文の先頭を `/plan` にし、Copilot か Claude のセッションで計画を頼む。Agents Window のエージェントの一覧に Plan は無い。今のプレビューと同じファイルを直すときは作業場所を Branch にする。New Worktree の変更は別のファイルなので、今のプレビューには出ない。
 
-コメントの口は [internal/server/review.go](../../internal/server/review.go) と、編集と共有する [internal/server/edit.go](../../internal/server/edit.go) の `readSource` にある。いずれも token・Host・Sec-Fetch-Site を共通で検査する。対象の原文を読むときは `Resolve` でルート内の実パスを確かめ、launch は prepare で検査した文書とルートを使う。`doc` を省くと起動した文書、付けるとそのファイル文書を指し、空文字列と省略は区別する。GET は HEAD も受ける。
+コメントの口は [internal/server/review.go](../../internal/server/review.go) と、編集と共有する [internal/server/edit.go](../../internal/server/edit.go) の `readSource` にある。token は URL の先頭の区切りで照合し、合わない要求はコメントの口に入らない（POST は 405、GET は 404）。Host と Sec-Fetch-Site は共通で検査する。対象の原文を読むときは `Resolve` でルート内の実パスを確かめ、launch は prepare で検査した文書とルートを使う。`doc` を省くと起動した文書、付けるとそのファイル文書を指し、空文字列と省略は区別する。GET は HEAD も受ける。
 
 | 口 | 要求と成功時の応答 |
 | --- | --- |
@@ -189,20 +189,20 @@ prepare は 16 バイトの乱数を 32 桁の 16 進にした ID を返す。�
 
 | 状態 | 符号と理由 |
 | --- | --- |
-| 400 | `invalid`: JSON・キー・値の型・対象や ID の形が違う |
-| 403 | `forbidden`: token・Host・送信元・Origin などを検査して拒否した |
+| 400 | `invalid`: JSON・キー・値の型・対象や ID の形が違う。Host が空 |
+| 403 | `forbidden`: Host・Sec-Fetch-Site・Origin を検査して拒否した |
 | 404 | `missing`: 文書やコメントの経路が無い。`expired`: ID が無いか期限が切れた |
-| 405 | その口で受けないメソッド。JSON の符号を付けず、`Allow` ヘッダーを返す |
+| 405 | GET・HEAD・POST 以外のメソッド。JSON の符号を付けず、`Allow` ヘッダーを返す。`prepare` と `launch` の GET・HEAD は 404 の `missing` |
 | 409 | `stale`: 描画が古い。`changed`: ファイルが描画の原文と違うか、ID が別の文書を指す。`launching`: 同じ ID の起動がまだ終わっていない |
 | 413 | `large`: POST の本文が上限を超えた |
 | 415 | `media`: Content-Type が違う |
-| 422 | `target`・`boundary`・`untrusted` など: ブロックの検査で拒否した。`excluded`・`range`・`merged`: 表やセルが対象外。`unnamed`: 名前の無い文書。`cancelled`: 原文の検査を取り消した。`invalid`・`large`: 依頼文の相対パスが不正か全体が上限を超えた |
+| 422 | `target`・`boundary`・`untrusted` など: ブロックの検査で拒否した。`excluded`・`range`・`merged`: 表やセルが対象外。`unnamed`: 名前の無い文書。`cancelled`: 原文の検査を取り消した。`invalid`・`large`: 依頼文の相対パスが不正か全体が 64 KiB を超えた。`large` は文書が 16 MiB を超えたときにも返す（コメントを分けても解消しない） |
 | 500 | `internal`: コメントの処理を終えられない |
 | 503 | `notfound`: VS Code が見つからない。`launch`: 起動・終了・待機に失敗した |
 
 `internal/vscode.AgentsCommand` は、存在するフォルダーの絶対パスだけをルートに受け、PATH の空の項目と相対パスの項目を飛ばして `code` を探す。Windows 以外は実行の権限がある通常のファイルを選び、リンクを解決した実パスで `code --agents <ルート>` を起こす。Linux の実際の VS Code の起動は未検証。
 
-Windows は `code.cmd` を実行せず、64 KiB まで読んで `Code.exe` と版ごとの `<版のフォルダー>/resources/app/out/cli.js` の配置を確かめる（版のフォルダーの無い前の配置も受ける）。`cli.js` の相対部分に `..`・区切りの混用・制御用の文字・末尾の点と空白（Windows が名前から落とす）などを受けず、`cli.js` と `Code.exe` はリンクやジャンクションの解決後もインストール先の内側にある通常のファイルに限る。`ELECTRON_RUN_AS_NODE` と `VSCODE_DEV` を親の環境から除き、`ELECTRON_RUN_AS_NODE=1` を付け、`Code.exe <cli.js> --agents <ルート>` を引数の配列で起こす。`--agents` を処理する CLI の入口を通すため、`Code.exe --agents <ルート>` だけで GUI を直接起こさない。`cmd.exe`・PowerShell・バッチを通さず、ルートに含まれる文字をシェルの構文として解釈させない。コンソールを作らない指定を使い、VS Code の画面まで隠す指定は使わない。
+Windows は `code.cmd` を実行せず、64 KiB まで読んで `Code.exe` と版ごとの `<版のフォルダー>/resources/app/out/cli.js` の配置を確かめる（版のフォルダーの無い前の配置も受ける）。`cli.js` の相対部分に `..`・区切りの混用・`:`・`%`・`"`・NUL・CR・LF・末尾の点と空白（Windows が名前から落とす）などを受けず（タブなどのほかの制御文字は、この段では断らず、解決後のパスがインストール先の内側にあることで閉じる）、`cli.js` と `Code.exe` はリンクやジャンクションの解決後もインストール先の内側にある通常のファイルに限る。`ELECTRON_RUN_AS_NODE` と `VSCODE_DEV` を親の環境から除き、`ELECTRON_RUN_AS_NODE=1` を付け、`Code.exe <cli.js> --agents <ルート>` を引数の配列で起こす。`--agents` を処理する CLI の入口を通すため、`Code.exe --agents <ルート>` だけで GUI を直接起こさない。`cmd.exe`・PowerShell・バッチを通さず、ルートに含まれる文字をシェルの構文として解釈させない。コンソールを作らない指定を使い、VS Code の画面まで隠す指定は使わない。
 
 起動器は、VS Code を探す処理とコマンドの終了を合わせて 30 秒まで待ち（PATH に応答しないフォルダーがあっても止まらない）、期限の後は起こさない。標準入力・出力・エラーは捨てる。コマンドが開始できない場合・終了コードが 0 でない場合・時間切れを区別し、ページの知らせには端末のパスや内部のエラーを出さない。ページはコピーが成功した後だけ launch を呼ぶので、起動が失敗してもコピーした依頼文は使える。コピーが失敗した場合は launch を呼ばず、依頼文を選択して Ctrl+C を案内する。
 
