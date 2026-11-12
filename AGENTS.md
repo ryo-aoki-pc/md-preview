@@ -95,6 +95,7 @@ GitLab の版を上げるときは、次の順に行う。
 3. `engine/engine.lock.json` の `gitlab`（版・出典・オプションの URL と sha256）、`gem`（版・URL・sha256・`files` の sha256）、`comrak` を書き換える。`build.sh` は最初に写しを `engine.lock.json` の sha256 と比べるので、ここを合わせないと止まる
 4. `engine/build.sh --check-gem`、`engine/build.sh --update` の順に実行する
 5. `engine/engine.go` の `GitLabOptions()` を、写した `glfm_markdown.rb` の `OPTIONS` に合わせる（`go test ./engine` が比べる）
+6. comrak の版が変わったら、`mdtable/testdata/comrak/package.json` と `package-lock.json` の comrak も同じ版にし（`mdtable/testdata/comrak` で `npm install --save-exact --ignore-scripts comrak@<版>`）、`mdtable/testdata/comrak_ast.mjs` の拡張の設定を見直して、`go test ./mdtable/internal/blocks` を通す。[md-format](https://github.com/ryo-aoki-pc/md-format) の `flavors.mjs` の設定も見直す
 
 ## KaTeX・mermaid の版を上げる
 

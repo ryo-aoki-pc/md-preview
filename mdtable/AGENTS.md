@@ -26,7 +26,7 @@ Windows 11 の導入・更新の手順は [docs/install.md](docs/install.md)、�
 - ルートの `internal/version/version.go` — `mdpreview` と `mdtable` に共通の版を置く所。`licenses/manifest.json` の md-table-excel の版も同じにする（テストが照合する）
 - `licenses.go`・`licenses/` — 実行ファイルに同梱するライセンスの原文と一覧。`--licenses` で全文を出す
 - `licenses_test.go`・`internal/cli/licenses_test.go` — 依存の版・原文と、ライセンスの表示の検査
-- `testdata/` — テストの入力と正解。`documents/`（見本と乱数の文書）、`goldens.json.gz`（文書ごとのコマンドの出力の正解。版は `<VERSION>`）、`unit/`（単体テストの入力と期待値）、`workbooks.zip`（openpyxl で作って編集したブック）、`comrak_ast.mjs`（comrak と突き合わせるテストが使う）
+- `testdata/` — テストの入力と正解。`documents/`（見本と乱数の文書）、`goldens.json.gz`（文書ごとのコマンドの出力の正解。版は `<VERSION>`）、`unit/`（単体テストの入力と期待値）、`workbooks.zip`（openpyxl で作って編集したブック）、`comrak_ast.mjs`（comrak と突き合わせるテストが使う）、`comrak/`（突き合わせの試験が使う comrak の版を固定する `package.json` と `package-lock.json`）
   - 正解は Python 版 0.5.2 の出力から作った。`regenerate.py` などは作った方法の記録で、Python 版が無いので今は動かない。正解を直すときは、期待値を手で直し、理由をコミットに書く
 - ルートの `scripts/build-release.sh` — 両コマンドの配布物を作る。`mdtable` は Windows の amd64 向けの実行ファイルと `mdtable-THIRD-PARTY-LICENSES.txt` を作り、共通の `SHA256SUMS` に載せる
 - ルートの `.github/workflows/test-mdtable.yml` — `mdtable` の Go の検査。配布物のビルドは `test.yml` が確かめる
@@ -45,8 +45,8 @@ go test ./mdtable/...
 ```
 
 - リポジトリの直下で動かす。`gofmt -l .` は何も出ないこと
-- `mdtable/**`・ルートの `internal/version/**`・`go.mod`・`go.sum`・`LICENSE`・`.gitattributes`・`.github/workflows/test-mdtable.yml` を変えた Pull Request と `main` への push では、GitHub Actions が ubuntu-latest と windows-latest で検査し、Linux では `go test -race -timeout 20m ./mdtable/...` も動かす。取り込む前に `gh pr checks` で結果を見る
-- comrak と突き合わせる Go のテストは、`MDTABLE_COMRAK_DIR` を設定したときだけ動く。`node_modules/comrak` を持つフォルダー（[md-format](https://github.com/ryo-aoki-pc/md-format) の導入先など）を指定する
+- `mdtable/**`・ルートの `internal/version/**`・`go.mod`・`go.sum`・`LICENSE`・`.gitattributes`・`.github/workflows/test-mdtable.yml` を変えた Pull Request と `main` への push では、GitHub Actions が ubuntu-latest と windows-latest で検査し、Linux では `go test -race -timeout 20m ./mdtable/...` も動かす。comrak との突き合わせも動かす。取り込む前に `gh pr checks` で結果を見る
+- comrak と突き合わせる Go のテストは、`mdtable/testdata/comrak` で `npm ci --ignore-scripts` を実行しておくと動く（Node.js が要る）。用意が無ければ skip する。`MDTABLE_COMRAK_REQUIRED=1` を付けると、用意が無いとき失敗にする（GitHub Actions はこれを付けて動かす）。`MDTABLE_COMRAK_DIR` で、ほかの場所の `node_modules/comrak` を持つフォルダーを指定できる
 - 手元の文書で無編集の往復を確かめる Go のテストは、`MDTABLE_CORPUS` を設定したときだけ動く。文書のフォルダーを指定する
 - リポジトリのルートから `bash scripts/build-release.sh <版> <出力のフォルダー>` で、CI と同じ配布物のビルドを確かめる
 - ライセンスの検査は、`go list -deps` で求めた `mdtable` の windows/amd64 の依存と `mdtable/licenses/manifest.json`、原文の写しを照合する。ルートの試験は、両実行ファイルの一覧の和とルートの `go.mod` の直接・間接の require も照合する。依存を変えたら一覧と原文も確認する

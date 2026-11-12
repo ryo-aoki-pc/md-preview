@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -76,20 +77,127 @@ func oracleSignature(text string) map[string]int {
 	return result
 }
 
+type comrakEnvironment struct {
+	dir, node, reason string
+	required          bool
+}
+
+func findComrak() comrakEnvironment {
+	result := comrakEnvironment{
+		dir:      os.Getenv("MDTABLE_COMRAK_DIR"),
+		required: os.Getenv("MDTABLE_COMRAK_REQUIRED") != "",
+	}
+	if result.dir == "" {
+		result.dir = "../../testdata/comrak"
+	}
+	var e error
+	result.dir, e = filepath.Abs(result.dir)
+	if e != nil {
+		result.reason = fmt.Sprintf("comrak の場所を絶対パスに直せない: %v（mdtable/testdata/comrak で npm ci --ignore-scripts を実行し、MDTABLE_COMRAK_DIR を確認する）", e)
+		return result
+	}
+	packageJSON := filepath.Join(result.dir, "node_modules", "comrak", "package.json")
+	if info, e := os.Stat(packageJSON); e != nil || !info.Mode().IsRegular() {
+		result.reason = fmt.Sprintf("comrak の package.json が見つからない: %s（mdtable/testdata/comrak で npm ci --ignore-scripts を実行する）", packageJSON)
+		return result
+	}
+	result.node, e = exec.LookPath("node")
+	if e != nil {
+		result.reason = "PATH に node が見つからない（Node.js を導入し、mdtable/testdata/comrak で npm ci --ignore-scripts を実行する）"
+	}
+	return result
+}
+
+func TestComrakEnvironment(t *testing.T) {
+	for _, tc := range []struct {
+		name, dir, required, reason string
+		packageJSON, node           bool
+		wantSkip, wantFatal         bool
+	}{
+		{name: "既定の場所", packageJSON: true, node: true},
+		{name: "絶対パスで指定した場所", dir: "絶対", packageJSON: true, node: true},
+		{name: "相対パスで指定した場所", dir: "相対", packageJSON: true, node: true},
+		{name: "準備済みなら必須でも動く", required: "1", packageJSON: true, node: true},
+		{name: "comrak が無ければ省略", node: true, reason: "package.json が見つからない", wantSkip: true},
+		{name: "必須で comrak が無ければ失敗", required: "有効", node: true, reason: "package.json が見つからない", wantFatal: true},
+		{name: "node が無ければ省略", packageJSON: true, reason: "PATH に node が見つからない", wantSkip: true},
+		{name: "必須で node が無ければ失敗", required: "1", packageJSON: true, reason: "PATH に node が見つからない", wantFatal: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			work := filepath.Join(root, "internal", "blocks")
+			if e := os.MkdirAll(work, 0o755); e != nil {
+				t.Fatal(e)
+			}
+			t.Chdir(work)
+			dir := ""
+			wantDir := filepath.Join(root, "testdata", "comrak")
+			if tc.dir != "" {
+				wantDir = filepath.Join(root, "指定した場所")
+				dir = wantDir
+				if tc.dir == "相対" {
+					dir = filepath.Join("..", "..", "指定した場所")
+				}
+			}
+			t.Setenv("MDTABLE_COMRAK_DIR", dir)
+			t.Setenv("MDTABLE_COMRAK_REQUIRED", tc.required)
+			if tc.packageJSON {
+				packageDir := filepath.Join(wantDir, "node_modules", "comrak")
+				if e := os.MkdirAll(packageDir, 0o755); e != nil {
+					t.Fatal(e)
+				}
+				if e := os.WriteFile(filepath.Join(packageDir, "package.json"), []byte("{}\n"), 0o644); e != nil {
+					t.Fatal(e)
+				}
+			}
+			bin := filepath.Join(root, "bin")
+			if e := os.MkdirAll(bin, 0o755); e != nil {
+				t.Fatal(e)
+			}
+			if tc.node {
+				name := "node"
+				if runtime.GOOS == "windows" {
+					name += ".exe"
+				}
+				if e := os.WriteFile(filepath.Join(bin, name), nil, 0o755); e != nil {
+					t.Fatal(e)
+				}
+			}
+			t.Setenv("PATH", bin)
+			t.Setenv("PATHEXT", ".EXE")
+			got := findComrak()
+			if got.dir != wantDir || !filepath.IsAbs(got.dir) {
+				t.Fatalf("comrak の場所: 結果 %q、期待 %q", got.dir, wantDir)
+			}
+			if tc.reason == "" {
+				if got.reason != "" || got.node == "" {
+					t.Fatalf("準備済みの comrak が使えない: %+v", got)
+				}
+			} else if !strings.Contains(got.reason, tc.reason) || !strings.Contains(got.reason, "mdtable/testdata/comrak で npm ci --ignore-scripts") || strings.ContainsAny(got.reason, "\r\n") {
+				t.Fatalf("comrak を動かせない理由と準備の案内が違う: %q", got.reason)
+			}
+			if skip, fatal := got.reason != "" && !got.required, got.reason != "" && got.required; skip != tc.wantSkip || fatal != tc.wantFatal {
+				t.Fatalf("準備が無いときの判断: 省略 %t、失敗 %t（期待: 省略 %t、失敗 %t）", skip, fatal, tc.wantSkip, tc.wantFatal)
+			}
+		})
+	}
+}
+
 func checkComrak(t *testing.T, texts, names []string) {
 	t.Helper()
-	if os.Getenv("MDTABLE_COMRAK_DIR") == "" {
-		t.Skip("MDTABLE_COMRAK_DIR と node が要る")
-	}
-	node, e := exec.LookPath("node")
-	if e != nil {
-		t.Skip("MDTABLE_COMRAK_DIR と node が要る")
+	comrak := findComrak()
+	if comrak.reason != "" {
+		if comrak.required {
+			t.Fatalf("%s", comrak.reason)
+		}
+		t.Skip(comrak.reason)
 	}
 	input, e := json.Marshal(texts)
 	if e != nil {
 		t.Fatal(e)
 	}
-	command := exec.Command(node, "../../testdata/comrak_ast.mjs")
+	command := exec.Command(comrak.node, "../../testdata/comrak_ast.mjs")
+	command.Env = append(os.Environ(), "MDTABLE_COMRAK_DIR="+comrak.dir)
 	command.Stdin = bytes.NewReader(input)
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
