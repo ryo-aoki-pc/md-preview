@@ -119,7 +119,7 @@ node --test test/page.test.mjs
 
 `test/page.test.mjs` は試験用サーバーと書き出しのコマンドを Go でビルドし、本物の KaTeX・mermaid をブラウザで描く。Playwright を通常の場所から読めないときは、`PLAYWRIGHT_MODULE` に導入先を指定する。ブラウザの場所は `EDGE_BIN`・`CHROME_BIN` で指定できる。必要な道具が無ければ理由を付けて skip する（合格には数えない）。
 
-写しの更新処理は `node --test test/page-libs.test.mjs` で確かめる。合成の npm パッケージと使い捨ての Git リポジトリを使い、外へ通信しない。
+写しの更新処理は `node --test test/page-libs.test.mjs` で確かめる。合成の npm パッケージを使い、外へ通信しない。
 
 GitLab の本物の出力との比較は `go test ./...` に含まれる。保存済みの見本を使い、試験中は GitLab へ通信しない。作り直す手順と決まりは [AGENTS.md](AGENTS.md) にある。
 
