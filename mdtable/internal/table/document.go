@@ -381,6 +381,7 @@ func SelectTables(regions []*Region, selectors []string) ([]*Region, error) {
 type Replacement struct {
 	Region     *Region
 	Lines      []string
+	Endings    []string // 指定した場合だけ、各行の改行も原文から明示的に引き継ぐ。
 	Model      *model.TableModel
 	TargetKind string
 	Expect     *Expectation
@@ -420,6 +421,9 @@ func ApplyReplacements(m *MarkdownFile, replacements []*Replacement) string {
 		}
 		if len(newEndings) > 0 && (last == "" || !kept[len(newLines)-1]) {
 			newEndings[len(newEndings)-1] = last
+		}
+		if replacement.Endings != nil {
+			newEndings = replacement.Endings
 		}
 		lines = append(append(append([]string{}, lines[:start]...), newLines...), lines[end+1:]...)
 		endings = append(append(append([]string{}, endings[:start]...), newEndings...), endings[end+1:]...)

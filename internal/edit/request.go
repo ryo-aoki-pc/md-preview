@@ -38,6 +38,7 @@ type operation struct {
 	source          string
 	to              string
 	align           string
+	order           string
 	header          bool
 	fragment        *tableedit.Fragment
 	from            moveSource
@@ -187,6 +188,15 @@ func parseOperation(m map[string]any) (operation, *Error) {
 		}
 	case "deleteTable":
 		if !fields(m, "type") {
+			return o, invalid()
+		}
+	case "sortRows":
+		if !fields(m, "type", "row", "col", "order") {
+			return o, invalid()
+		}
+		o.row, o.col = get("row", 0), get("col", 0)
+		o.order, _ = m["order"].(string)
+		if o.order != "asc" && o.order != "desc" {
 			return o, invalid()
 		}
 	case "mergeCells", "mergeCellsAsHTML", "setAlign", "setHeader":
@@ -428,6 +438,8 @@ func (o operation) apply(ctx context.Context, d *tableedit.Document, t tableedit
 		return d.ConvertTable(t, o.to)
 	case "deleteTable":
 		return d.DeleteTable(t)
+	case "sortRows":
+		return d.SortRows(t, o.row, o.col, o.order == "desc")
 	case "mergeCells":
 		return d.MergeCells(t, tableedit.Rect{Row: o.row, Col: o.col, Rows: o.rows, Cols: o.cols})
 	case "mergeCellsAsHTML":

@@ -929,7 +929,7 @@
     operationStart();
     item.tableElement = models[item.point?.table]?.table;
     item.version = externalVersion;
-    item.structural = Boolean(item.insert || item.history || /^(insert|delete|duplicate|move|convert|merge|unmerge)/.test(item.op?.type || ''));
+    item.structural = Boolean(item.insert || item.history || /^(insert|delete|duplicate|move|sort|convert|merge|unmerge)/.test(item.op?.type || ''));
     if (first) queue.unshift(item);
     else queue.push(item);
     addMask(item);
@@ -975,7 +975,7 @@
     }
     busy = null;
     if (ready && changed && item.op?.type === 'deleteTable') clearSelection();
-    if (ready && changed && item.op?.type === 'convert' && mode && !stopped && item.version === externalVersion) {
+    if (ready && changed && ['convert', 'sortRows'].includes(item.op?.type) && mode && !stopped && item.version === externalVersion) {
       const cell = find(item.point);
       if (cell) select(cell);
     }
@@ -1342,6 +1342,15 @@
     const model = models[cell.table], info = model.info, rect = actionRect(action);
     if (!rect) return '範囲を選び直してください';
     if (selecting) return '';
+    if (action === 'col-sort-asc' || action === 'col-sort-desc') {
+      if (composing || sourceFetching) return '文字の入力を終えてから操作してください';
+      if (!model.editable) return info.reason || 'この表は編集できません';
+      if (info.sortLocked?.[cell.row]) return info.sortLocked[cell.row];
+      // 並べ替えは区画の行をまとめて動かすので、見えていない行の順も変わる。
+      if (model.rows.slice(rect.row, rect.row + rect.rows).some((row) => getComputedStyle(row).display === 'none'))
+        return '表の検索で隠れた行をまたいでいます。検索を解除してから選び直してください';
+      return '';
+    }
     if (action.startsWith('cell-align-') || action === 'cell-header' || action === 'cell-data') {
       if (composing || sourceFetching) return '文字の入力を終えてから操作してください';
       if (!model.editable) return info.reason || 'この表は編集できません';
@@ -1477,6 +1486,7 @@
       [prefix + '-insert-after', 'コピーした' + (prefix === 'row' ? '行' : '列') + 'を' + directions[1] + 'に挿入'],
       [prefix + '-paste-before', '貼り付けて' + directions[0] + 'に挿入…'],
       [prefix + '-paste-after', '貼り付けて' + directions[1] + 'に挿入…'],
+      ...(prefix === 'col' ? [null, ['col-sort-asc', 'この列で昇順に並べ替え'], ['col-sort-desc', 'この列で降順に並べ替え']] : []),
     ]);
   }
   buildMenu('cell', 'セルの操作', [['copy', 'コピー（Ctrl+C）', 'cell-copy'], ['cut', '切り取り（Ctrl+X）', 'cell-cut'],
@@ -1605,6 +1615,8 @@
       enqueue({ point: { ...selected }, op: { type: 'setAlign', ...rect, align: action === 'cell-align-default' ? '' : action.slice('cell-align-'.length) } });
     else if (action === 'cell-header' || action === 'cell-data')
       enqueue({ point: { ...selected }, op: { type: 'setHeader', ...rect, header: action === 'cell-header' } });
+    else if (action === 'col-sort-asc' || action === 'col-sort-desc')
+      enqueue({ point: { ...selected }, op: { type: 'sortRows', row: selected.row, col: selected.col, order: action.slice('col-sort-'.length) } });
     else if (action === 'table-html' || action === 'table-pipe')
       enqueue({ point: { ...selected }, op: { type: 'convert', to: action.slice('table-'.length) } });
     else if (action === 'table-delete') enqueue({ point: { ...selected }, op: { type: 'deleteTable' } });

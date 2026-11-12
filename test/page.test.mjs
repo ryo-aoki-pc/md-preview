@@ -1370,6 +1370,19 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     await duplicate.click({ force: true });
     assert.equal(readFileSync(file, 'utf8'), text);
     await page.keyboard.press('Escape');
+    // 並べ替えは区画の行をまとめて動かすので、1 セルを選んでいても隠れた行があれば断る。
+    await page.locator('#gp-content td').last().click();
+    for (const order of ['asc', 'desc']) {
+      const sort = await menuItem(page, 'col-sort-' + order);
+      assert.equal(await sort.getAttribute('aria-disabled'), 'true');
+      await sort.focus();
+      assert.match(await page.locator('#gp-edit-menu-cols-reason').textContent(), /検索.*解除/);
+      await sort.click({ force: true });
+      assert.equal(readFileSync(file, 'utf8'), text);
+      await page.keyboard.press('Escape');
+    }
+    await page.locator('#gp-content td').first().click();
+    await page.locator('#gp-content td').last().click({ modifiers: ['Shift'] });
     await page.locator('#gp-edit-input').focus();
     await page.keyboard.press('Delete');
     assert.match(await page.locator('#gp-edit-status').textContent(), /検索/);
@@ -5336,6 +5349,82 @@ test('セルメニューで結合・解除・変換して結合と、一手の�
     if (c.name === '一セル') {
       await page.locator('#gp-edit-cell-unmerge').focus();
       assert.match(await page.locator('#gp-edit-menu-cells-reason').textContent(), /結合していない/);
+    }
+  });
+});
+
+test('列メニューと右クリックで昇順・降順に並べ替え、一手で戻す', { skip }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const rows = ['| 10 | 十 |', '| 2 | 二 |', '|  | 空 |', '| 項目10 | 文字十 |', '| 項目2 | 文字二 |'];
+  const pipe = (items) => '| 鍵 | 内容 |\n| :----- | ----: |\n' + items.join('\n') + '\n';
+  const htmlRows = ['<tr title="十"><td>10</td><td>十</td></tr>', '<tr><td>2</td><td>二</td></tr>',
+    '<tr><td></td><td>空</td></tr>', '<tr><td>項目10</td><td>文字十</td></tr>', '<tr><td>項目2</td><td>文字二</td></tr>'];
+  const html = (items) => '<table>\n<thead><tr><th>鍵</th><th>内容</th></tr></thead>\n<tbody>\n' +
+    '<tr><th>本文見出し</th><th>固定</th></tr>\n' + items.join('\n') + '\n</tbody>\n' +
+    '<tfoot><tr><td>外</td><td>固定</td></tr></tfoot>\n</table>\n';
+  const open = async (page, context, cell) => {
+    if (context) {
+      await cell.click({ button: 'right' });
+      await page.locator('#gp-edit-cell-cols').focus();
+      await page.keyboard.press('ArrowRight');
+    } else await page.locator('#gp-edit-cols').click();
+    assert.equal(await page.locator('#gp-edit-menu-cols').isVisible(), true);
+  };
+  for (const c of [{ name: 'パイプ', items: rows, source: pipe, headerRows: 0 },
+    { name: 'HTML', items: htmlRows, source: html, headerRows: 1 }])
+    for (const ending of ['\n', '\r\n']) await t.test(c.name + JSON.stringify(ending), async (t) => {
+      const wrap = (text) => ('前\n\n' + text + '\n後\n').replaceAll('\n', ending);
+      const original = wrap(c.source(c.items));
+      const { page, file } = await editablePage(t, browser, original);
+      for (const [order, indices, labels, context] of [
+        ['asc', [1, 0, 4, 3, 2], ['2', '10', '項目2', '項目10', ''], false],
+        ['desc', [3, 4, 0, 1, 2], ['項目10', '項目2', '10', '2', ''], true],
+      ]) {
+        const cell = page.locator('#gp-content tbody tr').nth(c.headerRows).locator('td,th').first();
+        await cell.click();
+        await open(page, context, cell);
+        for (const [name, label] of [['asc', '昇順'], ['desc', '降順']]) {
+          const item = page.locator('#gp-edit-col-sort-' + name);
+          assert.equal(await item.textContent(), 'この列で' + label + 'に並べ替え');
+          assert.equal(await item.getAttribute('aria-disabled'), 'false');
+        }
+        assert.equal(await page.locator('#gp-edit-col-sort-asc').evaluate((item) => item.previousElementSibling.getAttribute('role')), 'separator');
+        const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+        await page.locator('#gp-edit-col-sort-' + order).click();
+        assert.equal((await response).status(), 200);
+        await editIdle(page);
+        assert.equal(readFileSync(file, 'utf8'), wrap(c.source(indices.map((i) => c.items[i]))));
+        assert.deepEqual(await page.locator('#gp-content tbody tr').evaluateAll((trs, first) =>
+          trs.slice(first).map((tr) => tr.cells[0].textContent), c.headerRows), labels);
+        assert.equal(await page.evaluate((first) => {
+          const selected = document.querySelector('#gp-edit-selection').getBoundingClientRect();
+          const cell = document.querySelectorAll('#gp-content tbody tr')[first].cells[0].getBoundingClientRect();
+          return Math.abs(selected.left - cell.left) < 1 && Math.abs(selected.top - cell.top) < 1;
+        }, c.headerRows), true);
+        await page.locator('#gp-edit-undo').click();
+        await editIdle(page);
+        assert.equal(readFileSync(file, 'utf8'), original);
+        assert.equal(await page.locator('#gp-edit-undo').isEnabled(), false);
+      }
+    });
+  for (const c of [
+    { name: 'thead', source: '<table><thead><tr><th>鍵</th></tr></thead><tbody><tr><td>2</td></tr><tr><td>1</td></tr></tbody></table>\n', selector: 'th', reason: /見出しの区画は並べ替えられません/ },
+    { name: '行の結合', source: '<table><tr><td rowspan="2">2</td><td>外</td></tr><tr><td>外</td></tr></table>\n', selector: 'td', reason: /行の結合があるので並べ替えられません/ },
+    { name: '行数', source: '| 鍵 |\n| --- |\n| 1 |\n', selector: 'td', reason: /2 行未満/ },
+    { name: 'セルの制約', source: '<table><tr><td colspan="0">2</td></tr><tr><td>1</td></tr></table>\n', selector: 'td', reason: /結合の値/ },
+  ]) await t.test(c.name + ' の理由を表示する', async (t) => {
+    const { page, file } = await editablePage(t, browser, c.source);
+    const cell = page.locator('#gp-content ' + c.selector).first();
+    await cell.click();
+    await open(page, true, cell);
+    for (const order of ['asc', 'desc']) {
+      const item = page.locator('#gp-edit-col-sort-' + order);
+      await item.focus();
+      assert.equal(await item.getAttribute('aria-disabled'), 'true');
+      assert.match(await page.locator('#gp-edit-menu-cols-reason').textContent(), c.reason);
+      await item.click({ force: true });
+      assert.equal(readFileSync(file, 'utf8'), c.source);
     }
   });
 });

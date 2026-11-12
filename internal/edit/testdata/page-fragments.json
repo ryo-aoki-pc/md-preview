@@ -16,6 +16,10 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "並べ替える行が 2 行未満です",
+          "並べ替える行が 2 行未満です"
+        ],
         "sections": [],
         "warnings": [],
         "cells": [
@@ -162,6 +166,10 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "並べ替える行が 2 行未満です",
+          "並べ替える行が 2 行未満です"
+        ],
         "sections": [],
         "warnings": [],
         "cells": [
@@ -290,6 +298,10 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "並べ替える行が 2 行未満です",
+          "並べ替える行が 2 行未満です"
+        ],
         "sections": [],
         "warnings": [],
         "cells": [
@@ -417,6 +429,10 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "並べ替える行が 2 行未満です",
+          "並べ替える行が 2 行未満です"
+        ],
         "sections": [],
         "warnings": [],
         "cells": [
@@ -535,6 +551,10 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "並べ替える行が 2 行未満です",
+          "並べ替える行が 2 行未満です"
+        ],
         "sections": [],
         "warnings": [],
         "cells": [
@@ -681,6 +701,10 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "並べ替える行が 2 行未満です",
+          "並べ替える行が 2 行未満です"
+        ],
         "sections": [],
         "warnings": [],
         "cells": [
@@ -827,6 +851,10 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "並べ替える行が 2 行未満です",
+          "並べ替える行が 2 行未満です"
+        ],
         "sections": [],
         "warnings": [],
         "cells": [
@@ -973,6 +1001,11 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "見出しの区画は並べ替えられません",
+          "行の結合があるので並べ替えられません",
+          "行の結合があるので並べ替えられません"
+        ],
         "sections": [
           {
             "tag": "thead",
@@ -1157,6 +1190,11 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "見出しの区画は並べ替えられません",
+          "行の結合があるので並べ替えられません",
+          "行の結合があるので並べ替えられません"
+        ],
         "sections": [
           {
             "tag": "thead",
@@ -1322,6 +1360,11 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "見出しの区画は並べ替えられません",
+          "行の結合があるので並べ替えられません",
+          "行の結合があるので並べ替えられません"
+        ],
         "sections": [
           {
             "tag": "thead",
@@ -1506,6 +1549,11 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "見出しの区画は並べ替えられません",
+          "行の結合があるので並べ替えられません",
+          "行の結合があるので並べ替えられません"
+        ],
         "sections": [
           {
             "tag": "thead",
@@ -1690,6 +1738,11 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "見出しの区画は並べ替えられません",
+          "行の結合があるので並べ替えられません",
+          "行の結合があるので並べ替えられません"
+        ],
         "sections": [
           {
             "tag": "thead",
@@ -1874,6 +1927,11 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "見出しの区画は並べ替えられません",
+          "行の結合があるので並べ替えられません",
+          "行の結合があるので並べ替えられません"
+        ],
         "sections": [
           {
             "tag": "thead",
@@ -2027,6 +2085,11 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "見出しの区画は並べ替えられません",
+          "行の結合があるので並べ替えられません",
+          "行の結合があるので並べ替えられません"
+        ],
         "sections": [
           {
             "tag": "thead",
@@ -2152,6 +2215,9 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "並べ替える行が 2 行未満です"
+        ],
         "sections": [],
         "warnings": [],
         "cells": [
@@ -2221,6 +2287,9 @@
         "rowsLocked": "",
         "colsLocked": "",
         "cellsLocked": "",
+        "sortLocked": [
+          "並べ替える行が 2 行未満です"
+        ],
         "sections": [],
         "warnings": [],
         "cells": [

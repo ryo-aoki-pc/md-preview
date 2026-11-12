@@ -59,6 +59,7 @@ func (d *Document) apply(r *table.Region, lines []string, expected *model.TableM
 type regionEdit struct {
 	region        *table.Region
 	lines         []string
+	endings       []string
 	kind          string
 	expected      *model.TableModel
 	expect        *table.Expectation
@@ -70,7 +71,7 @@ func (d *Document) applyEdits(edits []regionEdit, notes []string) (*Result, erro
 	replacements := make([]*table.Replacement, 0, len(edits))
 	source := false
 	for _, e := range edits {
-		repl := &table.Replacement{Region: e.region, Lines: e.lines, Model: e.expected, Expect: e.expect, TargetKind: e.kind}
+		repl := &table.Replacement{Region: e.region, Lines: e.lines, Endings: e.endings, Model: e.expected, Expect: e.expect, TargetKind: e.kind}
 		if repl.TargetKind == "" && (e.shape || e.expect != nil) {
 			repl.TargetKind = e.region.Kind
 		}
