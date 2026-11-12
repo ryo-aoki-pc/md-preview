@@ -3542,6 +3542,129 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
 });
 
 
+test('水平線とブロック追加を本物のファイルで確かめる', { skip }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const open = async (page, selector) => {
+    await page.locator(selector).dblclick();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+  };
+  const commit = async (page) => {
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.keyboard.press('Control+Enter');
+    const result = await response;
+    return result.status();
+  };
+  const separated = async (page) => {
+    assert.equal(await page.evaluate(() => {
+      const input = document.querySelector('#gp-edit-input').getBoundingClientRect();
+      const toolbar = document.querySelector('#gp-edit-block-actions').getBoundingClientRect();
+      const header = document.querySelector('#gp-header').getBoundingClientRect();
+      return toolbar.top >= header.bottom && (toolbar.bottom <= input.top || toolbar.top >= input.bottom);
+    }), true, '操作欄は入力欄とヘッダーに重ならない');
+  };
+
+  await t.test('水平線の余白を押して編集し、本文の木と配置を保つ', async (t) => {
+    const { page, file } = await editablePage(t, browser, '前\n\n---\n\n後\n');
+    await page.locator('#gp-edit-toggle').click();
+    const before = await page.locator('#gp-content').evaluate((root) => ({ html: root.innerHTML,
+      positions: [...root.children].map((node) => ({ top: node.offsetTop, height: node.offsetHeight })) }));
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    assert.deepEqual(await page.locator('#gp-content').evaluate((root) => ({ html: root.innerHTML,
+      positions: [...root.children].map((node) => ({ top: node.offsetTop, height: node.offsetHeight })) })), before);
+    await page.locator('#gp-content hr').hover();
+    assert.equal(await page.evaluate(() => {
+      const rule = document.querySelector('#gp-edit-hover').sheet.cssRules[0];
+      return rule && /^#gp-content(?: > :nth-child\([1-9][0-9]*\))+$/.test(rule.selectorText) &&
+        document.querySelector(rule.selectorText).localName === 'hr';
+    }), true);
+    const line = await page.locator('#gp-content hr').boundingBox();
+    await page.mouse.dblclick(line.x + line.width / 2, line.y + 5);
+    await page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '---');
+    await separated(page);
+    await page.locator('#gp-edit-input').fill('***');
+    assert.equal(await commit(page), 200);
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '前\n\n***\n\n後\n');
+  });
+
+  for (const side of ['before', 'after']) for (const ending of ['\n', '\r\n']) await t.test(side + JSON.stringify(ending), async (t) => {
+    const original = '前\n\n本文\n\n後\n'.replaceAll('\n', ending);
+    const { page, file } = await editablePage(t, browser, original);
+    await open(page, '#gp-content > p:nth-child(2)');
+    await separated(page);
+    await page.locator('#gp-edit-input').fill('本文の下書き');
+    await page.locator('#gp-edit-' + side).click();
+    assert.equal(await page.locator('#gp-edit-source-label').textContent(), '追加');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '');
+    assert.equal(await page.locator('#gp-edit-block-actions').isVisible(), false);
+    assert.equal(readFileSync(file, 'utf8'), original, '元の入力は確定しない');
+    await page.locator('#gp-edit-input').fill('追加した段落');
+    await page.keyboard.press('Alt+ArrowUp');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '追加した段落');
+    assert.equal(await commit(page), 200);
+    await editIdle(page);
+    const want = (side === 'before' ? '前\n\n追加した段落\n\n本文\n\n後\n' : '前\n\n本文\n\n追加した段落\n\n後\n').replaceAll('\n', ending);
+    assert.equal(readFileSync(file, 'utf8'), want);
+    await open(page, '#gp-content > p:nth-child(' + (side === 'after' ? 2 : 3) + ')');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '本文の下書き');
+  });
+
+  await t.test('追加の取り消しと空の外側クリックでは書かず、拒否した入力を残す', async (t) => {
+    const original = '前\n\n後\n';
+    const { page, file } = await editablePage(t, browser, original);
+    await open(page, '#gp-content > p:first-child');
+    await page.locator('#gp-edit-after').click();
+    await page.locator('#gp-edit-input').fill('取り消す追加');
+    await page.keyboard.press('Escape');
+    assert.equal(readFileSync(file, 'utf8'), original);
+    await open(page, '#gp-content > p:first-child');
+    await page.locator('#gp-edit-after').click();
+    await page.mouse.click(8, page.viewportSize().height - 8);
+    assert.equal(await page.locator('#gp-edit-input').isVisible(), false);
+    assert.equal(readFileSync(file, 'utf8'), original);
+    await open(page, '#gp-content > p:first-child');
+    await page.locator('#gp-edit-after').click();
+    await page.locator('#gp-edit-input').fill(' \t');
+    assert.equal(await commit(page), 422);
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), ' \t');
+    assert.match(await page.locator('#gp-edit-status').textContent(), /追加する文を入力/);
+    await page.locator('#gp-edit-input').fill('```');
+    assert.equal(await commit(page), 422);
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value === '```' && !document.querySelector('#gp-edit-input').hidden);
+    assert.equal(await page.locator('#gp-edit-source-label').textContent(), '追加');
+    assert.match(await page.locator('#gp-edit-status').textContent(), /前後のブロックに取り込まれます/);
+    assert.equal(readFileSync(file, 'utf8'), original);
+    await page.locator('#gp-edit-input').fill('外側クリックで追加');
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.mouse.click(8, page.viewportSize().height - 8);
+    assert.equal((await response).status(), 200);
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '前\n\n外側クリックで追加\n\n後\n');
+  });
+
+  for (const side of ['before', 'after']) await t.test('項目からリスト全体の' + side + 'へ追加する', async (t) => {
+    const original = '# 題\n\n- a\n- b\n\n後\n';
+    const { page, file } = await editablePage(t, browser, original);
+    await open(page, '#gp-content li:first-child');
+    await separated(page);
+    await page.locator('#gp-edit-' + side).click();
+    const boxes = await page.evaluate(() => ({
+      input: document.querySelector('#gp-edit-input').getBoundingClientRect().toJSON(),
+      list: document.querySelector('#gp-content ul').getBoundingClientRect().toJSON(),
+    }));
+    if (side === 'after') assert.ok(boxes.input.top >= boxes.list.bottom);
+    else assert.ok(boxes.input.bottom <= boxes.list.top);
+    await page.locator('#gp-edit-input').fill('追加');
+    assert.equal(await commit(page), 200);
+    await editIdle(page);
+    const want = side === 'before' ? '# 題\n\n追加\n\n- a\n- b\n\n後\n' : '# 題\n\n- a\n- b\n\n追加\n\n後\n';
+    assert.equal(readFileSync(file, 'utf8'), want);
+  });
+});
+
 test('数式と図の原文を編集し、描き直しと編集の枠を確かめる', { skip }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
@@ -3563,8 +3686,9 @@ test('数式と図の原文を編集し、描き直しと編集の枠を確か�
     assert.equal((await response).status(), 200);
     await editIdle(page);
   };
-  const hover = async (page, selector, expected) => {
-    await page.locator(selector).hover();
+  const hover = async (page, selector, expected, direct = false) => {
+    if (direct) await page.locator(selector).dispatchEvent('pointerover');
+    else await page.locator(selector).hover();
     assert.equal(await page.evaluate((expected) => {
       const style = document.querySelector('#gp-edit-hover');
       const rule = style.sheet.cssRules[0];
@@ -3751,6 +3875,8 @@ test('数式と図の原文を編集し、描き直しと編集の枠を確か�
     const before = await page.locator('#gp-content').innerHTML();
     // 空行のあるリストなので、項目の文字は段落に入る。載せた所のいちばん内側（段落）に枠が出る。
     await hover(page, '#gp-content > ul > li:last-child > p', '#gp-content > ul > li:last-child > p');
+    // 項目自身に届いたイベントの枠を、段落への載せ替えと分けて確かめる。
+    await hover(page, '#gp-content > ul > li:last-child', '#gp-content > ul > li:last-child', true);
     await hover(page, '.markdown-alert-title', '.markdown-alert');
     await hover(page, '.gp-mermaid svg', '.gp-mermaid');
     await open(page, '.gp-mermaid', '```mermaid\n  graph TD; A-->B\n  ```', 'pre');

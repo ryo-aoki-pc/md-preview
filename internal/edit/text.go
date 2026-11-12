@@ -19,6 +19,27 @@ func ParseRange(value string) (Range, *Error) {
 	return Range(value), e
 }
 func coordinates(r Range) ([4]int, *Error) {
+	out, e := positionCoordinates(r)
+	if e != nil {
+		return out, e
+	}
+	// 終了列 0 は「その行の手前まで」。同じ行では開始より前になるので受け付けない。
+	if out[2] < out[0] || out[2] == out[0] && out[3] < out[1] {
+		return out, invalid()
+	}
+	return out, nil
+}
+
+// ParseSourceRange は、水平線だけは上流の逆転した公開の終端も受け付ける。
+func ParseSourceRange(tag, value string) (Range, *Error) {
+	if tag == "hr" {
+		_, e := positionCoordinates(Range(value))
+		return Range(value), e
+	}
+	return ParseRange(value)
+}
+
+func positionCoordinates(r Range) ([4]int, *Error) {
 	var out [4]int
 	m := rangePattern.FindStringSubmatch(string(r))
 	if m == nil {
@@ -30,10 +51,6 @@ func coordinates(r Range) ([4]int, *Error) {
 			return out, invalid()
 		}
 		out[i] = int(n)
-	}
-	// 終了列 0 は「その行の手前まで」。同じ行では開始より前になるので受け付けない。
-	if out[2] < out[0] || out[2] == out[0] && out[3] < out[1] {
-		return out, invalid()
 	}
 	return out, nil
 }

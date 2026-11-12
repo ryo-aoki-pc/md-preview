@@ -110,6 +110,16 @@ func TestEditGuards(t *testing.T) {
 }
 func TestEditGetParametersAndErrors(t *testing.T) {
 	s, _, _ := fixture(t, func(o *Options) { o.Edit = &testEditor{} })
+	for _, tag := range []string{"hr", "p"} {
+		r := request(t, s, "GET", "_/edit/source?render=1&tag="+tag+"&range=4:5-4:3", "", nil)
+		want := 400
+		if tag == "hr" {
+			want = 200
+		}
+		if r.status != want {
+			t.Fatal("逆転した公開の終端", tag, r)
+		}
+	}
 	for _, render := range []string{"", "0", "-1", "+1", "1.5", "1x", "18446744073709551616"} {
 		r := request(t, s, "GET", "_/edit/tables?render="+render, "", nil)
 		if r.status != 400 {

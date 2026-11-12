@@ -16,6 +16,7 @@ type request struct {
 	table               int
 	operation           operation
 	rangeValue          Range
+	insertSide          string
 	text                string
 	checked, undo, redo bool
 }
@@ -91,6 +92,27 @@ func parseRequest(m map[string]any) (request, *Error) {
 	}
 	r.render = uint64(render)
 	switch {
+	case fields(m, "render", "insert", "text"):
+		r.kind = "insert"
+		r.text, ok = stringValue(m["text"])
+		if !ok {
+			return r, invalid()
+		}
+		insert, ok := m["insert"].(map[string]any)
+		if !ok || !fields(insert, "anchor", "side") {
+			return r, invalid()
+		}
+		r.insertSide, ok = insert["side"].(string)
+		if !ok || r.insertSide != "before" && r.insertSide != "after" {
+			return r, invalid()
+		}
+		value, ok := insert["anchor"].(string)
+		if !ok {
+			return r, invalid()
+		}
+		var e *Error
+		r.rangeValue, e = ParseRange(value)
+		return r, e
 	case fields(m, "render", "table", "op"):
 		r.kind = "table"
 		r.table, ok = integer(m["table"], 0)

@@ -154,7 +154,7 @@ func (s *Service) Text(ctx context.Context, doc *string, render uint64, tag stri
 	if ctx.Err() != nil {
 		return nil, fault(422, "cancelled", "原文の読み取りを取り消しました。")
 	}
-	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": b.kind, "outer": m.outerBlocks(b)}, nil
+	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": b.kind, "outer": m.outerBlocks(b), "anchor": m.anchor(b)}, nil
 }
 func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (any, *Error) {
 	s.mu.Lock()
@@ -188,6 +188,11 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 			return nil, e
 		}
 		switch r.kind {
+		case "insert":
+			text, e = s.insertBlock(ctx, src, r)
+			if e != nil {
+				return nil, e
+			}
 		case "table":
 			m, err := s.tables(ctx, src)
 			if err != nil {
