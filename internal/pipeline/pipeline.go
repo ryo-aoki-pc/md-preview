@@ -20,6 +20,8 @@ package pipeline
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"regexp"
 	"strings"
@@ -98,7 +100,12 @@ func (r *Renderer) render(ctx context.Context, text string, c Context) (result R
 	if err != nil {
 		return Result{}, err
 	}
-	raw, err := r.engine.Render(ctx, strings.ReplaceAll(expansion.Text, "\r", ""), map[string]any{"gemojis": true, "placeholder_detection": false})
+	engineText := strings.ReplaceAll(expansion.Text, "\r", "")
+	opts := map[string]any{"gemojis": true, "placeholder_detection": false}
+	if c.NoSourcepos {
+		opts["sourcepos"] = false
+	}
+	raw, err := r.engine.Render(ctx, engineText, opts)
 	if err != nil {
 		return Result{}, err
 	}
@@ -106,7 +113,16 @@ func (r *Renderer) render(ctx context.Context, text string, c Context) (result R
 	if err != nil {
 		return Result{}, err
 	}
-	state := &filters.State{Plantuml: c.Plantuml, Markdown: r.engine.Render}
+	// フィルターが描き直す Markdown (JSON の表のセル) は、JSON のエスケープなど、エンジンの入力に
+	// sourcepos の文字が無い形からも位置属性を作れる。その出力も見る。
+	foreignSourcepos := false
+	state := &filters.State{Plantuml: c.Plantuml, Markdown: func(ctx context.Context, text string, opts map[string]any) (string, error) {
+		out, err := r.engine.Render(ctx, text, opts)
+		if err == nil && hasSourceposText(out) {
+			foreignSourcepos = true
+		}
+		return out, err
+	}}
 	if err = filters.Before(ctx, tree, state); err != nil {
 		return Result{}, err
 	}
@@ -121,7 +137,11 @@ func (r *Renderer) render(ctx context.Context, text string, c Context) (result R
 	if err = filters.After(ctx, tree, state); err != nil {
 		return Result{}, err
 	}
-	result = Result{Source: sourceMap(text, original, converted, frontEnd, expansion), Headings: []Heading{}, Includes: []Include{}, Notices: []Notice{}, Diagrams: []Diagram{}}
+	result = Result{HasSourcepos: hasSourceposText(engineText) || foreignSourcepos, Source: sourceMap(text, original, converted, frontEnd, expansion), Headings: []Heading{}, Includes: []Include{}, Notices: []Notice{}, Diagrams: []Diagram{}}
+	if result.HasSourcepos {
+		sum := sha256.Sum256([]byte(engineText))
+		result.SourceposInput = hex.EncodeToString(sum[:])
+	}
 	headings, err := t.Elements(ctx, tree, func(n *html.Node) bool {
 		return len(n.Data) == 2 && n.Data[0] == 'h' && n.Data[1] >= '1' && n.Data[1] <= '6'
 	})
@@ -153,4 +173,9 @@ func (r *Renderer) render(ctx context.Context, text string, c Context) (result R
 	}
 	result.HTML, err = t.HTMLContext(ctx, tree)
 	return result, err
+}
+
+// hasSourceposText は、位置属性の名前になりうる文字 (大文字小文字を区別しない) があるかを返す。
+func hasSourceposText(s string) bool {
+	return strings.Contains(strings.ToLower(s), "sourcepos")
 }

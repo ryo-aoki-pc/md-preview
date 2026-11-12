@@ -47,6 +47,8 @@ type Context struct {
 	Exists func(path string) bool
 	// Plantuml が真なら、plantuml のコードブロックを図の img に置き換える (手元で描けるときだけ真にする)。
 	Plantuml bool
+	// NoSourcepos が真なら、編集の検証用にエンジンの位置属性を付けずに描く。
+	NoSourcepos bool
 }
 
 // Heading は、見出しの一覧の 1 件。
@@ -79,12 +81,17 @@ type Diagram struct {
 
 // Result は、描画の結果。HTML は消毒済み。
 type Result struct {
-	Source   SourceMap `json:"-"`
-	HTML     string    `json:"html"`
-	Headings []Heading `json:"headings"`
-	Includes []Include `json:"includes"`
-	Notices  []Notice  `json:"notices"`
-	Diagrams []Diagram `json:"diagrams"`
+	// HasSourcepos は、include 展開後のエンジンの入力に位置属性の文字があるか。
+	HasSourcepos bool `json:"-"`
+	// SourceposInput は、HasSourcepos が真のときの、エンジンの入力の SHA-256 (16 進)。偽なら空。
+	// 位置なしの試しの描画が、同じ入力を描いたかを確かめるのに使う。
+	SourceposInput string    `json:"-"`
+	Source         SourceMap `json:"-"`
+	HTML           string    `json:"html"`
+	Headings       []Heading `json:"headings"`
+	Includes       []Include `json:"includes"`
+	Notices        []Notice  `json:"notices"`
+	Diagrams       []Diagram `json:"diagrams"`
 }
 
 // DocumentError は、利用者に見せてよい、文書の側の誤り (入れ子が深すぎる、など)。Message は日本語の 1 行。

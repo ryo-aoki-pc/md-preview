@@ -16,6 +16,7 @@ import (
 type Host interface {
 	Source(doc *string) (session.Source, bool)
 	Trial(ctx context.Context, src session.Source, text string) (pipeline.Result, error)
+	Unpositioned(ctx context.Context, src session.Source) (pipeline.Result, error)
 	Reload(doc *string)
 }
 type Mode int
@@ -222,8 +223,10 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 				}
 				start, end, line = b.start, b.end, b.line
 			} else {
-				if !m.checkboxes[r.rangeValue] {
+				if reason, ok := m.checkboxes[r.rangeValue]; !ok {
 					return nil, blockFault("target")
+				} else if reason != nil {
+					return nil, reason
 				}
 				start, end, line, err = offsets(src, r.rangeValue)
 				if err != nil {

@@ -22,6 +22,8 @@ type testHost struct {
 	src             session.Source
 	renderer        *pipeline.Renderer
 	trials, reloads int
+	unpositioned    int
+	unposition      func() (pipeline.Result, error)
 	trial           func(string) (pipeline.Result, error)
 }
 
@@ -32,6 +34,15 @@ func (h *testHost) Trial(ctx context.Context, src session.Source, text string) (
 		return h.trial(text)
 	}
 	return h.renderer.Render(ctx, text, session.FileContext(src.Root, src.File, src.Dir, false))
+}
+func (h *testHost) Unpositioned(ctx context.Context, src session.Source) (pipeline.Result, error) {
+	h.unpositioned++
+	if h.unposition != nil {
+		return h.unposition()
+	}
+	c := session.FileContext(src.Root, src.File, src.Dir, false)
+	c.NoSourcepos = true
+	return h.renderer.Render(ctx, src.Text, c)
 }
 func (h *testHost) Reload(*string) { h.reloads++ }
 func testEngine(t *testing.T) *engine.Engine {
@@ -66,6 +77,7 @@ func testService(t *testing.T, e *engine.Engine, text string, files map[string]s
 		}
 		h.src.Render++
 		h.src.Text, h.src.HTML, h.src.Lines = text, result.HTML, result.Source
+		h.src.HasSourcepos, h.src.SourceposInput = result.HasSourcepos, result.SourceposInput
 		h.src.Stale = false
 	}
 	refresh(strings.TrimPrefix(text, "\ufeff"))
