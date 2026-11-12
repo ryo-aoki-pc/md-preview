@@ -18,7 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/plantumlsource"
+	"github.com/ryo-aoki-pc/md-tools/internal/plantumlsource"
 )
 
 var (

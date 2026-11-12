@@ -3,7 +3,7 @@ package pipeline
 import (
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/include"
+	"github.com/ryo-aoki-pc/md-tools/internal/include"
 )
 
 // SourceMap は描画エンジンへ渡した文字列の行と、CR を除く前の原文の行の対応。

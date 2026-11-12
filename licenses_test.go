@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-preview/engine"
-	"github.com/ryo-aoki-pc/md-preview/internal/version"
+	"github.com/ryo-aoki-pc/md-tools/engine"
+	"github.com/ryo-aoki-pc/md-tools/internal/version"
 )
 
 func licenseManifest(t *testing.T) []LicenseComponent {

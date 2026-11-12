@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/cli"
-	h "github.com/ryo-aoki-pc/md-preview/internal/htmltree"
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/cli"
+	h "github.com/ryo-aoki-pc/md-tools/internal/htmltree"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
 	"golang.org/x/net/html"
 )
 

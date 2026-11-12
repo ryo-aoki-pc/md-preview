@@ -8,9 +8,9 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
-	"github.com/ryo-aoki-pc/md-preview/internal/session"
 	"github.com/ryo-aoki-pc/md-table-excel/tableedit"
+	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-tools/internal/session"
 )
 
 type Host interface {

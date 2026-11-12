@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/pagefiles"
-	"github.com/ryo-aoki-pc/md-preview/page"
+	"github.com/ryo-aoki-pc/md-tools/internal/pagefiles"
+	"github.com/ryo-aoki-pc/md-tools/page"
 )
 
 var darkRule = regexp.MustCompile(`:root\.gl-dark[^{}]*\{[^{}]*\}`)

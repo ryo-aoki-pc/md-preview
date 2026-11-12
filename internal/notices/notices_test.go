@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	t "github.com/ryo-aoki-pc/md-preview/internal/htmltree"
-	"github.com/ryo-aoki-pc/md-preview/internal/include"
+	t "github.com/ryo-aoki-pc/md-tools/internal/htmltree"
+	"github.com/ryo-aoki-pc/md-tools/internal/include"
 )
 
 func TestReadOnly(tst *testing.T) {

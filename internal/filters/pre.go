@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	t "github.com/ryo-aoki-pc/md-preview/internal/htmltree"
-	"github.com/ryo-aoki-pc/md-preview/internal/plantumlsource"
+	t "github.com/ryo-aoki-pc/md-tools/internal/htmltree"
+	"github.com/ryo-aoki-pc/md-tools/internal/plantumlsource"
 	"golang.org/x/net/html"
 )
 

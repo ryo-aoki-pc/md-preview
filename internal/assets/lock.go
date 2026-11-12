@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	embedded "github.com/ryo-aoki-pc/md-preview/assets"
+	embedded "github.com/ryo-aoki-pc/md-tools/assets"
 )
 
 const maxSafeInteger int64 = 9007199254740991

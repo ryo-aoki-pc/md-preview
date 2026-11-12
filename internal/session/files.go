@@ -7,10 +7,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/documents"
-	"github.com/ryo-aoki-pc/md-preview/internal/fileopen"
-	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/documents"
+	"github.com/ryo-aoki-pc/md-tools/internal/fileopen"
+	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
 )
 
 const MaxIncludeBytes = 10 * 1024 * 1024

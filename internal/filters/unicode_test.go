@@ -1,7 +1,7 @@
 package filters
 
 import (
-	t "github.com/ryo-aoki-pc/md-preview/internal/htmltree"
+	t "github.com/ryo-aoki-pc/md-tools/internal/htmltree"
 	"strings"
 	"testing"
 )

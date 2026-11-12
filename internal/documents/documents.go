@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode/utf16"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
 )
 
 func IsMarkdown(name string) bool {

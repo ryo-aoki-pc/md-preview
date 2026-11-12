@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	mdpreview "github.com/ryo-aoki-pc/md-preview"
-	"github.com/ryo-aoki-pc/md-preview/internal/server"
-	"github.com/ryo-aoki-pc/md-preview/internal/version"
+	mdpreview "github.com/ryo-aoki-pc/md-tools"
+	"github.com/ryo-aoki-pc/md-tools/internal/server"
+	"github.com/ryo-aoki-pc/md-tools/internal/version"
 )
 
 func TestLicensesAction(t *testing.T) {

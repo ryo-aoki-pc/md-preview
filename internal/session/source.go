@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
 )
 
 // Source は成功した描画のもとの本文と、その結果と置き場所。

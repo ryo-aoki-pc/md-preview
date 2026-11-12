@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/htmltree"
 	"github.com/ryo-aoki-pc/md-table-excel/tableedit"
+	"github.com/ryo-aoki-pc/md-tools/internal/htmltree"
 	"golang.org/x/net/html"
 )
 

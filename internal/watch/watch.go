@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/documents"
-	"github.com/ryo-aoki-pc/md-preview/internal/fileopen"
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/documents"
+	"github.com/ryo-aoki-pc/md-tools/internal/fileopen"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
 )
 
 // 更新時刻には刻みがあり、同じ刻みの中で同じ大きさに書き換えられると、stat は変わらない。

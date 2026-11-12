@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/edit"
-	"github.com/ryo-aoki-pc/md-preview/internal/server"
+	"github.com/ryo-aoki-pc/md-tools/internal/edit"
+	"github.com/ryo-aoki-pc/md-tools/internal/server"
 )
 
 const maxEditBytes = 8 * 1024 * 1024

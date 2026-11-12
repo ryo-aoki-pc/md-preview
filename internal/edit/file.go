@@ -8,10 +8,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/documents"
-	"github.com/ryo-aoki-pc/md-preview/internal/fileopen"
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
-	"github.com/ryo-aoki-pc/md-preview/internal/session"
+	"github.com/ryo-aoki-pc/md-tools/internal/documents"
+	"github.com/ryo-aoki-pc/md-tools/internal/fileopen"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/session"
 )
 
 const maxDocumentBytes = 16 * 1024 * 1024

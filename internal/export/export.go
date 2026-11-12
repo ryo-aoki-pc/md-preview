@@ -19,14 +19,14 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/documents"
-	"github.com/ryo-aoki-pc/md-preview/internal/fileopen"
-	"github.com/ryo-aoki-pc/md-preview/internal/htmltree"
-	"github.com/ryo-aoki-pc/md-preview/internal/pagefiles"
-	"github.com/ryo-aoki-pc/md-preview/internal/paths"
-	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
-	"github.com/ryo-aoki-pc/md-preview/internal/session"
+	"github.com/ryo-aoki-pc/md-tools/internal/documents"
+	"github.com/ryo-aoki-pc/md-tools/internal/fileopen"
+	"github.com/ryo-aoki-pc/md-tools/internal/htmltree"
+	"github.com/ryo-aoki-pc/md-tools/internal/pagefiles"
+	"github.com/ryo-aoki-pc/md-tools/internal/paths"
+	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/session"
 	"golang.org/x/net/html"
 )
 

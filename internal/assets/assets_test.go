@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	embedded "github.com/ryo-aoki-pc/md-preview/assets"
+	embedded "github.com/ryo-aoki-pc/md-tools/assets"
 )
 
 const fixtureCSS = `/* url(/assets/ignored) */ .x{src:url(/assets/fonts/a.woff2);mask:url("./icons.svg#one")}`

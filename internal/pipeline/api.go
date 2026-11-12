@@ -7,7 +7,7 @@ package pipeline
 import (
 	"context"
 
-	"github.com/ryo-aoki-pc/md-preview/engine"
+	"github.com/ryo-aoki-pc/md-tools/engine"
 )
 
 // IncludeKind は、::include のファイルを読んだ結果の種類。

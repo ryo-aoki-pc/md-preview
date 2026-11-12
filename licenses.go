@@ -10,9 +10,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-preview/engine"
-	"github.com/ryo-aoki-pc/md-preview/internal/version"
-	"github.com/ryo-aoki-pc/md-preview/page"
+	"github.com/ryo-aoki-pc/md-tools/engine"
+	"github.com/ryo-aoki-pc/md-tools/internal/version"
+	"github.com/ryo-aoki-pc/md-tools/page"
 )
 
 // 元の場所で埋め込み、原文の写しを増やさない。

@@ -8,12 +8,12 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/ryo-aoki-pc/md-preview/engine"
-	"github.com/ryo-aoki-pc/md-preview/internal/assets"
-	"github.com/ryo-aoki-pc/md-preview/internal/cli"
-	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
-	"github.com/ryo-aoki-pc/md-preview/internal/plantuml"
-	"github.com/ryo-aoki-pc/md-preview/internal/server"
+	"github.com/ryo-aoki-pc/md-tools/engine"
+	"github.com/ryo-aoki-pc/md-tools/internal/assets"
+	"github.com/ryo-aoki-pc/md-tools/internal/cli"
+	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-tools/internal/plantuml"
+	"github.com/ryo-aoki-pc/md-tools/internal/server"
 )
 
 const help = cli.Help

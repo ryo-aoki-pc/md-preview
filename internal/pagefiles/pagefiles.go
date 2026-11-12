@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-preview/page"
+	"github.com/ryo-aoki-pc/md-tools/page"
 )
 
 type Options struct {
