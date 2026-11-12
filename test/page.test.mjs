@@ -5302,6 +5302,15 @@ test('表メニューで変換・削除・一手の取り消しと選択を確�
     await editIdle(page);
     assert.equal(readFileSync(file, 'utf8'), original);
     assert.equal(await page.locator('#gp-content table').count(), 1);
+    // 選択の無いまま、Ctrl+Y・Ctrl+Z のキーでもやり直し・元に戻すができる。
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('Control+y');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '前\n\n後\n');
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('Control+z');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original);
   });
 
   for (const source of [pipe.replace('| 本文 |', '| [ ] |'), html.replace('>本文<', '>[X]<')])

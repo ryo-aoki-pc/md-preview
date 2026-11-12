@@ -1343,7 +1343,8 @@
     if (!rect) return '範囲を選び直してください';
     if (selecting) return '';
     if (action === 'table-html' || action === 'table-pipe' || action === 'table-delete') {
-      if (composing || sourceFetching) return '文字の入力を終えてから操作してください';
+      if (sourceFetching) return '前の書き込みの反映を待っています';
+      if (composing) return '文字の入力を終えてから操作してください';
       return action === 'table-delete' ? info.deleteLocked || '' : info.convertLocked?.[action.slice('table-'.length)] || '';
     }
     const rowAction = action.startsWith('row-'), colAction = action.startsWith('col-');
@@ -1841,6 +1842,18 @@
       return;
     }
     if (handleMenuKey(event)) return;
+    // 表を消して選択が外れた後も、履歴があれば Ctrl+Z・Ctrl+Y を操作欄のボタンと同じに扱う。
+    // ほかの入力欄（コメントや検索など）のキーは奪わない。
+    if (!selected && !editor && config.undo && event.ctrlKey && !event.altKey && !event.metaKey &&
+      ['z', 'y'].includes(event.key.toLowerCase()) &&
+      (document.activeElement === document.body || document.activeElement === input || bar.contains(document.activeElement))) {
+      const history = event.key.toLowerCase() === 'y' || event.shiftKey ? 'redo' : 'undo';
+      if (undoState[history]) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        runAction(history);
+      }
+      return;
+    }
     if ((document.activeElement !== input && !(blockPoint(editor?.point) && blockBar.contains(document.activeElement))) ||
       (!selected && !blockPoint(editor?.point))) return;
     const key = event.key;

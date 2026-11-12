@@ -48,7 +48,7 @@ func TestConvertTablesInContainers(t *testing.T) {
 }
 
 func TestConversionRefusals(t *testing.T) {
-	for _, mark := range []string{"[ ]", "[x]", "[X]"} {
+	for _, mark := range []string{"[ ]", "[x]", "[X]", "[~]"} {
 		for _, source := range []string{
 			"| 見出し |\n| --- |\n|  " + mark + "  |\n",
 			"<table><tr><th>見出し</th></tr><tr><td>  " + mark + "  </td></tr></table>\n",
@@ -92,6 +92,8 @@ func TestDeleteTableAndOutsideBytes(t *testing.T) {
 				{"\n", "", "\n", ""},
 				{"前\n\n", "> ", "\n後\n", "前\n\n後\n"},
 				{"- 項目\n\n", "  ", "\n- 次\n\n  続き\n", "- 項目\n\n- 次\n\n  続き\n"},
+				// 引用の途中の表は、「>」だけの行を残して同じ引用のままにする。
+				{"> 前\n>\n", "> ", ">\n> 後\n", "> 前\n>\n> 後\n"},
 			} {
 				body := c.prefix + strings.ReplaceAll(strings.TrimSuffix(table, "\n"), "\n", "\n"+c.prefix) + "\n"
 				original := strings.ReplaceAll(c.before+body+c.after, "\n", ending)
@@ -119,7 +121,8 @@ func TestDeleteTableRefusesChangedContainers(t *testing.T) {
 		{"- <table><tr><td>本文</td></tr></table>\n", true},
 		{"- 項目\n\n  | 見出し |\n  | --- |\n  | 本文 |\n", false},
 		{"> <table><tr><td>本文</td></tr></table>\n> <div>外</div>\n", false},
-		{"> 前\n>\n> | 見出し |\n> | --- |\n> | 本文 |\n>\n> 後\n", false},
+		// 2 つのリストの間の表を消すと、リストが 1 つにつながる。
+		{"- a\n\n| 見出し |\n| --- |\n| 本文 |\n\n- b\n", false},
 		{"<table><tr><td>本文</td></tr></table><div>外</div>\n", true},
 	} {
 		d := tableedit.Parse(c.text)

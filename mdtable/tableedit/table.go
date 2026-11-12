@@ -83,7 +83,8 @@ func conversionLines(r *table.Region, to string, warnings *[]string) ([]string, 
 			text = strings.NewReplacer(`\[`, "[", `\]`, "]").Replace(text)
 		}
 		switch strings.TrimSpace(text) {
-		case "[ ]", "[x]", "[X]":
+		// [~] は GitLab の「対象外」のタスク。パイプの表では無効のチェックボックスになる。
+		case "[ ]", "[x]", "[X]", "[~]":
 			return nil, located(fault("unsupported", "タスクの印だけのセルがあり、種類を変えるとチェックボックスの描画が変わる"), c.Row, c.Col)
 		}
 	}
@@ -138,19 +139,29 @@ func (d *Document) removal(r *table.Region) (*Result, error) {
 	for end < len(d.md.Lines) && blank(d.md.Lines[end]) {
 		end++
 	}
-	var lines []string
+	// 前後に残る行の間には空行を 1 行置く。引用の途中の表では「>」だけの行にしないと
+	// 引用が 2 つに分かれ、引用が表だけのときは「>」を残すと空の引用ができる。
+	// 入れ物の空行を先に試し、前後の解釈が変わるなら空の行で試す。
+	candidates := [][]string{nil}
 	if start > 0 && end < len(d.md.Lines) {
-		lines = []string{""}
+		candidates = [][]string{{""}}
+		if prefix := r.BlankPrefix(); prefix != "" {
+			candidates = [][]string{{prefix}, {""}}
+		}
 	}
 	span := &table.Region{Start: start, End: end - 1}
-	text := table.ApplyReplacements(d.md, []*table.Replacement{{Region: span, Lines: lines}})
-	out := verify.Removal(d.md, text, r, start, end, len(lines))
-	if len(out.Problems) != 0 {
-		err := fault("verify", out.Problems[0])
-		err.Details = out.Problems
-		return nil, err
+	var problems []string
+	for _, lines := range candidates {
+		text := table.ApplyReplacements(d.md, []*table.Replacement{{Region: span, Lines: lines}})
+		out := verify.Removal(d.md, text, r, start, end, len(lines))
+		if len(out.Problems) == 0 {
+			return &Result{Text: text, Changed: text != d.text, Warnings: []string{}, Document: &Document{text: text, md: out.Markdown, regions: out.Regions}}, nil
+		}
+		problems = out.Problems
 	}
-	return &Result{Text: text, Changed: text != d.text, Warnings: []string{}, Document: &Document{text: text, md: out.Markdown, regions: out.Regions}}, nil
+	err := fault("verify", problems[0])
+	err.Details = problems
+	return nil, err
 }
 
 // DeleteTable は表の原文を消し、前後の空行を一行にまとめる。
