@@ -1,0 +1,131 @@
+<h1 id="user-content-表の操作の見本" data-sourcepos="1:1-1:23" dir="auto">表の操作の見本<a href="#表の操作の見本" aria-label="Link to heading '表の操作の見本'" data-heading-content="表の操作の見本" class="anchor"></a></h1>
+<p data-sourcepos="3:1-3:79" dir="auto">パイプの表を HTML の表に変えた形（<code data-sourcepos="3:49-3:65">mdtable convert</code> と同じ）:</p>
+<table dir="auto">
+<thead>
+<tr>
+<th align="left">名前</th>
+<th align="right">数</th>
+<th align="center">備考</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="left">
+<p data-sourcepos="17:1-17:13"><strong data-sourcepos="17:1-17:13">りんご</strong></p>
+</td>
+<td align="right">1</td>
+<td align="center">
+<p data-sourcepos="23:1-23:32"><a data-sourcepos="23:1-23:32" href="https://example.com" rel="nofollow noreferrer noopener" target="_blank">リンク</a></p>
+</td>
+</tr>
+<tr>
+<td align="left">
+<p data-sourcepos="30:1-30:11"><code data-sourcepos="30:1-30:11">みかん</code></p>
+</td>
+<td align="right">20</td>
+<td align="center">縦棒 | 入り</td>
+</tr>
+<tr>
+<td align="left">空</td>
+<td align="right"></td>
+<td align="center"></td>
+</tr>
+</tbody>
+</table>
+<p data-sourcepos="44:1-44:73" dir="auto">結合したセル（覆ったセルは消し、左上だけを残す）:</p>
+<table dir="auto">
+<thead>
+<tr>
+<th colspan="2">結合した見出し</th>
+<th>3</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td rowspan="2" colspan="2">2 行 2 列の結合</td>
+<td>右上</td>
+</tr>
+<tr>
+<td>右下</td>
+</tr>
+<tr>
+<th rowspan="2">見出しセルの結合</th>
+<td>a</td>
+<td>b</td>
+</tr>
+<tr>
+<td>c</td>
+<td>d</td>
+</tr>
+</tbody>
+</table>
+<p data-sourcepos="73:1-73:49" dir="auto">行を全部覆う結合（空の行を残す）:</p>
+<table dir="auto">
+<tbody>
+<tr>
+<td rowspan="2" colspan="3">2 行を全部結合</td>
+</tr>
+<tr>
+</tr>
+<tr>
+<td>a</td>
+<td>b</td>
+<td>c</td>
+</tr>
+</tbody>
+</table>
+<p data-sourcepos="90:1-90:73" dir="auto">結合を解いた形（左上と同じタグ・揃えの空のセル）:</p>
+<table dir="auto">
+<tbody>
+<tr>
+<td align="center">解いた左上</td>
+<td align="center"></td>
+</tr>
+<tr>
+<td align="center"></td>
+<td align="center"></td>
+</tr>
+</tbody>
+</table>
+<p data-sourcepos="105:1-105:49" dir="auto">本文の見出しセルと、揃えの書き方:</p>
+<table dir="auto">
+<thead>
+<tr>
+<th>列</th>
+<th align="right">右</th>
+<th style="text-align: center">中央</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th>本文の見出しセル</th>
+<td>右（空白なし）</td>
+<td style="text-align: left">左と色</td>
+</tr>
+<tr>
+<th align="left">左の見出しセル</th>
+<td>既定</td>
+<td align="center" style="text-align: right">両方</td>
+</tr>
+</tbody>
+<tfoot>
+<tr>
+<td>合計</td>
+<td align="right">21</td>
+<td></td>
+</tr>
+</tfoot>
+</table>
+<p data-sourcepos="136:1-136:30" dir="auto">HTML の表の中のタスク:</p>
+<table dir="auto">
+<tbody>
+<tr>
+<td>[ ]</td>
+<td>
+<ul class="task-list" data-sourcepos="144:1-144:12">
+<li class="task-list-item" data-sourcepos="144:1-145:0"><input type="checkbox" data-checkbox-sourcepos="144:4-144:4" class="task-list-item-checkbox" disabled="" aria-label="Check option: 作業"> 作業</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>

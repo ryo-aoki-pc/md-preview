@@ -76,6 +76,11 @@
       "revision": "60779ceee02",
       "fetched": "2026-11-10"
     },
+    "table-edit": {
+      "gitlab": "19.6.0-pre",
+      "revision": "63186407606",
+      "fetched": "2026-11-12"
+    },
     "tables": {
       "gitlab": "19.6.0-pre",
       "revision": "60779ceee02",
