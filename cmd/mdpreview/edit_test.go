@@ -21,7 +21,7 @@ func testEditProcess(t *testing.T, binary string) {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			file := filepath.Join(root, "main.md")
-			before := "\ufeff最初\r\n次\r\n"
+			before := "\ufeff最初\r\n\r\n次\r\n"
 			if err := os.WriteFile(file, []byte(before), 0644); err != nil {
 				t.Fatal(err)
 			}
@@ -106,7 +106,7 @@ func testEditProcess(t *testing.T, binary string) {
 			}
 			want := before
 			if mode != "off" {
-				want = "\ufeff変更\r\n追加\r\n次\r\n"
+				want = "\ufeff変更\r\n追加\r\n\r\n次\r\n"
 				select {
 				case next := <-renders:
 					if next["render"] == first["render"] {

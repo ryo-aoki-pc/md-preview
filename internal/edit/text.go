@@ -52,12 +52,24 @@ func reasonText(reason string) string {
 	}
 }
 func offsets(src session.Source, r Range) (int, int, int, *Error) {
+	return offsetsAt(src, r, lineStarts(src.Text))
+}
+func lineStarts(text string) []int {
+	starts := []int{0}
+	for i := 0; i < len(text); i++ {
+		if text[i] == '\n' {
+			starts = append(starts, i+1)
+		}
+	}
+	return starts
+}
+func offsetsAt(src session.Source, r Range, starts []int) (int, int, int, *Error) {
 	c, e := coordinates(r)
 	if e != nil {
 		return 0, 0, 0, e
 	}
 	// 展開後の行数を入力から無制限に走査しない。
-	maxLine := src.Lines.Expanded(strings.Count(src.Text, "\n") + 1)
+	maxLine := src.Lines.Expanded(len(starts))
 	if c[0] > maxLine || c[2] > maxLine {
 		return 0, 0, 0, fault(422, "range", "原文の行が範囲外です。")
 	}
@@ -75,12 +87,6 @@ func offsets(src session.Source, r Range) (int, int, int, *Error) {
 		}
 		if orig != first+line-c[0] {
 			return 0, 0, 0, fault(422, "range", "原文の連続した範囲ではありません。")
-		}
-	}
-	starts := []int{0}
-	for i := 0; i < len(src.Text); i++ {
-		if src.Text[i] == '\n' {
-			starts = append(starts, i+1)
 		}
 	}
 	position := func(line, col int, end bool) (int, bool) {

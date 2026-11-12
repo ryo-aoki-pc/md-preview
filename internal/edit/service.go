@@ -53,15 +53,16 @@ func invalid() *Error {
 }
 
 type Service struct {
-	mu      sync.Mutex
-	opts    Options
-	cache   map[string]*mapping
-	history histories
-	secret  [32]byte
+	mu         sync.Mutex
+	opts       Options
+	cache      map[string]*mapping
+	blockCache map[string]*blockMapping
+	history    histories
+	secret     [32]byte
 }
 
 func New(o Options) *Service {
-	s := &Service{opts: o, cache: map[string]*mapping{}}
+	s := &Service{opts: o, cache: map[string]*mapping{}, blockCache: map[string]*blockMapping{}}
 	// Go 1.24 以降の crypto/rand.Read は常に全体を埋める。
 	_, _ = rand.Read(s.secret[:])
 	return s
@@ -120,10 +121,10 @@ func (s *Service) Tables(ctx context.Context, doc *string, render uint64) (any, 
 	}
 	return result, nil
 }
-func (s *Service) Text(ctx context.Context, doc *string, render uint64, r Range) (any, *Error) {
+func (s *Service) Text(ctx context.Context, doc *string, render uint64, tag string, r Range) (any, *Error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if render == 0 {
+	if render == 0 || !tagPattern.MatchString(tag) {
 		return nil, invalid()
 	}
 	src, e := s.source(doc, render)
@@ -133,14 +134,18 @@ func (s *Service) Text(ctx context.Context, doc *string, render uint64, r Range)
 	if _, _, e = s.read(src); e != nil {
 		return nil, e
 	}
-	start, end, _, e := offsets(src, r)
+	m, e := s.blocks(ctx, src)
+	if e != nil {
+		return nil, e
+	}
+	b, e := m.target(tag, r)
 	if e != nil {
 		return nil, e
 	}
 	if ctx.Err() != nil {
 		return nil, fault(422, "cancelled", "原文の読み取りを取り消しました。")
 	}
-	return map[string]any{"text": removeCR(src.Text[start:end]), "render": src.Render}, nil
+	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": b.kind}, nil
 }
 func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (any, *Error) {
 	s.mu.Lock()
@@ -205,9 +210,25 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 			}
 			text, warnings = result.Text, result.Warnings
 		case "range", "checkbox":
-			start, end, line, err := offsets(src, r.rangeValue)
+			m, err := s.blocks(ctx, src)
 			if err != nil {
 				return nil, err
+			}
+			var start, end, line int
+			if r.kind == "range" {
+				b, err := m.writable(r.rangeValue)
+				if err != nil {
+					return nil, err
+				}
+				start, end, line = b.start, b.end, b.line
+			} else {
+				if !m.checkboxes[r.rangeValue] {
+					return nil, blockFault("target")
+				}
+				start, end, line, err = offsets(src, r.rangeValue)
+				if err != nil {
+					return nil, err
+				}
 			}
 			replacement := r.text
 			if r.kind == "checkbox" {
@@ -265,6 +286,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	if current != old || currentBOM != bom {
 		s.history.clear(key)
 		delete(s.cache, key)
+		delete(s.blockCache, key)
 		return nil, changed()
 	}
 	if r.render != 0 {
@@ -281,6 +303,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 		s.history.push(key, old, text)
 	}
 	delete(s.cache, key)
+	delete(s.blockCache, key)
 	if src.Current {
 		if s.opts.Written != nil {
 			s.opts.Written(src, text)

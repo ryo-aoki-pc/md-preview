@@ -195,6 +195,7 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 	if len(s.cache) >= historyDocuments {
 		for k := range s.cache {
 			delete(s.cache, k)
+			delete(s.blockCache, k)
 			break
 		}
 	}

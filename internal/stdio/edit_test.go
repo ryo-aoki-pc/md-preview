@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ryo-aoki-pc/md-tools/internal/edit"
+	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
 	"github.com/ryo-aoki-pc/md-tools/internal/server"
 	"github.com/ryo-aoki-pc/md-tools/internal/session"
 )
@@ -26,6 +28,14 @@ type editApp struct {
 	code   int
 }
 
+type editRenderer struct{}
+
+func (editRenderer) Render(_ context.Context, text string, _ pipeline.Context) (pipeline.Result, error) {
+	// 編集の試験では、原文の一行を位置付きの段落として描画する。
+	text = strings.TrimSuffix(text, "\n")
+	return pipeline.Result{HTML: fmt.Sprintf(`<p data-sourcepos="1:1-1:%d">%s</p>`, len(text), html.EscapeString(text))}, nil
+}
+
 func startEditApp(t *testing.T, hello string, timeout time.Duration) *editApp {
 	t.Helper()
 	input, writer := io.Pipe()
@@ -33,7 +43,7 @@ func startEditApp(t *testing.T, hello string, timeout time.Duration) *editApp {
 	started := make(chan struct{}, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	go func() {
-		a.code = Run(ctx, Options{Stdin: input, Stdout: a.out, Renderer: renderer{}, Version: "試験版", EditTimeout: timeout, OnStart: func(s *server.Server, state *session.Session) error {
+		a.code = Run(ctx, Options{Stdin: input, Stdout: a.out, Renderer: editRenderer{}, Version: "試験版", EditTimeout: timeout, OnStart: func(s *server.Server, state *session.Session) error {
 			a.server, a.state = s, state
 			started <- struct{}{}
 			return nil

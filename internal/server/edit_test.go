@@ -25,8 +25,8 @@ func (e *testEditor) Tables(ctx context.Context, doc *string, render uint64) (an
 	}
 	return map[string]any{"render": render, "doc": doc}, nil
 }
-func (*testEditor) Text(_ context.Context, doc *string, render uint64, r edit.Range) (any, *edit.Error) {
-	return map[string]any{"render": render, "range": r, "doc": doc}, nil
+func (*testEditor) Text(_ context.Context, doc *string, render uint64, tag string, r edit.Range) (any, *edit.Error) {
+	return map[string]any{"render": render, "range": r, "tag": tag, "doc": doc}, nil
 }
 func (e *testEditor) Apply(ctx context.Context, doc *string, body map[string]any) (any, *edit.Error) {
 	if e.apply != nil {
@@ -113,15 +113,24 @@ func TestEditGetParametersAndErrors(t *testing.T) {
 		}
 	}
 	for _, r := range []string{"", "1:0-1:1", "1:1-0:0", "2:1-1:1", "a"} {
-		resp := request(t, s, "GET", "_/edit/source?render=1&range="+r, "", nil)
+		resp := request(t, s, "GET", "_/edit/source?render=1&tag=p&range="+r, "", nil)
 		if resp.status != 400 {
 			t.Fatal(r, resp)
 		}
 	}
-	for _, route := range []string{"_/edit/tables?render=12&doc=main.md", "_/edit/source?render=12&doc=main.md&range=1:1-2:0"} {
+	for _, tag := range []string{"", "P", "p-", "p%20", "%3Cp%3E"} {
+		r := request(t, s, "GET", "_/edit/source?render=1&tag="+tag+"&range=1:1-1:5", "", nil)
+		if r.status != 400 || !strings.Contains(r.body, `"code":"invalid"`) {
+			t.Fatal(tag, r)
+		}
+	}
+	for _, route := range []string{"_/edit/tables?render=12&doc=main.md", "_/edit/source?render=12&tag=p&doc=main.md&range=1:1-2:0"} {
 		r := request(t, s, "GET", route, "", nil)
 		if r.status != 200 || !strings.Contains(r.body, `"render":12`) || !strings.Contains(r.body, `"doc":"main.md"`) {
 			t.Fatal(r)
+		}
+		if strings.Contains(route, "/source") && !strings.Contains(r.body, `"tag":"p"`) {
+			t.Fatal("要素名を渡していない", r)
 		}
 	}
 	for _, status := range []int{404, 409, 422, 500} {

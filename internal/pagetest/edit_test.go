@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -50,6 +51,16 @@ func TestEditFixture(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	src, _ := a.live.Source(nil)
+	response, err := http.Get(a.server.URL + "_/edit/source?render=" + fmt.Sprint(src.Render) + "&tag=p&range=1:1-1:6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source map[string]any
+	err = json.NewDecoder(response.Body).Decode(&source)
+	_ = response.Body.Close()
+	if err != nil || response.StatusCode != 200 || source["range"] != "1:1-1:6" || source["kind"] != "paragraph" || source["text"] != "本文" {
+		t.Fatal(source, response.Status, err)
+	}
 	body, _ := json.Marshal(map[string]any{"render": src.Render, "range": "1:1-1:6", "text": "変更"})
 	req, err := http.NewRequest("POST", a.server.URL+"_/edit", strings.NewReader(string(body)))
 	if err != nil {
@@ -57,7 +68,7 @@ func TestEditFixture(t *testing.T) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", strings.TrimSuffix(strings.SplitN(a.server.URL, "/"+a.server.Token, 2)[0], "/"))
-	response, err := http.DefaultClient.Do(req)
+	response, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

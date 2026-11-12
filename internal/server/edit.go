@@ -17,7 +17,7 @@ import (
 type Editor interface {
 	Config() map[string]any
 	Tables(context.Context, *string, uint64) (any, *edit.Error)
-	Text(context.Context, *string, uint64, edit.Range) (any, *edit.Error)
+	Text(context.Context, *string, uint64, string, edit.Range) (any, *edit.Error)
 	Apply(context.Context, *string, map[string]any) (any, *edit.Error)
 }
 
@@ -106,10 +106,15 @@ func (s *Server) edit(conn net.Conn, r *http.Request, route string) {
 	if route == "/_/edit/tables" {
 		result, e = s.opts.Edit.Tables(r.Context(), doc, render)
 	} else {
+		tag := p.Get("tag")
+		if !regexp.MustCompile(`^[a-z0-9]+$`).MatchString(tag) {
+			editError(conn, r, &edit.Error{Status: 400, Code: "invalid", Message: "編集の要求の形が正しくありません。"})
+			return
+		}
 		var value edit.Range
 		value, e = edit.ParseRange(p.Get("range"))
 		if e == nil {
-			result, e = s.opts.Edit.Text(r.Context(), doc, render, value)
+			result, e = s.opts.Edit.Text(r.Context(), doc, render, tag, value)
 		}
 	}
 	if e != nil {
