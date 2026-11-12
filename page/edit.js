@@ -1367,7 +1367,8 @@
       entry.menu.element.hidden = true;
       if (entry.opener !== input) entry.opener.setAttribute('aria-expanded', 'false');
     }
-    if (restore && mode && selected) {
+    // 文書への追加のメニューはセルを選ばずに開くので、開いたボタンへ戻す。
+    if (restore && mode && (selected || opener === addButton)) {
       if (opener?.isConnected && !opener.disabled) opener.focus({ preventScroll: true });
       else focusInput();
     }
