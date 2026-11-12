@@ -179,6 +179,10 @@ body {
 :root {
   --gp-outline-width: clamp(180px, var(--gp-outline-user, 260px), min(480px, 100vw - 320px));
 }
+/* 右のコメント欄（幅 360px）を開いている間は、その幅も本文に残す。 */
+:root[data-review='on'] {
+  --gp-outline-width: clamp(180px, var(--gp-outline-user, 260px), min(480px, 100vw - 680px));
+}
 #gp-layout {
   margin-inline-start: 0;
 }
@@ -269,7 +273,9 @@ body {
   text-decoration: none;
 }
 @media (max-width: 700px) {
-  :root {
+  /* 狭い画面のコメント欄は下に出るので、見出し欄は今の幅のままにする。 */
+  :root,
+  :root[data-review='on'] {
     --gp-outline-width: 42vw;
   }
   #gp-outline-resizer {

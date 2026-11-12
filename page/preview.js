@@ -215,8 +215,11 @@
     savedOutlineWidth >= outlineMin && savedOutlineWidth <= outlineMax ? Math.round(savedOutlineWidth) : outlineDefault;
   let outlineDrag = null;
 
+  // preview.css の #gp-review-panel の幅。コメント欄を開いている間は、その幅も本文に残す。
+  const reviewPanelWidth = 360;
   function outlineLimit() {
-    return Math.max(outlineMin, Math.min(outlineMax, window.innerWidth - outlineBodyMin));
+    const reserved = outlineBodyMin + (root.dataset.review === 'on' ? reviewPanelWidth : 0);
+    return Math.max(outlineMin, Math.min(outlineMax, window.innerWidth - reserved));
   }
   function clampOutlineWidth(value) {
     return Math.min(Math.max(outlineMin, Math.round(value)), outlineLimit());
@@ -304,7 +307,10 @@
       default: return;
     }
     event.preventDefault();
-    outlineWidth = clampOutlineWidth(next);
+    const value = clampOutlineWidth(next);
+    // 画面の幅の上限に張り付いて見た目が変わらないときは、広い画面のための保存値を残す。
+    if (value === width) return;
+    outlineWidth = value;
     rememberAppearance('outlineWidth', outlineWidth);
     applyOutlineWidth();
     queueLayout();
@@ -312,6 +318,11 @@
   outlineResizer.addEventListener('dblclick', () => {
     if (canResizeOutline() && !outlineDrag) resetOutlineWidth();
   });
+  // コメント欄の開閉で上限が変わる。表示の幅と aria の値を合わせ直す。
+  new MutationObserver(() => {
+    applyOutlineWidth();
+    queueLayout();
+  }).observe(root, { attributes: true, attributeFilter: ['data-review'] });
 
   function applyOutline() {
     const visible = !CONFIG.list && outlineWanted && outlineLinks.length > 0;

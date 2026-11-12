@@ -3922,6 +3922,16 @@ test('ローカルのプレビューページ', { skip, timeout: 180000 }, async
       await page.mouse.up();
       assert.equal(await savedOutlineWidth(page), 360);
     }
+    // ドラッグ中に画面が狭くなってつまみが隠れたら、開始時の幅へ戻して保存しない。
+    await startOutlineDrag(page, 80);
+    await waitOutlineWidth(page, 440);
+    await page.setViewportSize({ width: 650, height: 900 });
+    await page.waitForFunction(() => document.querySelector('#gp-outline-resizer').hidden);
+    assert.equal(await page.locator('html').getAttribute('data-outline-resizing'), null);
+    await page.mouse.up();
+    assert.equal(await savedOutlineWidth(page), 360);
+    await page.setViewportSize({ width: 2000, height: 900 });
+    await waitOutlineWidth(page, 360);
   });
 
   await t.test('見出し欄の保存値を検査し、狭い画面の上限と 42vw を保つ', async (t) => {
@@ -3942,6 +3952,13 @@ test('ローカルのプレビューページ', { skip, timeout: 180000 }, async
     await waitOutlineWidth(page, 400);
     assert.equal(await page.locator('#gp-outline-resizer').getAttribute('aria-valuemax'), '400');
     assert.equal(await savedOutlineWidth(page), 450);
+    // 上限に張り付いて見た目が変わらないキーでは、広い画面のための保存値を変えない。
+    await page.locator('#gp-outline-resizer').focus();
+    for (const key of ['ArrowRight', 'Shift+ArrowRight', 'End']) {
+      await page.keyboard.press(key);
+      assert.equal(await page.locator('#gp-outline-resizer').getAttribute('aria-valuenow'), '400', key);
+      assert.equal(await savedOutlineWidth(page), 450, key);
+    }
     await page.setViewportSize({ width: 650, height: 900 });
     await page.waitForFunction(() => document.querySelector('#gp-outline-resizer').hidden);
     assert.equal(await page.locator('#gp-outline-resizer').isVisible(), false);
@@ -4004,6 +4021,58 @@ test('ローカルのプレビューページ', { skip, timeout: 180000 }, async
     const selected = await page.locator('#gp-review-target').textContent();
     await page.locator('#gp-outline-resizer').click();
     assert.equal(await page.locator('#gp-review-target').textContent(), selected);
+  });
+
+  await t.test('コメント欄を開いている間は、その幅も本文に残し、つまみを欄の下に入れない', async (t) => {
+    const original = '# 題\n\nコメントする段落。\n';
+    const { page } = await fixturePage(t, browser, undefined,
+      (root) => writeFileSync(join(root, 'README.md'), original), { live: true, review: true });
+    await page.setViewportSize({ width: 1000, height: 900 });
+    await page.evaluate(() => sessionStorage.setItem('gitlab-preview-appearance', '{"outline":true,"outlineWidth":400}'));
+    await page.reload();
+    await waitOutlineWidth(page, 400);
+    const resizer = page.locator('#gp-outline-resizer');
+    const apart = async () => {
+      const handle = await resizer.boundingBox(), panel = await page.locator('#gp-review-panel').boundingBox();
+      return handle.x + handle.width <= panel.x;
+    };
+    await page.locator('#gp-review-toggle').click();
+    // 1000 − 320 − 360 = 320 px が上限になる。保存値は広い画面のために残す。
+    await waitOutlineWidth(page, 320);
+    assert.equal(await resizer.getAttribute('aria-valuemax'), '320');
+    assert.equal(await apart(), true);
+    await dragOutline(page, 200);
+    await waitOutlineWidth(page, 320);
+    await resizer.focus();
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await savedOutlineWidth(page), 400);
+    await page.keyboard.press('ArrowLeft');
+    await waitOutlineWidth(page, 310);
+    assert.equal(await savedOutlineWidth(page), 310);
+    await page.locator('#gp-review-toggle').click();
+    await waitOutlineWidth(page, 310);
+    assert.equal(await resizer.getAttribute('aria-valuemax'), '480');
+    await dragOutline(page, 170);
+    await waitOutlineWidth(page, 480);
+    // 狭い画面では最小の 180 px にとどめ、つまみは欄の左に残す。
+    await page.setViewportSize({ width: 760, height: 900 });
+    await page.locator('#gp-review-toggle').click();
+    await waitOutlineWidth(page, 180);
+    assert.equal(await apart(), true);
+    assert.equal(await page.locator('#gp-layout').evaluate((el) => el.getBoundingClientRect().width), 760 - 180 - 360);
+    assert.equal(await savedOutlineWidth(page), 480);
+  });
+
+  await t.test('表の全幅表示はつまみを覆い、全幅表示中にドラッグを始められない', async (t) => {
+    const { page } = await editablePage(t, browser, '# 題\n\n| 列 |\n| --- |\n| 値 |\n');
+    await waitOutlineWidth(page, 260);
+    await page.locator('#gp-sticky-toggle').click();
+    await page.waitForSelector('[data-md-table-sticky-bar]');
+    await page.locator('[data-md-table-sticky-action="float"]').click();
+    await page.waitForSelector('[data-md-table-sticky-float-panel]');
+    const box = await page.locator('#gp-outline-resizer').boundingBox();
+    assert.equal(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.id,
+      { x: box.x + box.width / 2, y: box.y + 30 }) === 'gp-outline-resizer', false);
   });
 
   await t.test('見出しの既定は画面幅に従い、見出しのない文書では欄を隠す', async (t) => {
