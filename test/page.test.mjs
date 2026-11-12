@@ -1710,6 +1710,54 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     assert.equal(await page.locator('#gp-edit-input').evaluate((el) => document.activeElement === el), true);
   });
 
+  await t.test('列幅のつまみでは編集の選択と入力を変えず、ドラッグ中の Esc は幅だけを戻す', async (t) => {
+    const { page, file } = await editablePage(t, browser, pipe);
+    await page.locator('#gp-sticky-toggle').click();
+    const handle = page.locator('[data-md-table-sticky-resizer="0"]').first();
+    await handle.waitFor();
+    await page.locator('#gp-content td').first().click();
+    assert.equal(await page.locator('#gp-edit-selection').isVisible(), true);
+    await handle.click();
+    await handle.dblclick();
+    assert.equal(await page.locator('#gp-edit-selection').isVisible(), true);
+    await page.locator('#gp-edit-input').press('F2');
+    await page.locator('#gp-edit-input').fill('未確定の入力');
+    const snapshot = () => page.evaluate(() => ({
+      value: document.querySelector('#gp-edit-input').value,
+      selection: document.querySelector('#gp-edit-selection').hidden,
+      busy: window.gpEditMode.busy(),
+    }));
+    const before = await snapshot();
+    await handle.click();
+    await handle.dblclick();
+    assert.deepEqual(await snapshot(), before);
+    const rect = await handle.boundingBox();
+    const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.down();
+    await page.mouse.move(point.x + 80, point.y);
+    await page.waitForFunction(() => window.__mdTableSticky.resizing &&
+      window.__mdTableSticky.resizing.widths[0] !== null);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => window.__mdTableSticky.resizing), null);
+    assert.equal(await page.evaluate(() => window.__mdTableSticky.records.get(window.gpPreview.tables()[0]).widths[0]), null);
+    assert.deepEqual(await snapshot(), before);
+    await page.mouse.up();
+    assert.deepEqual(await snapshot(), before, 'Esc で取り消した後に離したときの click で入力を確定しない');
+    // 取り消さずに表の外で離したときも、入力を確定しない。
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.down();
+    await page.mouse.move(point.x + 80, point.y + 200);
+    await page.mouse.up();
+    assert.deepEqual(await snapshot(), before, '離したときの click で入力を確定しない');
+    assert.notEqual(await page.evaluate(() => window.__mdTableSticky.records.get(window.gpPreview.tables()[0]).widths[0]), null);
+    await page.waitForTimeout(300);
+    assert.equal(readFileSync(file, 'utf8'), pipe, 'つまみの操作で原文へ書き込まない');
+    await page.locator('#gp-edit-input').focus();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => window.gpEditMode.busy()), false, 'ドラッグを終えた後の Esc で編集を取り消せる');
+  });
+
   await t.test('固定・検索・全幅表示を保ち、入力を最前面に置き、Esc を二段階で扱う', async (t) => {
     const { page, file } = await editablePage(t, browser, pipe);
     await page.locator('#gp-sticky-toggle').click();
@@ -3563,6 +3611,43 @@ test('本文の差分更新と編集用の接点', { skip, timeout: 120000 }, as
     await jumped;
     await server.sync();
     assert.deepEqual(fixture.jumps, [{ line: 1 }]);
+  });
+
+  await t.test('列幅をドラッグで変え、セルだけの差分では保ち、挿入で位置が変わった列は戻す', async (t) => {
+    const markdown = (value, inserted = false) => inserted
+      ? '| 名前 | 新列 | 数 | 備考 |\n| --- | --- | --- | --- |\n| ' + value + ' | 新しい | 1 | 本文 |\n'
+      : '| 名前 | 数 | 備考 |\n| --- | --- | --- |\n| ' + value + ' | 1 | 本文 |\n';
+    const fixture = await fixturePage(t, browser, undefined,
+      (root) => writeFileSync(join(root, 'README.md'), markdown('元の文字')), { live: true });
+    const { page, server } = fixture;
+    await settledRender(page, 1);
+    await page.locator('#gp-sticky-toggle').click();
+    const handle = page.locator('[data-md-table-sticky-resizer="0"]').first();
+    await handle.waitFor();
+    await page.evaluate(() => { window.keptWidthRecord = window.__mdTableSticky.records.get(window.gpPreview.tables()[0]); });
+    const widthBefore = await page.locator('thead th').first().evaluate((cell) => cell.getBoundingClientRect().width);
+    const rect = await handle.boundingBox();
+    await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(rect.x + rect.width / 2 + 90, rect.y + rect.height / 2);
+    await page.mouse.up();
+    await page.waitForFunction((width) => document.querySelector('thead th').getBoundingClientRect().width > width + 60, widthBefore);
+    await page.locator('[data-md-table-sticky-resizer="1"]').first().press('Shift+ArrowRight');
+    const widths = await page.evaluate(() => [...window.keptWidthRecord.widths]);
+    assert.ok(widths[0] !== null && widths[1] !== null);
+    await server.setDocument({ name: 'README.md', text: markdown('本文だけ変更'), rev: 2 });
+    await settledRender(page, 2);
+    await page.waitForFunction(() => window.keptWidthRecord.table.textContent.includes('本文だけ変更'));
+    assert.equal(await page.evaluate(() => window.keptWidthRecord === window.__mdTableSticky.records.get(window.gpPreview.tables()[0])), true);
+    assert.deepEqual(await page.evaluate(() => window.keptWidthRecord.widths), widths);
+    await server.setDocument({ name: 'README.md', text: markdown('本文だけ変更', true), rev: 3 });
+    await settledRender(page, 3);
+    await page.waitForFunction(() => window.keptWidthRecord.widths.length === 4);
+    assert.deepEqual(await page.evaluate(() => window.keptWidthRecord.widths), [widths[0], null, null, null]);
+    await page.evaluate(() => window.dispatchEvent(new Event('beforeprint')));
+    assert.equal(await page.locator('thead th').first().evaluate((cell) => cell.style.width), '');
+    await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+    assert.equal(await page.locator('thead th').first().evaluate((cell) => cell.style.width), widths[0] + 'px');
   });
 
   await t.test('固定・コンパクト・検索・全幅表示中も表と記録と結合セルの内側を残す', async (t) => {

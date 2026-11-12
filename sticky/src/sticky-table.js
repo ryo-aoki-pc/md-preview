@@ -98,6 +98,40 @@
     return maxWidths.map((width) => Math.min(width, cap));
   }
 
+  const minimumColumnWidth = 32;
+  const maximumColumnWidth = 1600;
+
+  function clampColumnWidth(width) {
+    return Math.round(Math.min(maximumColumnWidth, Math.max(minimumColumnWidth, width)));
+  }
+
+  function resizableColumns(model) {
+    const anchors = new Set(model.cells.map((cell) => cell.col));
+    return Array.from({ length: model.colCount }, (_, col) => anchors.has(col));
+  }
+
+  function columnShape(model, texts) {
+    const headers = headerRowCount(model);
+    return Array.from({ length: model.colCount }, (_, col) => JSON.stringify(model.cells.flatMap((cell, index) =>
+      cell.row < headers && cell.col <= col && col < cell.col + cell.colspan
+        ? [[cell.row, cell.col, cell.colspan, cell.rowspan, String(texts[index] || "").replace(/\s+/g, " ").trim()]] : [])));
+  }
+
+  function reconcileColumnWidths(widths, before, after) {
+    // 見出しのない表は列の挿入位置を識別できないので、列数が変わったら全列を戻す。
+    const unidentified = before.length !== after.length && after.every((name) => name === "[]");
+    return after.map((name, col) => !unidentified && name === before[col] && Number.isFinite(widths[col]) ? widths[col] : null);
+  }
+
+  function cellColumnWidths(model, widths) {
+    // 結合セルは覆う全列を手動で決めた場合だけ、合計の幅を当てる。
+    return model.cells.map((cell) => {
+      const covered = widths.slice(cell.col, cell.col + cell.colspan);
+      return covered.length === cell.colspan && covered.every((width) => Number.isFinite(width))
+        ? covered.reduce((sum, width) => sum + width, 0) : null;
+    });
+  }
+
   function frozenRegion(model, selectedRows = null) {
     const { rowCount, colCount, cells, grid } = model;
     if (!rowCount || !colCount || model.overlap) {
@@ -337,7 +371,7 @@
   }
 
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, pickBoundaries, crossCells, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, searchMatches, filterRows, tableMatrix, toTsv, toHtml };
+    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, pickBoundaries, crossCells, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, clampColumnWidth, resizableColumns, columnShape, reconcileColumnWidths, cellColumnWidths, searchMatches, filterRows, tableMatrix, toTsv, toHtml };
   }
   if (typeof document === "undefined") return;
 
@@ -386,7 +420,7 @@
 
   const state = {
     records: new Map(), processed: new WeakSet(), pending: new Set(), dirty: new Set(), active: true,
-    frame: 0, timer: 0, firstMutationAt: null, observer: null, resize: null, notification: null, floating: null, picking: null, pickHandlers: null,
+    frame: 0, timer: 0, firstMutationAt: null, observer: null, resize: null, notification: null, floating: null, picking: null, pickHandlers: null, resizing: null, resizeDrag: null, resizeClick: false,
   };
   window.__mdTableSticky = state;
 
@@ -1072,6 +1106,9 @@
         return;
       } else if (action === "wrap-all" || action === "nowrap-all") {
         record.wrap.fill(action === "wrap-all");
+      } else if (action === "widths-auto") {
+        stopResizing(true, false);
+        record.widths.fill(null);
       } else if (action === "scroll-x") {
         record.scrollX = record.bar.scrollX.checked;
       } else if (action === "fit-height") {
@@ -1171,7 +1208,7 @@
     const fitHeight = checkbox("fit-height", "高さを制限", "この表だけ高さを画面の 70% までにして、見出しの行を固定する（GitLab の「Show full table」の設定は変えない）");
     const highlight = checkbox("highlight", "行と列を強調", "マウスを合わせたセルの行と列に色を付ける").input;
     const compact = checkbox("compact", "コンパクト", "セルの余白と文字を小さくして、多くの行と列を表示する").input;
-    element.append(button("wrap-all", "すべて折り返す", "すべての列を折り返す"), button("nowrap-all", "すべて折り返さない", "すべての列を折り返さない"), button("search", "検索", "この表の中を検索する"), button("copy", "コピー", "表示中の行を、Excel に貼り付けられる形でコピーする"), button("float", "全幅で表示", "表をブラウザーの幅いっぱいに表示する"));
+    element.append(button("wrap-all", "すべて折り返す", "すべての列を折り返す"), button("nowrap-all", "すべて折り返さない", "すべての列を折り返さない"), button("widths-auto", "列幅を戻す", "すべての列を自動の幅に戻す"), button("search", "検索", "この表の中を検索する"), button("copy", "コピー", "表示中の行を、Excel に貼り付けられる形でコピーする"), button("float", "全幅で表示", "表をブラウザーの幅いっぱいに表示する"));
     return { element, buttons, counts, fixed, separator, scrollX, fitHeight: fitHeight.input, fitHeightLabel: fitHeight.label, highlight, compact };
   }
 
@@ -1213,6 +1250,7 @@
       bar.buttons[axis + "-plus"].disabled = stepBoundary(boundaries, value, 1) === null;
     }
     bar.buttons.auto.disabled = !manual;
+    bar.buttons["widths-auto"].disabled = !record.widths.some((width) => width !== null);
     for (const node of Object.values(bar.buttons)) {
       setStyles(node, { opacity: node.disabled ? "0.45" : "1", cursor: node.disabled ? "default" : "pointer" });
     }
@@ -1238,13 +1276,114 @@
   }
 
   function removeColumns(record) {
+    if (state.resizing === record) stopResizing(true, false);
     if (record.columns) record.columns.element.remove();
     record.columns = null;
     setScroll(record, null);
   }
 
+  function stopResizing(cancel, remeasure = true) {
+    const drag = state.resizeDrag;
+    if (!drag) return;
+    state.resizeDrag = null;
+    state.resizing = null;
+    // ボタンを離したときの click は、押したつまみと離した位置の共通の祖先へ届くので、1 回だけ捨てる。
+    state.resizeClick = true;
+    if (cancel) drag.record.widths[drag.col] = drag.original;
+    if (drag.handle.hasPointerCapture(drag.pointer)) drag.handle.releasePointerCapture(drag.pointer);
+    if (remeasure) refresh(drag.record);
+  }
+
+  function resizeClick(event) {
+    if (!state.resizeClick) return;
+    state.resizeClick = false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function resizePointer(event) {
+    // 押し始めは新しい操作。離した後は、同じタスクで届く click を待ってから忘れる。
+    if (event.type === "pointerdown") state.resizeClick = false;
+    else window.setTimeout(() => { state.resizeClick = false; }, 0);
+  }
+
+  function resizeKeydown(event) {
+    if (!state.resizing || event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    write(() => stopResizing(true));
+  }
+
+  function createColumnResizer(record, col) {
+    const handle = document.createElement("span");
+    handle.tabIndex = 0;
+    handle.setAttribute("data-md-table-sticky-resizer", String(col));
+    handle.setAttribute("role", "separator");
+    handle.setAttribute("aria-orientation", "vertical");
+    handle.setAttribute("aria-valuemin", String(minimumColumnWidth));
+    handle.setAttribute("aria-valuemax", String(maximumColumnWidth));
+    handle.title = "ドラッグ・左右キーで幅を変更、Shift で 50px、Delete・ダブルクリックで自動に戻す";
+    setStyles(handle, {
+      position: "absolute", right: "0", top: "0", bottom: "0", width: "9px", cursor: "col-resize",
+      "touch-action": "none", "user-select": "none", "box-sizing": "border-box",
+      "border-right": "2px solid var(--gl-border-color-default, #dcdcde)",
+    });
+    const change = (width) => {
+      if (!state.active || !record.table.isConnected || record.printing) return;
+      write(() => {
+        record.widths[col] = width === null ? null : clampColumnWidth(width);
+        refresh(record);
+      });
+    };
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !state.active || record.printing) return;
+      event.preventDefault();
+      event.stopPropagation();
+      write(() => {
+        stopResizing(true);
+        const width = record.widths[col] ?? record.columns.widths[col];
+        state.resizing = record;
+        state.resizeDrag = { record, col, handle, pointer: event.pointerId, x: event.clientX, width, original: record.widths[col] };
+        try {
+          handle.setPointerCapture(event.pointerId);
+        } catch {
+          stopResizing(true);
+        }
+      });
+    });
+    handle.addEventListener("pointermove", (event) => {
+      const drag = state.resizeDrag;
+      if (!drag || drag.handle !== handle || drag.pointer !== event.pointerId) return;
+      event.preventDefault();
+      record.widths[col] = clampColumnWidth(drag.width + event.clientX - drag.x);
+      requestRefresh(record);
+    });
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
+      handle.addEventListener(type, (event) => {
+        const drag = state.resizeDrag;
+        if (!drag || drag.handle !== handle || drag.pointer !== event.pointerId) return;
+        write(() => {
+          stopResizing(type !== "pointerup");
+          // 取り消された押下の後には click が来ない。
+          if (type === "pointercancel") state.resizeClick = false;
+        });
+      });
+    }
+    handle.addEventListener("keydown", (event) => {
+      if (event.key !== "Delete" && event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      event.stopPropagation();
+      const width = record.widths[col] ?? record.columns.widths[col];
+      change(event.key === "Delete" ? null : width + (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 50 : 10));
+    });
+    handle.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); });
+    handle.addEventListener("dblclick", (event) => { event.preventDefault(); event.stopPropagation(); change(null); });
+    return handle;
+  }
+
   function syncColumns(record, parts, measurement) {
     if (!record.columns || record.columns.inputs.length !== parts.model.colCount) {
+      if (state.resizing === record) stopResizing(true, false);
       if (record.columns) record.columns.element.remove();
       const element = document.createElement("div");
       element.setAttribute("data-md-table-sticky-columns", "");
@@ -1254,6 +1393,7 @@
       const inputs = [];
       const labels = [];
       const texts = [];
+      const handles = [];
       for (let col = 0; col < parts.model.colCount; col += 1) {
         const label = document.createElement("label");
         const input = document.createElement("input");
@@ -1263,6 +1403,9 @@
         setStyles(input, { margin: "0", "flex-shrink": "0" });
         text.textContent = "折り返す";
         label.append(input, text);
+        const handle = createColumnResizer(record, col);
+        label.appendChild(handle);
+        handles.push(handle);
         inner.appendChild(label);
         labels.push(label);
         inputs.push(input);
@@ -1276,17 +1419,21 @@
         });
       }
       element.appendChild(inner);
-      record.columns = { element, inner, inputs, labels, texts };
+      record.columns = { element, inner, inputs, labels, texts, handles, widths: [] };
     }
     const columns = record.columns;
     syncControlOrder(record);
     const names = columnLabels(parts.model, parts.elements.map((cell) => cell.textContent));
+    const resizable = resizableColumns(parts.model);
     columns.inputs.forEach((input, col) => {
       const name = "列 " + (col + 1) + (names[col] ? "（" + names[col] + "）を折り返す" : " を折り返す");
       input.checked = record.wrap[col];
       input.setAttribute("aria-label", name);
       input.title = name;
       columns.labels[col].title = name;
+      const handle = columns.handles[col];
+      handle.setAttribute("aria-label", "列 " + (col + 1) + (names[col] ? "（" + names[col] + "）" : "") + "の幅");
+      handle.style.setProperty("display", resizable[col] ? "block" : "none", "important");
     });
     const visible = measurement && !record.printing;
     columns.element.style.setProperty("display", visible ? "block" : "none", "important");
@@ -1297,17 +1444,24 @@
     const scrollLeft = record.scroll.getBoundingClientRect().left + record.scroll.clientLeft;
     const padding = measurement.originLeft + record.scroll.scrollLeft - left;
     const widths = measurement.widths;
+    columns.widths = widths;
+    columns.handles.forEach((handle, col) => {
+      const width = clampColumnWidth(record.widths[col] ?? widths[col]);
+      handle.setAttribute("aria-valuenow", String(width));
+      handle.setAttribute("aria-valuetext", record.widths[col] === null ? "自動（" + width + "px）" : width + "px");
+    });
     setStyles(columns.inner, { width: widths.reduce((sum, width) => sum + width, 0) + "px", "padding-left": Math.max(0, padding) + "px" });
     columns.labels.forEach((label, col) => {
       const sticky = record.layout && col < record.layout.cols;
       setStyles(label, {
-        display: "flex", "align-items": "center", gap: "4px", margin: "0", padding: "2px 0",
+        display: "flex", "align-items": "center", gap: "4px", margin: "0", padding: "2px 10px 2px 0",
         "font-size": "12px", "font-weight": "normal", "line-height": "20px", "box-sizing": "border-box",
         flex: "0 0 " + widths[col] + "px", overflow: "hidden", position: sticky ? "sticky" : "relative",
         left: sticky ? scrollLeft - left + measurement.colOffsets[col] + "px" : "auto",
         "z-index": sticky ? "1" : "0", background: "var(--gl-background-color-default, " + ancestorBackground(record.scroll) + ")",
       });
-      columns.texts[col].style.setProperty("display", widths[col] >= 64 ? "inline" : "none", "important");
+      // 右の 10px はつまみの分。文字が 2 行に折れる幅では隠す。
+      columns.texts[col].style.setProperty("display", widths[col] >= 76 ? "inline" : "none", "important");
     });
     columns.element.scrollLeft = record.scroll.scrollLeft;
   }
@@ -1350,7 +1504,7 @@
     if (record.columns) panel.appendChild(record.columns.element);
     panel.appendChild(anchor);
     const keydown = (event) => {
-      if (event.key !== "Escape" || state.picking) return;
+      if (event.key !== "Escape" || state.picking || state.resizing) return;
       if (record.searchUi && event.target instanceof Node && record.searchUi.element.contains(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
@@ -1464,6 +1618,12 @@
       return;
     }
     const parts = tableParts(record.table);
+    const shape = columnShape(parts.model, parts.elements.map((cell) => cell.textContent));
+    if (shape.length !== record.widthShape.length || shape.some((name, col) => name !== record.widthShape[col])) {
+      if (state.resizing === record) stopResizing(true, false);
+      record.widths = reconcileColumnWidths(record.widths, record.widthShape, shape);
+      record.widthShape = shape;
+    }
     const hovered = record.hover && record.elements ? record.elements[record.hover.index] : null;
     record.model = parts.model;
     record.elements = parts.elements;
@@ -1490,6 +1650,7 @@
       record.base.delete(element);
     }
     if (record.skipped || !parts.model.cells.length) {
+      if (state.resizing === record) stopResizing(true, false);
       stopPicking(record, false);
       stopHover(record, false);
       record.desired = new Map();
@@ -1531,8 +1692,14 @@
     for (const row of record.hiddenRows) desired.set(parts.rows[row], { display: "none" });
     const modes = cellWrapModes(parts.model, record.wrap);
     const wrapStyles = modes.map((mode) => mode === "nowrap" ? { "white-space": "nowrap" } : { "white-space": "normal", "overflow-wrap": "anywhere" });
+    const cellWidths = record.printing ? parts.elements.map(() => null) : cellColumnWidths(parts.model, record.widths);
+    const widthStyles = cellWidths.map((width) => width === null ? {} : {
+      width: width + "px", "min-width": width + "px", "max-width": width + "px", "box-sizing": "border-box",
+      // 手動幅では折り返して、狭めた列でも文字を隠さず読めるようにする。
+      "white-space": "normal", "overflow-wrap": "anywhere",
+    });
     const compactStyles = record.compact ? { padding: "2px 6px", "line-height": "1.3", "font-size": "0.875em" } : {};
-    parts.elements.forEach((element, index) => desired.set(element, { ...record.borderCache.styles[index], ...wrapStyles[index], ...compactStyles }));
+    parts.elements.forEach((element, index) => desired.set(element, { ...record.borderCache.styles[index], ...wrapStyles[index], ...compactStyles, ...widthStyles[index] }));
     addHighlights(record, desired);
     apply(record, desired);
     record.desired = desired;
@@ -1541,7 +1708,7 @@
       const cap = (parseFloat(window.getComputedStyle(record.table).fontSize) || 16) * 12;
       const minimums = columnMinWidths(maxWidths, cap);
       parts.model.cells.forEach((cell, index) => {
-        if (cell.colspan !== 1 || modes[index] !== "wrap") return;
+        if (cell.colspan !== 1 || modes[index] !== "wrap" || cellWidths[index] !== null) return;
         const element = parts.elements[index];
         const computed = window.getComputedStyle(element);
         const extras = ["padding-left", "padding-right", "border-left-width", "border-right-width"].reduce((sum, name) => sum + (parseFloat(computed.getPropertyValue(name)) || 0), 0);
@@ -1580,7 +1747,7 @@
       parts.model.cells.forEach((cell, index) => {
         const element = parts.elements[index];
         const minimum = desired.get(element)["min-width"];
-        const styles = { ...wrapStyles[index], ...compactStyles, ...nativeOverride(record, cell, element, 0) };
+        const styles = { ...wrapStyles[index], ...compactStyles, ...widthStyles[index], ...nativeOverride(record, cell, element, 0) };
         if (minimum) styles["min-width"] = minimum;
         desired.set(element, styles);
       });
@@ -1654,6 +1821,7 @@
   }
 
   function cleanup(record) {
+    if (state.resizing === record) stopResizing(true, false);
     record.sizes.clear();
     stopPicking(record, false);
     stopHover(record, false);
@@ -1706,6 +1874,7 @@
             table, wrapper: null, scroll: null, sizes: new Map(), originals: new Map(), applied: new Map(),
             inners: new Map(), base: new Map(), borderCache: null, override: { rows: null, cols: null }, bar: null, columns: null, wrap: null, scrollX: false, onScroll: null, printing: false, skipped: false,
             nativeFull: false, fitHeight: false, picking: false, highlight: false, compact: false, hover: null, elements: [], desired: null,
+            widths: [], widthShape: [],
             search: { open: false, query: "", index: 0, filter: false, composing: false }, searchUi: null, searchTimer: 0, matches: [], hiddenRows: [],
           };
           state.records.set(table, record);
@@ -1731,6 +1900,7 @@
 
   function printMode(printing) {
     write(() => {
+      if (printing) stopResizing(true, false);
       if (printing && state.floating) closeFloating(true, false);
       for (const record of state.records.values()) {
         record.printing = printing;
@@ -1776,6 +1946,10 @@
     window.removeEventListener("beforeprint", beforePrint);
     window.removeEventListener("afterprint", afterPrint);
     window.removeEventListener("gl-markdown-table-expanded", tableExpanded);
+    window.removeEventListener("keydown", resizeKeydown, true);
+    window.removeEventListener("click", resizeClick, true);
+    window.removeEventListener("pointerdown", resizePointer, true);
+    window.removeEventListener("pointerup", resizePointer, true);
     if (state.notification) {
       window.clearTimeout(state.notification.timer);
       state.notification.element.remove();
@@ -1790,6 +1964,10 @@
     state.dirty.clear();
   };
   window.addEventListener("beforeprint", beforePrint);
+  window.addEventListener("keydown", resizeKeydown, true);
+  window.addEventListener("click", resizeClick, true);
+  window.addEventListener("pointerdown", resizePointer, true);
+  window.addEventListener("pointerup", resizePointer, true);
   window.addEventListener("afterprint", afterPrint);
   window.addEventListener("gl-markdown-table-expanded", tableExpanded);
   scan();

@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = await readFile(new URL("../src/sticky-table.js", import.meta.url), "utf8");
 const context = { module: { exports: {} } };
 vm.runInNewContext(source, context, { filename: "src/sticky-table.js" });
-const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, pickBoundaries, crossCells, searchMatches, filterRows, tableMatrix, toTsv, toHtml } = context.module.exports;
+const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, clampColumnWidth, resizableColumns, columnShape, reconcileColumnWidths, cellColumnWidths, pickBoundaries, crossCells, searchMatches, filterRows, tableMatrix, toTsv, toHtml } = context.module.exports;
 const th = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: true });
 const td = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: false });
 const many = (count, make = td) => Array.from({ length: count }, () => make());
@@ -18,6 +18,50 @@ const result = (groups) => {
   return { grid, region: frozenRegion(grid) };
 };
 const dimensions = (region) => [region.rows, region.cols];
+
+test("手動幅は単独セルと全列が決まった結合セルだけに当てる", () => {
+  const model = buildGrid(body([[th(), th(), th()], [td(2), td(1, 2)], [td(), td()]]));
+  assert.deepEqual(plain(cellColumnWidths(model, [80, 100, null])), [80, 100, null, 80, null, 100, null]);
+  assert.deepEqual(plain(cellColumnWidths(model, [80, 100, 120])), [80, 100, 120, 80, 220, 100, 120]);
+  assert.deepEqual(plain(cellColumnWidths(model, [null, null, null])), Array(model.cells.length).fill(null));
+});
+
+test("左上を持つセルがない結合だけの列にはつまみを置かない", () => {
+  const model = buildGrid(body([[th(1, 2), th()], [td(1, 2), td()]]));
+  assert.deepEqual(plain(resizableColumns(model)), [true, false, true]);
+});
+
+test("列幅の最小・最大と整数への丸めを決める", () => {
+  assert.equal(clampColumnWidth(-100), 32);
+  assert.equal(clampColumnWidth(4000), 1600);
+  assert.equal(clampColumnWidth(99.6), 100);
+});
+
+test("本文だけの変更では幅を保ち、見出しや列位置が変わった幅を捨てる", () => {
+  const model = buildGrid(body([many(3, th), many(3)]));
+  const shape = columnShape(model, ["名前", "数", "備考", "元", "1", "内容"]);
+  const bodyChanged = columnShape(model, ["名前", "数", "備考", "変更", "2", "別の内容"]);
+  assert.deepEqual(plain(reconcileColumnWidths([80, 90, 100], shape, bodyChanged)), [80, 90, 100]);
+  const changed = columnShape(model, ["名前", "個数", "備考", "元", "1", "内容"]);
+  assert.deepEqual(plain(reconcileColumnWidths([80, 90, 100], shape, changed)), [80, null, 100]);
+  const wider = buildGrid(body([many(4, th), many(4)]));
+  const inserted = columnShape(wider, ["名前", "新列", "数", "備考"]);
+  assert.deepEqual(plain(reconcileColumnWidths([80, 90, 100], shape, inserted)), [80, null, null, null]);
+  const appended = columnShape(wider, ["名前", "数", "備考", "新列"]);
+  assert.deepEqual(plain(reconcileColumnWidths([80, 90, 100], shape, appended)), [80, 90, 100, null]);
+  const noHeaders = columnShape(buildGrid(body([many(3)])), []);
+  assert.deepEqual(plain(reconcileColumnWidths([80, 90], ["[]", "[]"], noHeaders)), [null, null, null]);
+});
+
+test("省略表示より後ろの見出しの変更と結合の変更も幅の破棄で見分ける", () => {
+  const model = buildGrid(body([[th(), th()], [td(), td()]]));
+  const prefix = "長".repeat(50);
+  const before = columnShape(model, [prefix + "前", "値"]);
+  const after = columnShape(model, [prefix + "後", "値"]);
+  assert.deepEqual(plain(reconcileColumnWidths([80, 90], before, after)), [null, 90]);
+  const merged = columnShape(buildGrid(body([[th(1, 2)], [td(), td()]])), [prefix + "前"]);
+  assert.deepEqual(plain(reconcileColumnWidths([80, 90], before, merged)), [null, null]);
+});
 
 // vm の別の領域から返る配列とオブジェクトは、値に直して比べる。
 test("単純な表では先頭の 1 行と 1 列を固定する", () => {

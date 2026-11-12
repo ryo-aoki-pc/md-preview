@@ -1729,6 +1729,7 @@
   let dragged = false;
   // 登録は一度だけ。全幅表示を開いたときに登録される Esc の受け手より先に動かす。
   window.addEventListener('pointerdown', (event) => {
+    if (event.target.closest?.('[data-md-table-sticky-resizer]')) return;
     if (!mode) return;
     if (!tablePicker.hidden && event.target !== insertTableButton && !tablePicker.contains(event.target)) closeTablePicker();
     if (openMenus.length && !event.target.closest?.('.gp-edit-menu, #gp-edit-rows, #gp-edit-cols, #gp-edit-table, #gp-edit-add')) closeMenus();
@@ -1763,6 +1764,8 @@
     if (down && event.buttons && Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) dragged = true;
   }, true);
   window.addEventListener('click', (event) => {
+    // 列幅のドラッグを離したときの click は、md-table-sticky が後の受け手で捨てる。
+    if (window.__mdTableSticky?.resizeClick || event.target.closest?.('[data-md-table-sticky-resizer]')) return;
     if (event.target.closest?.('#gp-outline-resizer')) return;
     if (!mode || stopped || layer.contains(event.target)) return;
     // コメントへの切り替えは、入力を確定せず busy() の確認へ渡す。
@@ -1879,6 +1882,7 @@
   window.addEventListener('resize', refreshHover);
   new MutationObserver(refreshHover).observe(document.getElementById('gp-content'), { childList: true, subtree: true });
   window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && window.__mdTableSticky?.resizing) return;
     if (!mode || stopped) return;
     if (!tablePicker.hidden && event.key === 'Escape' && !event.isComposing && !composing) {
       event.preventDefault(); event.stopImmediatePropagation(); closeTablePicker(true); return;

@@ -1084,7 +1084,8 @@ async function exerciseDisplayControls() {
         const cell = elements[index].getBoundingClientRect();
         check(Math.abs(rect.left - cell.left) <= 1, '横スクロール ' + distance + 'px で列 ' + (col + 1) + ' のラベルとセルの左端をそろえる');
         const text = label.querySelector('span');
-        check((getComputedStyle(text).display !== 'none') === (rect.width >= 64), '列の幅が 64px 以上のときだけ折り返すの文字を出す');
+        check((getComputedStyle(text).display !== 'none') === (rect.width >= 76), '列の幅が 76px 以上のときだけ折り返すの文字を出す');
+        check(getComputedStyle(text).display === 'none' || text.getClientRects().length === 1, '折り返すの文字は 1 行に収める');
         if (col < (record.layout?.cols || 0)) check(getComputedStyle(label).position === 'sticky', '固定した列のラベルも左へ固定する');
       }
     }
@@ -1921,6 +1922,137 @@ async function checkRawNowrap(cdp, directory, version, bookmarklet) {
   assert.deepEqual(await cdp.evaluate('Array.from(document.querySelectorAll(".md"), md => md.innerHTML)'), await cdp.evaluate('window.__beforeHtml'), 'nowrap の初期値を適用して解除した後も API の HTML に戻す');
 }
 
+async function checkColumnWidths(cdp) {
+  const frame = () => cdp.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  await cdp.evaluate(`(() => {
+    const record = window.__mdTableSticky.records.get(window.__fixtureTables.F);
+    window.__widthCase = record;
+    record.bar.buttons['widths-auto'].click();
+    record.columns.handles[0].focus();
+  })()`);
+  const inspect = () => cdp.evaluate(`(() => {
+    const r = window.__widthCase, h = r.columns.handles[0];
+    return { width: r.widths[0], actual: r.table.rows[0].cells[0].getBoundingClientRect().width,
+      style: r.table.rows[0].cells[0].style.width, minimum: r.table.rows[0].cells[0].style.minWidth,
+      maximum: r.table.rows[0].cells[0].style.maxWidth, box: r.table.rows[0].cells[0].style.boxSizing,
+      role: h.getAttribute('role'), orientation: h.getAttribute('aria-orientation'), label: h.getAttribute('aria-label'),
+      now: Number(h.getAttribute('aria-valuenow')), reset: r.bar.buttons['widths-auto'].disabled,
+      resizing: window.__mdTableSticky.resizing === r, floating: !!window.__mdTableSticky.floating };
+  })()`);
+  const key = async (name, shift = false) => {
+    await cdp.evaluate(`window.__widthCase.columns.handles[0].dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(name)}, shiftKey: ${shift}, bubbles: true, cancelable: true }))`);
+    await frame();
+  };
+  const initial = await inspect();
+  assert.equal(initial.reset, true);
+  assert.equal(initial.role, 'separator');
+  assert.equal(initial.orientation, 'vertical');
+  assert.match(initial.label, /列 1.*の幅/);
+  await key('ArrowRight');
+  let value = await inspect();
+  near(value.width, Math.round(initial.actual + 10), '右キーで 10px 広げる');
+  assert.equal(value.now, value.width);
+  assert.equal(value.style, value.width + 'px');
+  assert.equal(value.minimum, value.style);
+  assert.equal(value.maximum, value.style);
+  assert.equal(value.box, 'border-box');
+  await key('ArrowRight', true);
+  assert.equal((await inspect()).width, value.width + 50, 'Shift と右キーで 50px 広げる');
+  await key('ArrowLeft');
+  assert.equal((await inspect()).width, value.width + 40);
+  await key('Delete');
+  assert.equal((await inspect()).width, null, 'Delete で自動幅へ戻す');
+  await key('ArrowRight');
+  await cdp.evaluate(`window.__widthCase.columns.handles[0].dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))`);
+  assert.equal((await inspect()).width, null, 'ダブルクリックで自動幅へ戻す');
+  await cdp.evaluate(`window.__widthCase.bar.buttons.float.click()`);
+  const drag = async (delta) => {
+    const point = await cdp.evaluate(`(() => {
+      const h = window.__widthCase.columns.handles[0]; h.scrollIntoView({ block: 'nearest' });
+      const rect = h.getBoundingClientRect(); return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    })()`);
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', buttons: 1, clickCount: 1 });
+    assert.equal((await inspect()).resizing, true, 'pointer capture でドラッグを開始する');
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x + delta, y: point.y, button: 'left', buttons: 1 });
+    await frame();
+    return { x: point.x + delta, y: point.y };
+  };
+  const release = (point) => cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', buttons: 0, clickCount: 1 });
+  // 離したときの click は、つまみと離した位置の共通の祖先へ届くので、ページへ渡さない。
+  const watchClicks = () => cdp.evaluate(`(() => {
+    window.__widthClicks = 0;
+    window.__widthClickCounter = () => { window.__widthClicks += 1; };
+    document.addEventListener('click', window.__widthClickCounter);
+    window.__widthWrap = window.__widthCase.columns.inputs[0].checked;
+  })()`);
+  const clicksLeaked = () => cdp.evaluate(`(() => {
+    document.removeEventListener('click', window.__widthClickCounter);
+    return window.__widthClicks > 0 || window.__widthCase.columns.inputs[0].checked !== window.__widthWrap;
+  })()`);
+  const before = (await inspect()).actual;
+  await watchClicks();
+  await release(await drag(70));
+  await frame();
+  assert.equal(await clicksLeaked(), false, 'ドラッグを離したときの click をページへ渡さず、折り返すのチェックも変えない');
+  value = await inspect();
+  near(value.width, Math.round(before + 70), '全幅表示の中でもドラッグで幅を変える');
+  assert.ok(value.actual > before + 50, '実際のセルの幅も広がる');
+  assert.equal(value.resizing, false);
+  const start = value.width;
+  for (const cancel of ['Escape', 'pointercancel', 'lostpointercapture']) {
+    const point = await drag(60);
+    if (cancel === 'Escape') await watchClicks();
+    if (cancel === 'Escape') {
+      assert.equal(await cdp.evaluate(`(() => {
+        window.__widthEscapeLeaked = false;
+        const late = () => { window.__widthEscapeLeaked = true; };
+        window.addEventListener('keydown', late);
+        const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+        window.dispatchEvent(event); window.removeEventListener('keydown', late);
+        return event.defaultPrevented && !window.__widthEscapeLeaked;
+      })()`), true, 'Esc を後の受け手に渡さない');
+    } else {
+      await cdp.evaluate(`(() => { const d = window.__mdTableSticky.resizeDrag; d.handle.dispatchEvent(new PointerEvent(${JSON.stringify(cancel)}, { pointerId: d.pointer, bubbles: true })); })()`);
+    }
+    await release(point);
+    if (cancel === 'Escape') assert.equal(await clicksLeaked(), false, 'Esc で取り消した後に離したときの click もページへ渡さない');
+    value = await inspect();
+    assert.equal(value.width, start, cancel + ' では開始時の手動幅に戻す');
+    assert.equal(value.resizing, false);
+    assert.equal(value.floating, true, 'ドラッグの取り消しで全幅表示は閉じない');
+  }
+  await cdp.evaluate(`(() => {
+    const r = window.__widthCase;
+    r.bar.buttons['nowrap-all'].click(); r.bar.buttons['cols-plus'].click();
+  })()`);
+  assert.equal(await cdp.evaluate(`(() => {
+    const r = window.__widthCase, cell = r.table.rows[1].cells[0];
+    return r.layout.cols > 0 && getComputedStyle(cell).position === 'sticky' &&
+      getComputedStyle(cell).whiteSpace === 'normal' && cell.style.width === r.widths[0] + 'px';
+  })()`), true, '先頭列を固定し、折り返さない設定でも手動幅の内容を折り返す');
+  await cdp.evaluate(`window.dispatchEvent(new Event('beforeprint'))`);
+  value = await inspect();
+  assert.equal(value.style, '', '印刷には手動幅を当てない');
+  assert.equal(value.width, start, '印刷中もメモリーの手動幅は保つ');
+  await cdp.evaluate(`window.dispatchEvent(new Event('afterprint'))`);
+  assert.equal((await inspect()).style, start + 'px', '印刷後に手動幅を戻す');
+  await cdp.evaluate(`(() => {
+    const r = window.__widthCase;
+    r.bar.buttons['widths-auto'].click(); r.bar.buttons['wrap-all'].click(); r.bar.buttons.auto.click();
+  })()`);
+  value = await inspect();
+  assert.equal(value.width, null);
+  assert.equal(value.style, '');
+  assert.equal(value.minimum, '');
+  assert.equal(value.maximum, '');
+  assert.equal(value.reset, true, '列幅を戻すボタンでスタイルと手動幅を消す');
+  const point = await drag(40);
+  await cdp.evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`);
+  await release(point);
+  assert.equal((await inspect()).width, null, '自動幅からのドラッグも取り消すと自動に戻す');
+}
+
 function near(actual, expected, message) {
   assert.ok(Math.abs(actual - expected) <= 1, message + ": " + actual + " / " + expected);
 }
@@ -2070,6 +2202,7 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         await checkOwnedMutationScope(cdp, bookmarklet);
         await checkFirstRoundControls(cdp, version);
         await checkSearchControls(cdp, versionTest, version);
+        await checkColumnWidths(cdp);
         assert.equal(await cdp.evaluate("window.__fixtureTables.H.closest('details').open"), false, "details はまだ閉じている");
         await cdp.evaluate("window.__fixtureTables.H.closest('details').open = true");
         let expanded = false;
@@ -2102,6 +2235,8 @@ test("生成したブックマークレットを GitLab の DOM で確かめる"
         await cdp.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
         assert.equal(await cdp.evaluate('Array.from(window.__cleanupSearch.record.table.rows).some(row => getComputedStyle(row).display === "none")'), true, '検索行を開き、絞り込んだまま解除する');
         await cdp.evaluate('(() => { const input = window.__cleanupSearch.input; input.value = "解除前の入力"; input.dispatchEvent(new InputEvent("input", { bubbles: true })); })()');
+        await cdp.evaluate('window.__cleanupSearch.record.columns.handles[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }))');
+        assert.equal(await cdp.evaluate('window.__cleanupSearch.record.widths[0] !== null'), true, '手動幅を残したまま解除する');
         await cdp.evaluate(bookmarklet);
         assert.equal(await cdp.evaluate("document.querySelectorAll('[data-md-table-sticky-float], [data-md-table-sticky-placeholder], [data-md-table-sticky-columns], [data-md-table-sticky-search]').length"), 0, "解除すると全幅の背景・代わりの要素・列のチェックボックス・検索行を消す");
         assert.equal(await cdp.evaluate("typeof window.__mdTableSticky"), "undefined", "固定の状態を消す");
