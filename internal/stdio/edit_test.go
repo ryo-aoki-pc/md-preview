@@ -122,6 +122,35 @@ func (a *editApp) post(body string) <-chan editResponse {
 	}()
 	return ch
 }
+
+// postAfterResume は、resume を送った後の要求を、number 個目の edit が出るまで送り直す。
+// resume は標準入力から届くので、処理される前に HTTP の要求が届くと paused で断られる。
+func (a *editApp) postAfterResume(t *testing.T, body string, number int) <-chan editResponse {
+	t.Helper()
+	deadline := time.Now().Add(6 * time.Second)
+retry:
+	for {
+		ch := a.post(body)
+		for {
+			select {
+			case r := <-ch:
+				// 送り直すのは、休止中として断られた要求だけ。ほかの応答は誤りにする。
+				if r.err != nil || r.status != 409 || !strings.Contains(r.body, `"code":"paused"`) {
+					t.Fatal(r)
+				}
+				continue retry
+			default:
+			}
+			if len(a.edits()) >= number {
+				return ch
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("再開した後の編集の要求が受け付けられない")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
 func checkEditResponse(t *testing.T, ch <-chan editResponse, status int, code, message string) {
 	t.Helper()
 	select {
@@ -257,8 +286,10 @@ func TestEditTimeoutPauseAndClose(t *testing.T) {
 			a.send(t, map[string]any{"type": "edit_result", "id": m["id"], "ok": true})
 			if action == "pause" {
 				a.send(t, map[string]any{"type": "resume"})
+				request = a.postAfterResume(t, rangeRequest(src), 2)
+			} else {
+				request = a.post(rangeRequest(src))
 			}
-			request = a.post(rangeRequest(src))
 			next := a.nextEdit(t, 2)
 			if next["id"].(float64) <= m["id"].(float64) {
 				t.Fatal(next)
