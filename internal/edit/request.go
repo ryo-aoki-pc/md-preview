@@ -37,6 +37,8 @@ type operation struct {
 	values          [][]string
 	source          string
 	to              string
+	align           string
+	header          bool
 	fragment        *tableedit.Fragment
 	from            moveSource
 }
@@ -187,8 +189,25 @@ func parseOperation(m map[string]any) (operation, *Error) {
 		if !fields(m, "type") {
 			return o, invalid()
 		}
-	case "mergeCells", "mergeCellsAsHTML":
-		if !fields(m, "type", "row", "col", "rows", "cols") {
+	case "mergeCells", "mergeCellsAsHTML", "setAlign", "setHeader":
+		names := []string{"type", "row", "col", "rows", "cols"}
+		if o.kind == "setAlign" {
+			names = append(names, "align")
+			var valid bool
+			o.align, valid = m["align"].(string)
+			if !valid || o.align != "" && o.align != "left" && o.align != "center" && o.align != "right" {
+				return o, invalid()
+			}
+		}
+		if o.kind == "setHeader" {
+			names = append(names, "header")
+			var valid bool
+			o.header, valid = m["header"].(bool)
+			if !valid {
+				return o, invalid()
+			}
+		}
+		if !fields(m, names...) {
 			return o, invalid()
 		}
 		o.row, o.col = get("row", 0), get("col", 0)
@@ -415,6 +434,10 @@ func (o operation) apply(ctx context.Context, d *tableedit.Document, t tableedit
 		return d.MergeCellsAsHTML(t, tableedit.Rect{Row: o.row, Col: o.col, Rows: o.rows, Cols: o.cols})
 	case "unmergeCells":
 		return d.UnmergeCells(t, o.row, o.col)
+	case "setAlign":
+		return d.SetAlign(t, tableedit.Rect{Row: o.row, Col: o.col, Rows: o.rows, Cols: o.cols}, o.align)
+	case "setHeader":
+		return d.SetHeader(t, tableedit.Rect{Row: o.row, Col: o.col, Rows: o.rows, Cols: o.cols}, o.header)
 	case "set":
 		return d.SetCells(t, o.cells)
 	case "paste":

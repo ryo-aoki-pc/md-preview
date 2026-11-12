@@ -252,7 +252,7 @@
   // info は送信前の宛先の表情報（index・rows・cols）。戻り値は反映後の矩形。
   function placed(op, info) {
     const size = dimensions(info);
-    if (['mergeCells', 'mergeCellsAsHTML'].includes(op.type))
+    if (['mergeCells', 'mergeCellsAsHTML', 'setAlign', 'setHeader'].includes(op.type))
       return validRect(info, op) ? { row: op.row, col: op.col, rows: op.rows, cols: op.cols } : null;
     if (op.type === 'unmergeCells') {
       const cell = info.cells.find((cell) => cell.row === op.row && cell.col === op.col);
