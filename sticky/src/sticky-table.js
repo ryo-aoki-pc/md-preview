@@ -321,11 +321,11 @@
 
   function toTsv(matrix) {
     const quote = (text) => /[\t\r\n"]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
-    return matrix.grid.map((row) => row.map(quote).join("\t")).join("\r\n") + (matrix.grid.length ? "\r\n" : "");
+    return matrix.grid.map((row) => row.map(quote).join("\t")).join("\r\n") + (matrix.grid.length && (matrix.grid.length > 1 || matrix.grid[0].length > 1) ? "\r\n" : "");
   }
 
   function toHtml(matrix) {
-    const escape = (text) => text.replace(/[&<>"]/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[value]).replace(/\r\n?|\n/g, "<br>");
+    const escape = (text) => text.replace(/[&<>"']/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[value]).replace(/\r\n?|\n/g, '<br style="mso-data-placement:same-cell">');
     const rows = Array.from({ length: matrix.rowCount }, () => []);
     for (const cell of matrix.cells) {
       const tag = cell.header ? "th" : "td";

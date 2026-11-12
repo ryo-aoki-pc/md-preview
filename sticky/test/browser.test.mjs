@@ -1672,7 +1672,7 @@ async function exerciseCopyFallbacks() {
     } }, () => { throw new Error('HTML をコピーできたら代替へ進めない'); });
     check(primary['text/plain'] === expected, 'br・p・div・li の境目を改行にし、各行の空白と前後の空行を整えて TSV にする');
     const htmlCell = new DOMParser().parseFromString(primary['text/html'] || '', 'text/html').querySelector('table')?.rows[table.rows.length - 1]?.cells[1];
-    check(htmlCell?.innerHTML === '先頭 の文<br>次 の行<br>まとまり<br>項目 1<br>項目 2', 'HTML に改行を br で残し、svg と aria-hidden の子の文字をコピーしない');
+    check(htmlCell?.innerHTML === '先頭 の文<br style="mso-data-placement:same-cell">次 の行<br style="mso-data-placement:same-cell">まとまり<br style="mso-data-placement:same-cell">項目 1<br style="mso-data-placement:same-cell">項目 2', 'HTML に同じセルの改行を残し、svg と aria-hidden の子の文字をコピーしない');
     check(richNotice === '表をコピーした' + size, 'HTML と文字をコピーできたときは通常の知らせを出す');
     const calls = [];
     let written = '';

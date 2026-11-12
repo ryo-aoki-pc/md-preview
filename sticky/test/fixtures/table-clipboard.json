@@ -1,0 +1,578 @@
+{
+  "cases": [
+    {
+      "name": "結合なしの 2 行 2 列",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        {
+          "row": 0,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "左上"
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "右上"
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "左下"
+        },
+        {
+          "row": 1,
+          "col": 1,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "右下"
+        }
+      ],
+      "tsv": "左上\t右上\r\n左下\t右下\r\n",
+      "html": "<table><tr><td>左上</td><td>右上</td></tr><tr><td>左下</td><td>右下</td></tr></table>"
+    },
+    {
+      "name": "rowspan と colspan を持つ見出し",
+      "rows": 3,
+      "cols": 3,
+      "cells": [
+        {
+          "row": 0,
+          "col": 0,
+          "rowspan": 2,
+          "colspan": 2,
+          "header": true,
+          "text": "結合"
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": true,
+          "text": "右上"
+        },
+        {
+          "row": 1,
+          "col": 2,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "右下"
+        },
+        {
+          "row": 2,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "下1"
+        },
+        {
+          "row": 2,
+          "col": 1,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "下2"
+        },
+        {
+          "row": 2,
+          "col": 2,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "下3"
+        }
+      ],
+      "tsv": "結合\t\t右上\r\n\t\t右下\r\n下1\t下2\t下3\r\n",
+      "html": "<table><tr><th rowspan=\"2\" colspan=\"2\">結合</th><th>右上</th></tr><tr><td>右下</td></tr><tr><td>下1</td><td>下2</td><td>下3</td></tr></table>"
+    },
+    {
+      "name": "列と行の見出し",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        {
+          "row": 0,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": true,
+          "text": "項目"
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": true,
+          "text": "値"
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": true,
+          "text": "名前"
+        },
+        {
+          "row": 1,
+          "col": 1,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "内容"
+        }
+      ],
+      "tsv": "項目\t値\r\n名前\t内容\r\n",
+      "html": "<table><tr><th>項目</th><th>値</th></tr><tr><th>名前</th><td>内容</td></tr></table>"
+    },
+    {
+      "name": "セル内の CR・LF・CRLF",
+      "rows": 1,
+      "cols": 4,
+      "cells": [
+        {
+          "row": 0,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "a\rb"
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "c\nd"
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "e\r\nf"
+        },
+        {
+          "row": 0,
+          "col": 3,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": ""
+        }
+      ],
+      "tsv": "\"a\rb\"\t\"c\nd\"\t\"e\r\nf\"\t\r\n",
+      "html": "<table><tr><td>a<br style=\"mso-data-placement:same-cell\">b</td><td>c<br style=\"mso-data-placement:same-cell\">d</td><td>e<br style=\"mso-data-placement:same-cell\">f</td><td></td></tr></table>"
+    },
+    {
+      "name": "HTML で逃がす文字と実体参照の文字",
+      "rows": 1,
+      "cols": 2,
+      "cells": [
+        {
+          "row": 0,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "&<>\"'"
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "&amp;<br>"
+        }
+      ],
+      "tsv": "\"&<>\"\"'\"\t&amp;<br>\r\n",
+      "html": "<table><tr><td>&amp;&lt;&gt;&quot;&#39;</td><td>&amp;amp;&lt;br&gt;</td></tr></table>"
+    },
+    {
+      "name": "TSV のタブと引用符",
+      "rows": 1,
+      "cols": 3,
+      "cells": [
+        {
+          "row": 0,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "タブ\tあり"
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "引用\"符"
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "\"\t\""
+        }
+      ],
+      "tsv": "\"タブ\tあり\"\t\"引用\"\"符\"\t\"\"\"\t\"\"\"\r\n",
+      "html": "<table><tr><td>タブ\tあり</td><td>引用&quot;符</td><td>&quot;\t&quot;</td></tr></table>"
+    },
+    {
+      "name": "空のセルと末尾の空の列",
+      "rows": 2,
+      "cols": 3,
+      "cells": [
+        {
+          "row": 0,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "左"
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": ""
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": ""
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": ""
+        },
+        {
+          "row": 1,
+          "col": 1,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "中"
+        },
+        {
+          "row": 1,
+          "col": 2,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": ""
+        }
+      ],
+      "tsv": "左\t\t\r\n\t中\t\r\n",
+      "html": "<table><tr><td>左</td><td></td><td></td></tr><tr><td></td><td>中</td><td></td></tr></table>"
+    },
+    {
+      "name": "1 行だけの表",
+      "rows": 1,
+      "cols": 3,
+      "cells": [
+        {
+          "row": 0,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "左"
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "中"
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "右"
+        }
+      ],
+      "tsv": "左\t中\t右\r\n",
+      "html": "<table><tr><td>左</td><td>中</td><td>右</td></tr></table>"
+    },
+    {
+      "name": "1 列だけの表と末尾の空の行",
+      "rows": 3,
+      "cols": 1,
+      "cells": [
+        {
+          "row": 0,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "上"
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": "中"
+        },
+        {
+          "row": 2,
+          "col": 0,
+          "rowspan": 1,
+          "colspan": 1,
+          "header": false,
+          "text": ""
+        }
+      ],
+      "tsv": "上\r\n中\r\n\r\n",
+      "html": "<table><tr><td>上</td></tr><tr><td>中</td></tr><tr><td></td></tr></table>"
+    }
+  ],
+  "differences": [
+    {
+      "name": "1 行 1 列の HTML",
+      "description": "TSV は末尾に CRLF を付けない。mdpreview は文字だけをコピーするため HTML を空文字にし、md-table-sticky は table を作る。",
+      "input": {
+        "rows": 1,
+        "cols": 1,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "text": "値"
+          }
+        ]
+      },
+      "sticky": {
+        "tsv": "値",
+        "html": "<table><tr><td>値</td></tr></table>"
+      },
+      "mdpreview": {
+        "tsv": "値",
+        "html": ""
+      }
+    },
+    {
+      "name": "空の 1 行 1 列",
+      "description": "空の 1 セルの TSV は空文字になる。HTML は mdpreview では空文字、md-table-sticky では空の td を持つ table になる。",
+      "input": {
+        "rows": 1,
+        "cols": 1,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "text": ""
+          }
+        ]
+      },
+      "sticky": {
+        "tsv": "",
+        "html": "<table><tr><td></td></tr></table>"
+      },
+      "mdpreview": {
+        "tsv": "",
+        "html": ""
+      }
+    },
+    {
+      "name": "改行と引用符を含む 1 行 1 列",
+      "description": "1 セルの TSV は値を引用しても末尾に CRLF を付けない。mdpreview は HTML を作らず、md-table-sticky はセル内の改行を持つ table を作る。",
+      "input": {
+        "rows": 1,
+        "cols": 1,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "text": "\"先頭\r\n末尾\""
+          }
+        ]
+      },
+      "sticky": {
+        "tsv": "\"\"\"先頭\r\n末尾\"\"\"",
+        "html": "<table><tr><td>&quot;先頭<br style=\"mso-data-placement:same-cell\">末尾&quot;</td></tr></table>"
+      },
+      "mdpreview": {
+        "tsv": "\"\"\"先頭\r\n末尾\"\"\"",
+        "html": ""
+      }
+    },
+    {
+      "name": "全体を 1 セルに結合した表",
+      "description": "mdpreview は選択したマスの数にかかわらず、HTML に出すセルが 1 個だけなら HTML を作らない。md-table-sticky は結合した table を作る。",
+      "input": {
+        "rows": 2,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 2,
+            "header": false,
+            "text": "結合"
+          }
+        ]
+      },
+      "sticky": {
+        "tsv": "結合\t\r\n\t\r\n",
+        "html": "<table><tr><td rowspan=\"2\" colspan=\"2\">結合</td></tr><tr></tr></table>"
+      },
+      "mdpreview": {
+        "tsv": "結合\t\r\n\t\r\n",
+        "html": ""
+      }
+    },
+    {
+      "name": "セルの無いマス",
+      "description": "mdpreview は穴に空の td を出す。md-table-sticky は DOM のセルから格子を作り、穴を独立したセルとして扱わない。",
+      "input": {
+        "rows": 2,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "text": "a"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "text": "b"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "text": "c"
+          }
+        ]
+      },
+      "mdpreview": {
+        "tsv": "a\tb\r\nc\t\r\n",
+        "html": "<table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td></td></tr></table>"
+      }
+    },
+    {
+      "name": "空の表",
+      "description": "md-table-sticky の変換関数は空の TSV と空の table を作る。mdpreview では範囲として選べない。",
+      "input": {
+        "rows": 0,
+        "cols": 0,
+        "cells": []
+      },
+      "sticky": {
+        "tsv": "",
+        "html": "<table></table>"
+      }
+    },
+    {
+      "name": "結合を切る範囲",
+      "description": "mdpreview は選択範囲が結合を切ると HTML を作らない。md-table-sticky は範囲を選ばず表全体の見えている行を詰めてコピーし、検索では rowspan でつながる行をまとめて残すか隠す。",
+      "input": {
+        "rows": 2,
+        "cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "header": false,
+            "text": "縦"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "text": "上"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "header": false,
+            "text": "下"
+          }
+        ]
+      },
+      "range": {
+        "row": 0,
+        "col": 0,
+        "rows": 1,
+        "cols": 2
+      },
+      "sticky": {
+        "tsv": "縦\t上\r\n\t下\r\n",
+        "html": "<table><tr><td rowspan=\"2\">縦</td><td>上</td></tr><tr><td>下</td></tr></table>"
+      },
+      "mdpreview": {
+        "tsv": "\t上\r\n",
+        "html": ""
+      }
+    },
+    {
+      "name": "独自の形式",
+      "description": "application/x-gp-table は mdpreview だけが作る。md-table-sticky は HTML と TSV を作る。"
+    },
+    {
+      "name": "セルの文字の元",
+      "description": "mdpreview は表情報の文字を使い、複雑なセルには原文を使う。md-table-sticky は画面の DOM から文字を取り出し、セル内の各行の空白と前後の空行を整える。"
+    }
+  ]
+}

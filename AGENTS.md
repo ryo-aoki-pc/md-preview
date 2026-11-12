@@ -141,6 +141,8 @@ gofmt -l .
 
 `sticky/src/sticky-table.js` を変えたら、`sticky/` で `npm run build`（`dist/` を作り直す）と `npm test`、ルートで `go test ./...` と `node --test test/page.test.mjs` を通す。
 
+コピーの TSV・HTML は `sticky/test/fixtures/table-clipboard.json` を共通の見本にし、`sticky/test/grid.test.mjs` と `test/edit-grid.test.mjs` が読む。片方の出力を変えたら、見本と両方の試験を合わせる。
+
 依存を足す・上げるとき、Go の版を上げるときは、各実行ファイルの `licenses/manifest.json` と `licenses/go/` の原文の写しも合わせる。試験は `go list -deps` で `mdpreview` の windows/amd64・linux/amd64・linux/arm64 の依存の和と、`mdtable` の windows/amd64 の依存を求め、それぞれの一覧と比べる。両一覧の和はルートの `go.mod` の直接・間接の require と比べ、原文とほかの部品の版は Go のモジュールのキャッシュ・`engine/Cargo.lock`・`page/lib/lock.json` と比べる。版を上げるときは、`internal/version/version.go`、`licenses/manifest.json` の md-preview、`mdtable/licenses/manifest.json` の md-table-excel、`package.json`・`package-lock.json` の版を同じ値にする（配布の workflow は、タグと `version.go` の版が違うと止まる）。
 
 `GOPROXY=off` で試験する前に、通信できる環境で一度 `go mod download` を実行し、固定した依存をキャッシュへ用意しておく。

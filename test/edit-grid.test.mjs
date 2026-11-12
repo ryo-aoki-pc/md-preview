@@ -44,6 +44,23 @@ test('外部への定義は凍結した gpEditGrid だけ', () => {
   assert.equal(grid.TYPE, 'application/x-gp-table');
 });
 
+const clipboardFixtures = JSON.parse(readFileSync(new URL('../sticky/test/fixtures/table-clipboard.json', import.meta.url), 'utf8'));
+const clipboardInfo = ({ rows, cols, cells }) => ({ rows, cols, cells: cells.map((item) => cell(item.row, item.col, item.text, item)) });
+const checkClipboard = (input, expected, selected = rect(0, 0, input.rows, input.cols)) => {
+  const info = clipboardInfo(input);
+  assert.equal(grid.toTSV(grid.matrix(info, selected)), expected.tsv);
+  assert.equal(grid.toHTML(info, selected), expected.html);
+};
+
+for (const fixture of clipboardFixtures.cases) {
+  test('共通のコピー出力: ' + fixture.name, () => checkClipboard(fixture, fixture));
+}
+
+for (const fixture of clipboardFixtures.differences) {
+  if (!fixture.mdpreview) continue;
+  test('コピー出力の意図した違い: ' + fixture.name, () => checkClipboard(fixture.input, fixture.mdpreview, fixture.range));
+}
+
 test('TSV の引用と改行を書き出す', () => {
   assert.equal(grid.toTSV([['値']]), '値');
   assert.equal(grid.toTSV([['']]), '');
