@@ -1345,7 +1345,11 @@
     if (action === 'col-sort-asc' || action === 'col-sort-desc') {
       if (composing || sourceFetching) return '文字の入力を終えてから操作してください';
       if (!model.editable) return info.reason || 'この表は編集できません';
-      return info.sortLocked?.[cell.row] || '';
+      if (info.sortLocked?.[cell.row]) return info.sortLocked[cell.row];
+      // 並べ替えは区画の行をまとめて動かすので、見えていない行の順も変わる。
+      if (model.rows.slice(rect.row, rect.row + rect.rows).some((row) => getComputedStyle(row).display === 'none'))
+        return '表の検索で隠れた行をまたいでいます。検索を解除してから選び直してください';
+      return '';
     }
     if (action.startsWith('cell-align-') || action === 'cell-header' || action === 'cell-data') {
       if (composing || sourceFetching) return '文字の入力を終えてから操作してください';

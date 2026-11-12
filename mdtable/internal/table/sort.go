@@ -124,18 +124,21 @@ func PermuteRows(r *Region, first int, rows []int) ([]string, *model.TableModel,
 }
 
 // PermuteRowEndings は混在した改行も行の内部と一緒に動かす。行の間の改行は元の位置に保つ。
-func PermuteRowEndings(r *Region, first int, rows []int, original []string, fallback string) []string {
+// 改行の無い末尾の行が途中へ移ったら、末尾へ来た行の改行をその行へ渡し、末尾は改行なしのままにする。
+func PermuteRowEndings(r *Region, first int, rows []int, original []string) []string {
 	if r.Kind == "pipe" {
 		endings := append([]string{}, original...)
+		last := len(original) - 1
 		for dest, source := range rows {
-			ending := original[source+1]
-			if ending == "" {
-				ending = fallback
-			}
-			endings[first+dest+1] = ending
+			endings[first+dest+1] = original[source+1]
 		}
-		if original[len(original)-1] == "" {
-			endings[len(endings)-1] = ""
+		if original[last] == "" && endings[last] != "" {
+			for dest, source := range rows {
+				if source+1 == last {
+					endings[first+dest+1] = endings[last]
+				}
+			}
+			endings[last] = ""
 		}
 		return endings
 	}

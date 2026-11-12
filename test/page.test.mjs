@@ -1370,6 +1370,19 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     await duplicate.click({ force: true });
     assert.equal(readFileSync(file, 'utf8'), text);
     await page.keyboard.press('Escape');
+    // 並べ替えは区画の行をまとめて動かすので、1 セルを選んでいても隠れた行があれば断る。
+    await page.locator('#gp-content td').last().click();
+    for (const order of ['asc', 'desc']) {
+      const sort = await menuItem(page, 'col-sort-' + order);
+      assert.equal(await sort.getAttribute('aria-disabled'), 'true');
+      await sort.focus();
+      assert.match(await page.locator('#gp-edit-menu-cols-reason').textContent(), /検索.*解除/);
+      await sort.click({ force: true });
+      assert.equal(readFileSync(file, 'utf8'), text);
+      await page.keyboard.press('Escape');
+    }
+    await page.locator('#gp-content td').first().click();
+    await page.locator('#gp-content td').last().click({ modifiers: ['Shift'] });
     await page.locator('#gp-edit-input').focus();
     await page.keyboard.press('Delete');
     assert.match(await page.locator('#gp-edit-status').textContent(), /検索/);

@@ -28,6 +28,6 @@ func (d *Document) SortRows(t Target, row, col int, desc bool) (result *Result, 
 	if err != nil {
 		return nil, renderError(r, err)
 	}
-	endings := table.PermuteRowEndings(r, first, rows, d.md.Endings[r.Start:r.End+1], d.md.DefaultEnding())
+	endings := table.PermuteRowEndings(r, first, rows, d.md.Endings[r.Start:r.End+1])
 	return d.applyEdits([]regionEdit{{region: r, lines: lines, endings: endings, expected: expected, expect: expect}}, nil)
 }

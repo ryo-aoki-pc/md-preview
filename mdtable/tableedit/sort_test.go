@@ -57,6 +57,10 @@ func TestSortRowsKeepsMixedEndingsAndFinalNewline(t *testing.T) {
 	}{
 		{"前\r\n\n| 鍵 |\n| --- |\r\n| 10 |\n| 2 |\r\n\r\n後\n", "前\r\n\n| 鍵 |\n| --- |\r\n| 2 |\r\n| 10 |\n\r\n後\n", 1},
 		{"| 鍵 |\n| --- |\n| 10 |\n| 2 |", "| 鍵 |\n| --- |\n| 2 |\n| 10 |", 0},
+		// 改行の無い末尾の行が途中へ移るときは、末尾へ来た行の改行を受け取り、末尾は改行なしのままにする。
+		{"| 鍵 |\n| --- |\n| 10 |\r\n| 2 |", "| 鍵 |\n| --- |\n| 2 |\r\n| 10 |", 0},
+		{"前\r\n| 鍵 |\n| --- |\n| 10 |\n| 2 |", "前\r\n| 鍵 |\n| --- |\n| 2 |\n| 10 |", 1},
+		{"> | 鍵 |\n> | --- |\n> | 10 |\r\n> | 30 |\n> | 2 |", "> | 鍵 |\n> | --- |\n> | 2 |\n> | 10 |\r\n> | 30 |", 1},
 		{"前\r\n\n<table>\r\n<tr>\n<td>10</td>\r\n</tr>\r\n<tr>\r\n<td>2</td>\n</tr>\n</table>\r\n\n後\n", "前\r\n\n<table>\r\n<tr>\r\n<td>2</td>\n</tr>\r\n<tr>\n<td>10</td>\r\n</tr>\n</table>\r\n\n後\n", 0},
 		{"<table>\n<tr><td>10</td></tr>\r\n<tr><td>2</td></tr>\n</table>", "<table>\n<tr><td>2</td></tr>\r\n<tr><td>10</td></tr>\n</table>", 1},
 	} {
