@@ -1,0 +1,988 @@
+{
+  "total": 317,
+  "ported": 315,
+  "skipped": {
+    "test_cli.CliTest.test_read_line_from_terminal_uses_input": "Python の input() の呼び分けを確かめるもの。Go は端末でもファイル記述子から読み、組み込みの input() を使わない。",
+    "test_cli.CliTest.test_read_line_without_stdin": "Python の sys.stdin=None のときの EOFError を確かめるもの。Go のプロセスにはこの Python の状態がない。"
+  },
+  "files": {
+    "test_oracles.ComrakTest.test_samples": [
+      "internal/blocks/oracles_test.go"
+    ],
+    "test_oracles.ComrakTest.test_corpus": [
+      "internal/blocks/oracles_test.go"
+    ],
+    "test_blocks.BlockParserTest.test_description_list_structure": [
+      "internal/blocks/python_port_test.go"
+    ],
+    "test_blocks.BlockParserTest.test_line_endings": [
+      "internal/blocks/python_port_test.go"
+    ],
+    "test_blocks.BlockParserTest.test_unescape_pipes": [
+      "internal/blocks/python_port_test.go"
+    ],
+    "test_cells.ExcelToPipeTest.test_round_trip_converges": [
+      "internal/blocks/python_port_test.go",
+      "internal/cellsyntax/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.PipeToHtmlTest.test_merge_converts_and_keeps_following_list": [
+      "internal/blocks/python_port_test.go",
+      "internal/sync/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_markdown_chunk": [
+      "internal/cellfromhtml/chunk_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_code": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_description_lists": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_emphasis": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_escapes": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_links": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_lists": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_other_blocks": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_pre": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_raw_link_after_backslash": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_raw_links_and_images": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_raw_links_decode_entities": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_raw_links_do_not_cross_elements": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_raw_links_do_not_cross_newlines": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_raw_links_escape_surrounding_text": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_raw_links_in_excluded_elements": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_raw_links_in_flow_elements": [
+      "internal/cellfromhtml/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_raw_links_keep_inner_markdown_and_destination_spaces": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_raw_links_keep_whitespace_rules": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_raw_reference_links_are_escaped": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_tilde_and_dollar": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_whitespace_and_entities": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.ListSpacingTest.test_html_elements_use_same_spacing": [
+      "internal/cellfromhtml/python_port_test.go"
+    ],
+    "test_cells.ChunkTest.test_chunk_to_excel": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ChunkTest.test_convergence": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ChunkTest.test_forward": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ChunkTest.test_lists_get_blank_lines": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ChunkTest.test_plain": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ChunkTest.test_refuses_table_tags": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ChunkTest.test_tasks_and_definitions": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ChunkTest.test_unclosed_fence_is_closed": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ChunkTest.test_verbatim_blocks": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ExcelToPipeTest.test_blocks": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ExcelToPipeTest.test_breaks": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ExcelToPipeTest.test_not_representable": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ExcelToPipeTest.test_pipes": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ListSpacingTest.test_alternating_paragraphs_and_lists": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ListSpacingTest.test_interrupting_lists": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ListSpacingTest.test_keeps_blank_lines_inside_loose_list": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ListSpacingTest.test_keeps_noninterrupting_and_nested_spacing": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ListSpacingTest.test_literal_task_markers_round_trip": [
+      "internal/cellsyntax/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_cells.ListSpacingTest.test_refuses_pipe_table_before_plain_fast_path": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_cells.ListSpacingTest.test_without_double_newline_does_not_parse": [
+      "internal/cellsyntax/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_added_column_next_to_edited_column": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_alignment_and_header_only": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_changed_cell_uses_new_row": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_columns_then_rows": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_delete_middle_row": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_detail_limit_counts_cells_with_several_changes_once": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_fill_or_clear_hole": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_insert_and_delete_columns": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_insert_middle_row_does_not_change_later_cells": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_large_table_with_merges_is_fast": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_limit_and_excel_column_address": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_long_text_append_and_delete_use_same_window": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_long_text_shows_first_difference": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_long_text_window_normalizes_newlines": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_merge_and_unmerge_at_anchor": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_merged_cell_text_and_extent": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_multiple_kinds_count_cell_once": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_repeated_rows_and_empty_table": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_repeated_rows_are_not_junk": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_rows_and_columns_changed_together": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_shortening_newlines_and_empty_text": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_changes.ChangesTest.test_single_cell_and_no_change": [
+      "internal/changes/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_flow": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_confirms_import_while_owner_exists": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_imports_when_closed_without_enter": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_enter_with_owner_then_closes_automatically": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_eof_with_owner_waits_past_grace": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_owner_appears_during_eof_grace": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_enter_before_excel_opens_waits_for_owner": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_enter_without_owner_proceeds_after_open_grace": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_not_saved": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_eof_without_owner_keeps_workbook": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_input_error_keeps_workbook_and_command": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_interrupted_keeps_workbook": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_missing_markdown_keeps_workbook_and_command": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_export_failure_removes_temporary_directory": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_startfile_failure_removes_temporary_directory": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_dry_run_keeps_diff_and_workbook": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_dry_run_without_content_changes_removes_workbook": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_forwards_import_protections": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_retries_unreadable_workbook_once": [
+      "internal/cli/behavior_port_test.go",
+      "internal/sync/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_repeated_workbook_error_keeps_workbook": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_needs_windows": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_read_line_from_pipe_reads_the_descriptor": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_ends_normally_with_open_stdin_pipe": [
+      "internal/cli/behavior_port_test.go"
+    ],
+    "test_cli.CliTest.test_edit_reports_temporary_directory_it_cannot_remove": [
+      "internal/cli/behavior_windows_test.go"
+    ],
+    "test_cli.CliTest.test_edit_waits_for_readable_book_after_owner_disappears": [
+      "internal/cli/behavior_windows_test.go"
+    ],
+    "test_cli.DiffColorTest.test_terminal_enables_colors": [
+      "internal/cli/behavior_windows_test.go"
+    ],
+    "test_cli.DiffColorTest.test_windows_console_mode": [
+      "internal/cli/behavior_windows_test.go"
+    ],
+    "test_cli.DiffColorTest.test_color_diff": [
+      "internal/cli/color_port_test.go"
+    ],
+    "test_cli.DiffColorTest.test_pipe_and_no_color_disable_colors": [
+      "internal/cli/color_port_test.go"
+    ],
+    "test_cli.DiffColorTest.test_diff_color_does_not_reach_stderr": [
+      "internal/cli/color_port_test.go"
+    ],
+    "test_cli.CliTest.test_convert_dry_run_uses_colored_diff_writer": [
+      "internal/cli/color_port_test.go"
+    ],
+    "test_cli.CliTest.test_os_error_message": [
+      "internal/cli/color_port_test.go"
+    ],
+    "test_cli.CliTest.test_convert_already_same_kind": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_convert_dry_run_then_write_and_back": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_convert_failure_does_not_change_any_table": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_convert_raw_html_links_to_pipe_and_back": [
+      "internal/cli/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_convert_requires_table_and_target": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_errors_without_traceback": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_export_import": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_export_with_heading_and_import_with_number": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_force_does_not_write_when_table_cannot_be_rendered": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_import_rejects_heading_or_line_selector": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_keep_kind_blocks_conversion_and_other_tables": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_keep_kind_blocks_merged_cell": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_list": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_list_json": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_list_json_excluded_and_without_heading": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_list_json_without_tables": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_strict_text_and_force_are_incompatible": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_strict_text_blocks_non_text_values": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_strict_text_blocks_value_matching_original_text": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_table_selection": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_cli.CliTest.test_usage_error": [
+      "internal/cli/python_port_test.go"
+    ],
+    "test_workbook.NormalizeTest.test_normalize": [
+      "internal/model/python_port_test.go"
+    ],
+    "test_workbook.NormalizeTest.test_sheet_form_copies_cells_and_fills_holes": [
+      "internal/model/python_port_test.go"
+    ],
+    "test_oracles.CorpusRoundTripTest.test_no_edit_round_trip": [
+      "internal/sync/corpus_test.go"
+    ],
+    "test_convert.ConversionVerifyTest.test_collapsed_spaces_are_reported_with_the_cell": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConversionVerifyTest.test_conversion_requires_target_kind": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_convert.ConversionVerifyTest.test_extra_cells_are_warned": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConversionVerifyTest.test_model_differences_block_conversion": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_adds_blank_after_new_html_when_next_block_stays_the_same": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_allows_unit_spans_and_alignment_attributes": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_already_same_kind_does_not_rewrite": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_api_requires_selector_and_known_target": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_code_with_pipe_and_table_tag_text": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_complex_list_item_table_round_trip": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_container_prefixes_and_tight_warning": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_dry_run_outputs_diff_and_preserves_bom_crlf": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_empty_cells_and_header_only": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_excluded_table_is_a_problem_even_with_same_kind": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_html_block_error_names_the_tag": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_html_blocks_refused_in_both_directions": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_html_cells_breaks_lists_pipes_and_alignment": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_html_on_marker_line_uses_continuation_prefix": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_html_paragraph_lists_convert_both_ways": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_leading_and_repeated_breaks_refused": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_link_definitions_refused": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_literal_task_lists_pipe_html_pipe": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_loose_lists_still_refused": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_multiple_selectors_and_unselected_problem": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_one_problem_prevents_all_replacements": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_paragraph_lists_pipe_html_pipe": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_pipe_html_pipe_preserves_models_and_other_lines": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_alignment_on_table_section_and_row": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_attributes_on_each_structural_element": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_caption": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_code_block_and_task_cells": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_colgroups": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_header_shape": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_holes": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_interstitial_comments": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_justify": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_merges": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_mixed_alignment": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_nested_table_in_cell": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_text_before_or_after_table_on_same_line": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_tfoot": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_two_rows_in_thead": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_refuses_when_blank_line_changes_following_block": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_relaxed_markdown_tasks_refused": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_safe_single_html_block_converts": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_table_in_description_list": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_convert.ConvertTest.test_trailing_and_only_breaks_convert": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.ComplexCellTest.test_cell_write_errors_include_position_in_both_render_paths": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.ComplexCellTest.test_unchanged_nested_table_cell_is_preserved": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PatchTest.test_alignment": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PatchTest.test_blockquote_prefixes": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PatchTest.test_cell_becomes_chunk": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PatchTest.test_header_to_data": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PatchTest.test_implicit_end": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PatchTest.test_ordered_list_container": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PipeRenderTest.test_alignment_majority": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PipeRenderTest.test_edit_keeps_other_rows": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PipeRenderTest.test_identical_rows": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PipeRenderTest.test_new_column": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PipeRenderTest.test_without_leading_pipes": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PipeToHtmlTest.test_in_list_item": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.PipeToHtmlTest.test_pipes_are_unescaped_in_chunks": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.RegenerateTest.test_add_row_keeps_other_rows": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_tables.RegenerateTest.test_tfoot_stays": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_adjacent_row_extends": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_append_row_without_final_newline": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_applied_twice": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_applied_twice_after_normalizing": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_cleared_trailing_column_warns": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_cleared_trailing_row_does_not_warn_on_conflict": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_cleared_trailing_row_warns": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_column_style_alignment": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_conflict_and_force": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_control_character_is_excluded": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_conversion_then_reimport": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_delete_all_pipe_body_rows": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_delete_last_row_with_mixed_line_endings": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_delete_last_row_without_final_newline": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_deleted_rows_do_not_warn_about_columns": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_discarded_cell_features": [
+      "internal/sync/python_port_test.go",
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_discarded_features_limit_positions": [
+      "internal/sync/python_port_test.go",
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_dry_run_cell_limit_per_table": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_dry_run_shows_difference_after_long_prefix": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_dry_run_summary_and_cells_follow_each_table": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_edit_and_import": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_edit_header_only_pipe": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_edit_other_cell_preserves_raw_html_link_row": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_empty_merged_trailing_cells_are_not_empty_rows_or_columns": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_excel_shaped_round_trip": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_expected_cell_formats_do_not_warn": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_export_does_not_warn_about_link_definitions_in_code": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_export_warns_about_link_definitions": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_far_values_are_ignored": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_font": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_formula_like_text": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_html_alignment_with_added_row": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_html_header_format_and_bold_only": [
+      "internal/sync/python_port_test.go",
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_html_header_with_added_column": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_html_verification_rejects_lost_structure": [
+      "internal/sync/python_port_test.go",
+      "internal/sync/verification_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_hyperlinks_with_visible_targets_do_not_warn": [
+      "internal/sync/python_port_test.go",
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_identical_table_count_conflict_and_force": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_identical_tables": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_identical_tables_applied_twice": [
+      "internal/sync/python_port_test.go",
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_import_missing_number_lists_exported_numbers": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_import_selected_tables_only": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_internal_and_empty_hyperlinks": [
+      "internal/sync/python_port_test.go",
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_line_endings_and_bom": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_list_spacing_is_unchanged_and_original_cell_is_reused": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_many_tables_with_body": [
+      "internal/sync/python_port_test.go",
+      "internal/table/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_merged_cells_keep_text_format": [
+      "internal/sync/python_port_test.go",
+      "internal/sync/verification_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_mixed_line_endings_inside_table": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_multiple_tables_open_index_sheet": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_no_edit_round_trip": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_numbers_and_dates": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_old_metadata_applied_twice": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_old_metadata_without_same": [
+      "internal/sync/python_port_test.go",
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_only_increased_trailing_empty_rows_warn": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_original_empty_trailing_rows_and_columns_do_not_warn": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_pipe_table_typed_in_cell_has_positioned_error": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_renamed_and_deleted_sheets": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_rich_text_warning_is_preserved": [
+      "internal/sync/python_port_test.go",
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_selected_import_of_swapped_tables": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_selected_import_still_reports_unrelated_sheets": [
+      "internal/sync/python_port_test.go",
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_single_table_document_opens_its_sheet": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_single_table_opens_its_sheet": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_summary_counts_inserted_row_only": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_swapped_tables_in_document": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_text_cells": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_typed_tasks_keep_automatic_conversion_and_keep_kind": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_unedited_html_with_holes": [
+      "internal/sync/python_port_test.go",
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_unedited_sheet_preserves_document_edit": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_unselected_missing_sheet_is_ignored": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_workbook.ExportImportTest.test_unselected_sheet_errors_and_warnings_are_ignored": [
+      "internal/sync/python_port_test.go"
+    ],
+    "test_convert.ConversionVerifyTest.test_changed_cell_text_prevents_file_write": [
+      "internal/sync/verification_port_test.go"
+    ],
+    "test_blocks.IndentedTableTest.test_blockquote_list": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.IndentedTableTest.test_description_in_list": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.IndentedTableTest.test_description_list": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.IndentedTableTest.test_extra_indentation": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.IndentedTableTest.test_footnote": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.IndentedTableTest.test_html_table_in_list": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.IndentedTableTest.test_nested_list": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.IndentedTableTest.test_ordered_list": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.IndentedTableTest.test_table_on_marker_line": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.IndentedTableTest.test_tabs": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_block_starts_end_table": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_blockquote_and_lazy_lines": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_cell_count_mismatch": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_fences_close_with_container": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_front_matter_and_multiline_quote": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_hidden_cells": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_html_blocks_hide_tables": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_lines_that_stay_rows": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_list_indentation": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_pipe_escapes": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_rows_without_pipes_continue": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_setext_wins": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_blocks.TableDetectionTest.test_table_interrupts_paragraph": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_cells.HtmlToExcelTest.test_raw_links_do_not_change_markdown_chunks_or_pipe_cells": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_cells.ListSpacingTest.test_non_task_brackets_stay_literal": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_cells.PipeToExcelTest.test_breaks": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_cells.PipeToExcelTest.test_line_start_escapes": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_cells.PipeToExcelTest.test_lists": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.ComplexCellTest.test_link_definitions_are_recorded_only_in_markdown": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.HtmlStructureTest.test_blockquote": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.HtmlStructureTest.test_end_tag_in_paragraph": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.HtmlStructureTest.test_fence_hides_tags": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.HtmlStructureTest.test_implicit_end_tags": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.HtmlStructureTest.test_indented_chunk_is_excluded": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.HtmlStructureTest.test_markdown_chunk": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.HtmlStructureTest.test_pre_with_blank_line": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.HtmlStructureTest.test_spans": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.HtmlStructureTest.test_text_around_table": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.HtmlStructureTest.test_text_between_rows": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.HtmlStructureTest.test_tricky_tokens": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.TableSelectionTest.test_duplicate_heading_is_ambiguous": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.TableSelectionTest.test_duplicate_heading_without_table_is_not_ambiguous": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.TableSelectionTest.test_heading_line_without_heading_and_setext_heading": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.TableSelectionTest.test_heading_selects_excluded_table_too": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.TableSelectionTest.test_heading_selects_one_or_several_tables": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.TableSelectionTest.test_missing_heading_requires_exact_match": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_tables.TableSelectionTest.test_numeric_and_line_like_headings": [
+      "internal/table/python_port_test.go"
+    ],
+    "test_workbook.FontTest.test_font_name": [
+      "internal/workbook/font_port_test.go"
+    ],
+    "test_workbook.FontTest.test_registered_fonts": [
+      "internal/workbook/font_port_test.go"
+    ],
+    "test_workbook.FontTest.test_font_entry_matches": [
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.NormalizeTest.test_cell_checks": [
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.NormalizeTest.test_escape_round_trip": [
+      "internal/workbook/python_port_test.go"
+    ],
+    "test_workbook.NormalizeTest.test_sheet_names": [
+      "internal/workbook/python_port_test.go"
+    ]
+  }
+}
