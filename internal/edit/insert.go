@@ -21,6 +21,10 @@ func (m *blockMapping) anchor(b *block) *InsertAnchor {
 	for b.outer >= 0 {
 		b = &m.blocks[b.outer]
 	}
+	// 脚注の定義は、画面では文書の最後に並び、原文の位置と対応しないので、追加先にしない。
+	if b.kind == "footnote" {
+		return nil
+	}
 	if _, e := m.target(b.tag, b.public); e != nil {
 		return nil
 	}

@@ -26,6 +26,12 @@ func TestInsertBlocks(t *testing.T) {
 		{"引用", "> 本文\n", "blockquote", "1:1-1:8", "after", "追加", "> 本文\n\n追加\n"},
 		{"コード", "```\na\n```\n", "pre", "1:1-3:3", "before", "追加", "追加\n\n```\na\n```\n"},
 		{"水平線の祖先", "- item\n\n  ---\n\n後\n", "hr", "3:3-3:3", "after", "追加", "- item\n\n  ---\n\n追加\n\n後\n"},
+		{"水平線の前", "前\n\n---\n\n後\n", "hr", "3:1-3:3", "before", "追加", "前\n\n追加\n\n---\n\n後\n"},
+		{"水平線の後ろ", "前\n\n---\n\n後\n", "hr", "3:1-3:3", "after", "追加", "前\n\n---\n\n追加\n\n後\n"},
+		// 複数行の追加は、増えた行数だけ後ろの位置をずらして比べる。
+		{"複数行のコード", "前\n\n後\n", "p", "1:1-1:3", "after", "```\ncode\n```", "前\n\n```\ncode\n```\n\n後\n"},
+		{"複数行の段落と項目", "前\n\n後\n", "p", "3:1-3:3", "before", "一行目\n二行目\n\n- a\n- b", "前\n\n一行目\n二行目\n\n- a\n- b\n\n後\n"},
+		{"説明リストの前", "前\n\nTerm\n: def\n\n後\n", "dl", "3:1-5:0", "before", "追加", "前\n\n追加\n\nTerm\n: def\n\n後\n"},
 		// 上流の公開の終端は、後ろに続く内容で変わる（終了列 0、入れ物の中の水平線）。補正後の範囲で比べるので断らない。
 		{"次が見出しのリストの後ろ", "- a\n- b\n\n# 題\n", "li", "2:1-3:0", "after", "追加", "- a\n- b\n\n追加\n\n# 題\n"},
 		{"リストの後ろへ見出し", "- a\n- b\n\n後\n", "p", "4:1-4:3", "before", "# 追加", "- a\n- b\n\n# 追加\n\n後\n"},
@@ -93,6 +99,8 @@ func TestInsertRejects(t *testing.T) {
 			{"前\n\n<p data-sourcepos=\"1:1-1:1\">偽</p>\n\n後\n", "1:1-1:3", "after", "```", "insert"},
 			{"前\n\n後\n", "1:1-1:3", "after", " \n\t", "invalid"},
 			{"- a\n- b\n", "1:1-1:3", "after", "追加", "target"},
+			// 脚注の定義は、画面の位置と原文の位置が対応しないので、追加先にしない。
+			{"本文[^1]\n\n[^1]: 注\n\n後\n", "3:1-3:9", "after", "追加", "target"},
 			{"前\n\n" + pipeTable, "3:1-5:17", "before", "追加", "target"},
 		} {
 			t.Run(fmt.Sprint(mode, c), func(t *testing.T) {
@@ -107,6 +115,20 @@ func TestInsertRejects(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestInsertFootnoteHasNoAnchor(t *testing.T) {
+	e := testEngine(t)
+	s, h := testService(t, e, "本文[^1]\n\n[^1]: 注\n\n後\n", nil)
+	// 脚注の定義とその中の段落からは、追加先を返さない。本文の段落は今までどおり。
+	value, err := s.Text(context.Background(), nil, h.src.Render, "li", "3:1-3:9")
+	if err != nil || value.(map[string]any)["anchor"].(*InsertAnchor) != nil {
+		t.Fatal("脚注の定義の追加先", value, err)
+	}
+	value, err = s.Text(context.Background(), nil, h.src.Render, "p", "1:1-1:10")
+	if err != nil || value.(map[string]any)["anchor"].(*InsertAnchor) == nil {
+		t.Fatal("本文の段落の追加先", value, err)
 	}
 }
 
