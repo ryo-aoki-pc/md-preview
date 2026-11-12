@@ -1274,6 +1274,148 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
   });
 });
 
+test('外側のブロックへ移り、下書きと操作欄の位置を保って編集する', { skip, timeout: 120000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const valueIs = (page, value) => page.waitForFunction((value) => {
+    const input = document.querySelector('#gp-edit-input');
+    return !input.hidden && input.value === value && document.querySelector('#gp-edit-layer').dataset.typing === 'on';
+  }, value);
+
+  for (const method of ['ボタン', 'キー']) {
+    await t.test('項目からリスト全体を開き、確定する/' + method, async (t) => {
+      const original = '前。\n\n- a\n- b\n\n後。\n';
+      const { page, file } = await editablePage(t, browser, original);
+      await page.locator('#gp-content li').first().dblclick();
+      await valueIs(page, '- a');
+      await page.locator('#gp-edit-input').fill('- 項目の下書き');
+      if (method === 'ボタン') await page.getByRole('button', { name: 'リスト全体を編集', exact: true }).click();
+      else await page.keyboard.press('Alt+ArrowUp');
+      await valueIs(page, '- a\n- b');
+      await page.locator('#gp-edit-input').fill('- 外側の下書き\n- b');
+      if (method === 'ボタン') await page.getByRole('button', { name: '内側に戻る', exact: true }).click();
+      else await page.keyboard.press('Alt+ArrowDown');
+      await valueIs(page, '- 項目の下書き');
+      assert.equal(readFileSync(file, 'utf8'), original, '移動だけでは確定しない');
+      await page.keyboard.press('Alt+ArrowUp');
+      await valueIs(page, '- 外側の下書き\n- b');
+      await page.locator('#gp-edit-input').fill('- changed\n- c');
+      await page.keyboard.press('Control+Enter');
+      await editIdle(page);
+      assert.equal(readFileSync(file, 'utf8'), '前。\n\n- changed\n- c\n\n後。\n');
+      assert.equal(await page.locator('#gp-edit-block-actions').isVisible(), false);
+    });
+  }
+
+  await t.test('何段でも内側へ戻り、変換中の Alt キーでは移らない', async (t) => {
+    const original = '> - parent\n>   - child\n';
+    const { page, file } = await editablePage(t, browser, original);
+    await page.locator('#gp-content li li').dblclick();
+    await valueIs(page, '- child');
+    const sources = [];
+    page.on('request', (r) => { if (r.url().includes('/_/edit/source?')) sources.push(r.url()); });
+    await page.evaluate(() => {
+      const input = document.querySelector('#gp-edit-input');
+      input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowUp', altKey: true }));
+      input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowUp', altKey: true, isComposing: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowUp', altKey: true, keyCode: 229 }));
+    });
+    assert.deepEqual(sources, []);
+    await valueIs(page, '- child');
+    // 項目が 1 つだけのリストは項目と同じ原文なので、外側には数えない。子の項目の次は親の項目、その次は引用。
+    assert.equal(await page.locator('#gp-edit-outer').textContent(), '項目全体を編集');
+    await page.keyboard.press('Alt+ArrowUp');
+    await valueIs(page, '- parent\n>   - child');
+    assert.equal(await page.locator('#gp-edit-outer').textContent(), '引用全体を編集');
+    await page.keyboard.press('Alt+ArrowUp');
+    await valueIs(page, '> - parent\n>   - child');
+    assert.equal(await page.locator('#gp-edit-outer').isVisible(), false);
+    await page.keyboard.press('Alt+ArrowDown');
+    await valueIs(page, '- parent\n>   - child');
+    await page.keyboard.press('Alt+ArrowDown');
+    await page.waitForFunction(() => document.querySelector('#gp-edit-inner').hidden);
+    await valueIs(page, '- child');
+    assert.equal(readFileSync(file, 'utf8'), original);
+    await page.keyboard.press('Escape');
+  });
+
+  await t.test('注記の題名から種類・題名・閉じの行を含む全体を開く', async (t) => {
+    const original = '前。\n\n>>> [!note] 題\nbody\n>>>\n\n後。\n';
+    const { page, file } = await editablePage(t, browser, original);
+    await page.locator('#gp-content .markdown-alert-title').dblclick();
+    await valueIs(page, '>>> [!note] 題\nbody\n>>>');
+    await page.locator('#gp-edit-input').fill('>>> [!tip] 新しい題\nchanged\n>>>');
+    await page.keyboard.press('Control+Enter');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original.replace('>>> [!note] 題\nbody', '>>> [!tip] 新しい題\nchanged'));
+  });
+
+  await t.test('範囲を断った項目はリスト全体を開いて理由を知らせる', async (t) => {
+    const original = '>>>\n- ab cd\n- ef gh\n>>>\n';
+    const { page, file } = await editablePage(t, browser, original);
+    await page.locator('#gp-content li').last().dblclick();
+    await valueIs(page, '- ab cd\n- ef gh');
+    assert.equal(await page.locator('#gp-edit-status').textContent(), 'このブロックだけの範囲を確かめられないので、外側のブロックを開きました');
+    assert.equal(await page.getByRole('button', { name: '引用全体を編集', exact: true }).isVisible(), true);
+    await page.locator('#gp-edit-input').fill('- changed');
+    await page.keyboard.press('Control+Enter');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '>>>\n- changed\n>>>\n');
+  });
+
+  await t.test('用語の範囲を断った応答は説明リストを開いて理由を知らせる', async (t) => {
+    const original = 'Apple\n: red\n\n後。\n';
+    const { page, file } = await editablePage(t, browser, original);
+    const range = await page.locator('#gp-content dl').getAttribute('data-sourcepos');
+    // エンジンの版で用語の位置が変わっても、term の応答からの移動を確かめる。
+    await page.route('**/_/edit/source?*', (route) => {
+      if (new URL(route.request().url()).searchParams.get('tag') !== 'dt') return route.continue();
+      return route.fulfill({ status: 422, json: { error: { code: 'term', message: '用語の範囲を決められません。' },
+        outer: [{ tag: 'dl', range, kind: 'deflist' }] } });
+    });
+    await page.locator('#gp-content dt').dblclick();
+    await valueIs(page, 'Apple\n: red');
+    assert.equal(await page.locator('#gp-edit-status').textContent(), 'この用語だけの範囲を決められないので、説明リスト全体を開きました');
+    assert.equal(readFileSync(file, 'utf8'), original);
+    await page.keyboard.press('Escape');
+  });
+
+  for (const colorScheme of ['light', 'dark']) {
+    for (const placement of ['上', '下']) {
+      await t.test('操作欄が入力欄・ヘッダー・画面の外に重ならない/' + colorScheme + '/' + placement, async (t) => {
+        const original = (placement === '上' ? '# 題\n\n前の段落。\n\n' : '') + '- a\n- b\n';
+        const { page } = await editablePage(t, browser, original);
+        await page.emulateMedia({ colorScheme });
+        if (placement === '下') {
+          // 最上部のリストの直上をヘッダーへ寄せ、下へ置く経路も確かめる。
+          await page.evaluate(() => {
+            document.querySelector('#gp-content').style.paddingTop = '0px';
+            document.querySelector('#gp-content ul').style.marginTop = '0px';
+          });
+        }
+        await page.locator('#gp-content li').first().dblclick();
+        await valueIs(page, '- a');
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const geometry = await page.evaluate(() => {
+          const box = (selector) => {
+            const r = document.querySelector(selector).getBoundingClientRect();
+            return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+          };
+          return { toolbar: box('#gp-edit-block-actions'), input: box('#gp-edit-input'),
+            header: box('#gp-header').bottom, width: innerWidth, height: innerHeight };
+        });
+        const { toolbar, input, header, width, height } = geometry;
+        assert.ok(toolbar.bottom <= input.top || toolbar.top >= input.bottom, JSON.stringify(geometry));
+        assert.ok(toolbar.top >= header && toolbar.left >= 0 && toolbar.right <= width && toolbar.bottom <= height, JSON.stringify(geometry));
+        assert.ok(placement === '上' ? toolbar.bottom <= input.top : toolbar.top >= input.bottom, JSON.stringify(geometry));
+        await page.keyboard.press('Escape');
+      });
+    }
+  }
+});
+
 test('ブロックの原文とタスクを画面で編集し、ファイルの内容まで確かめる', { skip, timeout: 120000 }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
