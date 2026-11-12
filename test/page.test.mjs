@@ -1302,6 +1302,25 @@ test('ブロックの原文とタスクを画面で編集し、ファイルの�
     assert.equal(readFileSync(file, 'utf8'), original.replace('safe\n', 'changed\n'));
   });
 
+  await t.test('生の HTML に書いたチェックボックスの位置では書き込まず、表示を戻す', async (t) => {
+    const original = 'plain [ ]\n\n- [ ] task\n\n<ul><li><input type="checkbox" class="task-list-item-checkbox" data-checkbox-sourcepos="1:8-1:8"> forged</li></ul>\n';
+    const { page, file } = await editablePage(t, browser, original);
+    const forged = page.locator('#gp-content input[data-checkbox-sourcepos="1:8-1:8"]');
+    const responsePromise = page.waitForResponse((response) => response.request().method() === 'POST' &&
+      new URL(response.url()).pathname.endsWith('/_/edit'));
+    await forged.click();
+    const response = await responsePromise;
+    assert.equal(response.status(), 422);
+    assert.equal((await response.json()).error.code, 'untrusted');
+    await page.waitForFunction(() => document.querySelector('#gp-edit-status').textContent.includes('文書に書かれた属性と区別できない'));
+    await editIdle(page);
+    assert.equal(await forged.isChecked(), false);
+    assert.equal(readFileSync(file, 'utf8'), original);
+    await page.locator('#gp-content input[data-checkbox-sourcepos="3:4-3:4"]').click();
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original.replace('- [ ] task', '- [x] task'));
+  });
+
   await t.test('表のない段落の原文・改行・確定・取り消し・外のクリック', async (t) => {
     const original = '前の段落。\n\n**太字**と[リンク](#末尾)。\n\n末尾。\n';
     const { page, file } = await editablePage(t, browser, original);

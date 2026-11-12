@@ -112,6 +112,10 @@ func excludedBlock(n *html.Node) bool {
 		htmltree.HasClass(n, "js-render-math"))
 }
 
+func excludedCheckbox(n *html.Node) bool {
+	return n.Type == html.ElementNode && (n.Data == "table" || n.Data == "section" && htmltree.Has(n, "data-footnotes"))
+}
+
 func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping, *Error) {
 	key := pathKey(src.Path)
 	if m := s.blockCache[key]; m != nil && m.render == src.Render {
@@ -129,7 +133,8 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 		if n.Type != html.ElementNode {
 			return nil
 		}
-		if n.Data == "input" && htmltree.HasClass(n, "task-list-item-checkbox") {
+		// ページは表と脚注の中のチェックボックスを扱わない。JSON の表のセルには利用者が属性を書けるので、一覧にも入れない。
+		if n.Data == "input" && htmltree.HasClass(n, "task-list-item-checkbox") && !htmltree.Ancestor(n, excludedCheckbox) {
 			r := Range(htmltree.Get(n, "data-checkbox-sourcepos"))
 			if rangePattern.MatchString(string(r)) {
 				m.checkboxes[r] = m.positionReason(n, "data-checkbox-sourcepos")

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -203,5 +204,91 @@ func TestUnpositionedInputMustMatch(t *testing.T) {
 	}
 	if h.unpositioned != 1 || disk(t, h) != h.src.Text {
 		t.Fatal("入力の違う位置なし描画で原文を書いた", h.unpositioned)
+	}
+}
+
+func TestUntrustedPositionFromJSONTable(t *testing.T) {
+	e := testEngine(t)
+	// JSON の表のセルは、JSON のエスケープを解いた後の Markdown を描く。原文に sourcepos の文字が
+	// 無くても、位置属性を持つ生の HTML を作れる。
+	name := "data-checkbox-" + string(rune(92)) + "u0073ourcepos"
+	text := "plain [ ]\n\n- [ ] task\n\n```json:table\n" +
+		`{"markdown": true, "items": [{"a": "<input type=\"checkbox\" class=\"task-list-item-checkbox\" ` + name + `=\"1:8-1:8\">"}]}` +
+		"\n```\n"
+	if strings.Contains(strings.ToLower(text), "sourcepos") {
+		t.Fatal("試験の入力に位置属性の文字がある")
+	}
+	for _, buffer := range []bool{false, true} {
+		var s *Service
+		var h *testHost
+		var sent *[]BufferEdit
+		if buffer {
+			s, h, sent = bufferService(t, e, text)
+		} else {
+			s, h = testService(t, e, text, nil)
+		}
+		if !h.src.HasSourcepos || !strings.Contains(h.src.HTML, `data-checkbox-sourcepos="1:8-1:8"`) {
+			t.Fatalf("JSON の表から作った位置属性の印が無い: %v\n%s", h.src.HasSourcepos, h.src.HTML)
+		}
+		if _, err := applyJSON(t, s, h, `{"checkbox":"1:8-1:8","checked":true}`); err == nil || err.Code != "target" {
+			t.Fatal("表の中のチェックボックスの位置を受けた", err)
+		}
+		if buffer && len(*sent) != 0 || !buffer && disk(t, h) != text {
+			t.Fatal("JSON の表の位置属性で書いた")
+		}
+		if _, err := applyJSON(t, s, h, `{"checkbox":"3:4-3:4","checked":true}`); err != nil {
+			t.Fatal(err)
+		}
+		if buffer {
+			if len(*sent) != 1 || strings.Join((*sent)[0].Lines, "") != "- [x] task" {
+				t.Fatal(*sent)
+			}
+		} else if disk(t, h) != strings.Replace(text, "- [ ] task", "- [x] task", 1) {
+			t.Fatal(disk(t, h))
+		}
+	}
+}
+
+func TestUntrustedDefinitionForTerm(t *testing.T) {
+	e := testEngine(t)
+	// 用語の終端は次の dd の位置から決める。dd の位置が利用者の属性と区別できなければ、用語も断る。
+	s, h := testService(t, e, "Apple\n: red\n", nil)
+	h.src.HasSourcepos = true
+	h.unposition = func() (pipeline.Result, error) {
+		return pipeline.Result{HTML: `<dl><dd data-sourcepos="2:1-2:5">red</dd></dl>`, HasSourcepos: true}, nil
+	}
+	for _, c := range []struct{ tag, r string }{{"dt", "1:1-1:1"}, {"dd", "2:1-2:5"}} {
+		if _, err := s.Text(context.Background(), nil, h.src.Render, c.tag, Range(c.r)); err == nil || err.Code != "untrusted" {
+			t.Fatal(c, err)
+		}
+	}
+	if _, err := applyJSON(t, s, h, `{"range":"1:1-1:5","text":"Pear"}`); err == nil || disk(t, h) != h.src.Text {
+		t.Fatal("信用しない dd から決めた用語の範囲で書いた", err)
+	}
+}
+
+func TestUntrustedRangeSharedWithRealBlock(t *testing.T) {
+	e := testEngine(t)
+	// 偽の段落が、本物の項目と同じ範囲を名乗る。偽の段落からは開けず、本物の項目は今までどおり直せる
+	// (確定の範囲は、本物の項目の範囲そのもの)。
+	text := "- item\n\n<p data-sourcepos=\"1:1-1:6\">forged</p>\n"
+	s, h := testService(t, e, text, nil)
+	if _, err := s.Text(context.Background(), nil, h.src.Render, "p", "1:1-1:6"); err == nil || err.Code != "untrusted" {
+		t.Fatalf("偽の段落=%v\n%s", err, h.src.HTML)
+	}
+	// 後ろに生の HTML が続くので、項目の公開の範囲は終了列 0 になる。HTML から読む。
+	public := regexp.MustCompile(`<li data-sourcepos="([^"]+)"`).FindStringSubmatch(h.src.HTML)
+	if public == nil {
+		t.Fatal(h.src.HTML)
+	}
+	value, err := s.Text(context.Background(), nil, h.src.Render, "li", Range(public[1]))
+	if err != nil || value.(map[string]any)["text"] != "- item" || value.(map[string]any)["range"] != Range("1:1-1:6") {
+		t.Fatal(public[1], value, err)
+	}
+	if _, err := applyJSON(t, s, h, `{"range":"1:1-1:6","text":"- changed"}`); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := disk(t, h), strings.Replace(text, "- item", "- changed", 1); got != want {
+		t.Fatalf("原文=%q、期待=%q", got, want)
 	}
 }

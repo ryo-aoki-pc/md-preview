@@ -72,7 +72,11 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 	}
 	positions, e := s.blocks(ctx, src)
 	if e != nil {
-		return nil, e
+		// 位置の検査はブロックの一覧と共有する。誤りの文は表の言葉にする。
+		if e.Code == "cancelled" {
+			return nil, fault(422, "cancelled", "表の対応の確認を取り消しました。")
+		}
+		return nil, fault(422, "render", "描画した表を読み取れません。")
 	}
 	root, err := htmltree.Fragment(ctx, src.HTML)
 	if err != nil {
