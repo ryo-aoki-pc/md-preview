@@ -63,6 +63,7 @@ type Options struct {
 	Libraries     *pagefiles.Libraries
 	Edit          Editor
 	Review        Reviewer
+	Launch        func(ctx context.Context, root string) error
 }
 type Server struct {
 	URL         string
@@ -398,6 +399,11 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 	editGet := s.opts.Edit != nil && authorized && (rest == "/_/edit/tables" || rest == "/_/edit/source")
 	reviewRoute := s.opts.Review != nil && authorized && rest == "/_/review/prepare"
 	reviewGet := s.opts.Review != nil && authorized && (rest == "/_/review/tables" || rest == "/_/review/source")
+	launchRoute := s.opts.Review != nil && s.opts.Launch != nil && authorized && rest == "/_/review/launch"
+	if r.Method == "POST" && launchRoute {
+		s.launchReview(conn, r)
+		return
+	}
 	if r.Method == "POST" && reviewRoute {
 		s.prepareReview(conn, r)
 		return
@@ -416,7 +422,7 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 	}
 	if r.Method != "GET" && r.Method != "HEAD" {
 		h := http.Header{"Allow": []string{"GET, HEAD"}}
-		if jumpRoute || editRoute || reviewRoute {
+		if jumpRoute || editRoute || reviewRoute || launchRoute {
 			h.Set("Allow", "GET, HEAD, POST")
 		}
 		send(conn, r, 405, h, nil)

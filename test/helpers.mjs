@@ -135,6 +135,7 @@ export async function startGoPageServer(t, options = {}) {
   });
   const pending = new Map();
   const jumps = [];
+  const launches = [];
   let sequence = 0;
   let stderr = '';
   let failure;
@@ -161,6 +162,10 @@ export async function startGoPageServer(t, options = {}) {
     }
     if (value.type === 'jump') {
       jumps.push({ line: value.line });
+      return;
+    }
+    if (value.type === 'launch') {
+      launches.push({ root: value.root });
       return;
     }
     const entry = pending.get(value.id);
@@ -215,7 +220,7 @@ export async function startGoPageServer(t, options = {}) {
   const ready = await request('start', options);
   assert.equal(ready.type, 'ready', 'ページ試験用サーバーの URL が届く');
   return {
-    url: ready.url, port: ready.port, token: ready.token, jumps, close,
+    url: ready.url, port: ready.port, token: ready.token, jumps, launches, close,
     broadcast: (name, data) => request('broadcast', { name, data }),
     setDocument: (document) => request('document', { document }),
     sync: () => request('sync'),

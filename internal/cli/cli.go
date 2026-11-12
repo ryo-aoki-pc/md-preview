@@ -23,6 +23,7 @@ import (
 	"github.com/ryo-aoki-pc/md-tools/internal/session"
 	"github.com/ryo-aoki-pc/md-tools/internal/stdio"
 	"github.com/ryo-aoki-pc/md-tools/internal/version"
+	"github.com/ryo-aoki-pc/md-tools/internal/vscode"
 	"github.com/ryo-aoki-pc/md-tools/internal/watch"
 )
 
@@ -33,6 +34,7 @@ type Dependencies struct {
 	LoadAssets             func(string) (server.OfficialAssets, string)
 	DefaultAssetsDirectory func() string
 	OpenBrowser            func(string, []string) error
+	Launch                 func(context.Context, string) error
 	OnStart                func(*App) error
 	Render                 func(context.Context, Options, io.Writer, io.Writer) int
 	InstallStyle           func(context.Context, Options, io.Writer, io.Writer) int
@@ -327,6 +329,10 @@ func Run(ctx context.Context, args []string, streams IO, deps Dependencies) int 
 	}
 	if o.Review {
 		serverOptions.Review = editor
+		serverOptions.Launch = deps.Launch
+		if serverOptions.Launch == nil {
+			serverOptions.Launch = vscode.Open
+		}
 	}
 	httpServer, e := server.New(serverOptions)
 	if e != nil {

@@ -2,13 +2,20 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ryo-aoki-pc/md-tools/engine"
+	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
 )
 
 func TestReviewArguments(t *testing.T) {
@@ -78,5 +85,100 @@ func TestReviewPreviewRoutes(t *testing.T) {
 		if code != 0 {
 			t.Fatal("起動に失敗した", code)
 		}
+	}
+}
+
+func TestReviewLaunchWiring(t *testing.T) {
+	e, err := engine.New(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close(context.Background())
+	for _, review := range []bool{false, true} {
+		name := "コメントなし"
+		if review {
+			name = "コメントあり"
+		}
+		t.Run(name, func(t *testing.T) {
+			root, err := resolve.RealPath(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			file := filepath.Join(root, "main.md")
+			if err := os.WriteFile(file, []byte("本文\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"--no-open", "--no-official-style", "--no-plantuml", "--root", root}
+			if review {
+				args = append(args, "--review")
+			}
+			args = append(args, file)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			var calls atomic.Int32
+			code := Run(ctx, args, IO{Stdout: io.Discard, Stderr: io.Discard}, Dependencies{
+				Renderer: pipeline.New(e),
+				Launch: func(_ context.Context, opened string) error {
+					calls.Add(1)
+					if opened != root {
+						t.Errorf("差し替えた起動へ渡るルートが違います: %q", opened)
+					}
+					return nil
+				},
+				OnStart: func(a *App) error {
+					defer a.Close()
+					post := func(route, body string) (int, string, string) {
+						t.Helper()
+						req, err := http.NewRequestWithContext(ctx, "POST", a.URL+route, strings.NewReader(body))
+						if err != nil {
+							t.Fatal(err)
+						}
+						req.Header.Set("Origin", strings.TrimSuffix(a.URL, "/"+a.Server.Token+"/"))
+						req.Header.Set("Content-Type", "application/json")
+						r, err := http.DefaultClient.Do(req)
+						if err != nil {
+							t.Fatal(err)
+						}
+						data, err := io.ReadAll(r.Body)
+						_ = r.Body.Close()
+						if err != nil {
+							t.Fatal(err)
+						}
+						return r.StatusCode, string(data), r.Header.Get("Allow")
+					}
+					status, body, allow := post("_/review/launch", `{"id":"ffffffffffffffffffffffffffffffff"}`)
+					if review {
+						if status != 404 || !strings.Contains(body, `"code":"expired"`) {
+							t.Fatal("コメントありで起動の口がありません", status, body)
+						}
+						for {
+							source, ready := a.Session.Source(nil)
+							if ready {
+								status, body, _ = post("_/review/prepare", fmt.Sprintf(`{"render":%d,"comments":[{"target":{"kind":"block","tag":"p","range":"1:1-1:6"},"text":"直してください"}]}`, source.Render))
+								break
+							}
+							if ctx.Err() != nil {
+								t.Fatal("描画を待つ時間を超えました")
+							}
+							time.Sleep(5 * time.Millisecond)
+						}
+						var prepared struct{ ID string }
+						if status != 200 || json.Unmarshal([]byte(body), &prepared) != nil || prepared.ID == "" {
+							t.Fatal("起動用の依頼文を作れません", status, body)
+						}
+						status, body, _ = post("_/review/launch", fmt.Sprintf(`{"id":%q}`, prepared.ID))
+						if status != 200 || body != `{"launched":true}` || calls.Load() != 1 {
+							t.Fatal("差し替えた起動が呼ばれません", status, body, calls.Load())
+						}
+					} else if status != 405 || allow != "GET, HEAD" {
+						t.Fatal("コメントなしで起動の口があります", status, body)
+					}
+					return nil
+				},
+			})
+			if code != 0 || !review && calls.Load() != 0 {
+				t.Fatal("起動の配線が違います", code, calls.Load())
+			}
+		})
 	}
 }

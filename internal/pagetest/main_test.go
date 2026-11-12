@@ -2,13 +2,20 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/session"
 )
 
 func TestProtocolAndEOF(t *testing.T) {
@@ -132,5 +139,98 @@ func TestFixtureDiagram(t *testing.T) {
 	defer cancelWait()
 	if _, err := diagram.Render(waitCtx, "hang"); err == nil {
 		t.Fatal("応答待ちの取り消しが届きません")
+	}
+}
+
+func TestReviewLaunchFixture(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		name := "成功"
+		if fail {
+			name = "失敗"
+		}
+		t.Run(name, func(t *testing.T) {
+			root, err := resolve.RealPath(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			file := filepath.Join(root, "main.md")
+			if err := os.WriteFile(file, []byte("本文\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var buffer bytes.Buffer
+			out := &output{encoder: json.NewEncoder(&buffer)}
+			app := &application{}
+			if err := app.start(request{Root: root, Live: true, Review: true, LaunchFail: fail}, out); err != nil {
+				t.Fatal(err)
+			}
+			defer app.close("exit")
+			if err := app.live.SetDocument(session.Document{Path: file, Text: "本文\n", Rev: 1}); err != nil {
+				t.Fatal(err)
+			}
+			var render uint64
+			until := time.Now().Add(5 * time.Second)
+			for time.Now().Before(until) {
+				if source, ok := app.live.Source(nil); ok {
+					render = source.Render
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			if render == 0 {
+				t.Fatal("コメントの試験用の描画が届きません")
+			}
+			client := &http.Client{Timeout: 5 * time.Second}
+			post := func(route, body string) (int, map[string]any) {
+				t.Helper()
+				r, err := http.NewRequest("POST", app.server.URL+route, strings.NewReader(body))
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.Header.Set("Content-Type", "application/json")
+				r.Header.Set("Origin", "http://"+r.URL.Host)
+				response, err := client.Do(r)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer response.Body.Close()
+				var data map[string]any
+				if err := json.NewDecoder(response.Body).Decode(&data); err != nil {
+					t.Fatal(err)
+				}
+				return response.StatusCode, data
+			}
+			status, data := post("_/review/prepare", fmt.Sprintf(`{"render":%d,"comments":[{"target":{"kind":"block","tag":"p","range":"1:1-1:6"},"text":"直してください"}]}`, render))
+			if status != 200 {
+				t.Fatal(status, data)
+			}
+			id := data["id"]
+			for i := 0; i < 2; i++ {
+				status, data = post("_/review/launch", fmt.Sprintf(`{"id":%q}`, id))
+				if fail {
+					if status != 503 || data["error"].(map[string]any)["code"] != "notfound" {
+						t.Fatal(status, data)
+					}
+				} else if status != 200 || data["launched"] != true || i == 1 && data["again"] != true {
+					t.Fatal(status, data)
+				}
+			}
+			out.mu.Lock()
+			records := buffer.String()
+			out.mu.Unlock()
+			want := 1
+			if fail {
+				want = 2
+			}
+			lines := strings.Split(strings.TrimSpace(records), "\n")
+			if len(lines) != want {
+				t.Fatal("偽の起動の記録数が違います", records)
+			}
+			for _, line := range lines {
+				var record map[string]any
+				if json.Unmarshal([]byte(line), &record) != nil || record["type"] != "launch" || record["root"] != root {
+					t.Fatal("偽の起動へ渡るルートが違います", line)
+				}
+			}
+		})
 	}
 }

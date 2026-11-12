@@ -204,12 +204,12 @@ async function fixturePage(
   browser,
   render = payload('<h1>見出し</h1><p>本文</p>'),
   prepareRoot = () => {},
-  { jump = false, live = false, directory = false, edit = '', review = false, plantuml = false, beforeNavigate, waitUntil = 'load' } = {},
+  { jump = false, live = false, directory = false, edit = '', review = false, launchFail = false, plantuml = false, beforeNavigate, waitUntil = 'load' } = {},
 ) {
   const root = temp(t);
   prepareRoot(root);
   const jumpRequests = [];
-  const server = await startGoPageServer(t, { root, live, jump, directory, edit, review, plantuml, render });
+  const server = await startGoPageServer(t, { root, live, jump, directory, edit, review, launchFail, plantuml, render });
   const jumps = server.jumps;
   if (live && !directory)
     await server.setDocument({
@@ -585,6 +585,108 @@ test('画面のコメント', { skip, timeout: 240000 }, async (t) => {
     assert.deepEqual(await page.locator('#gp-review-prompt').evaluate((el) => [el.selectionStart, el.selectionEnd, el === document.activeElement]), [0, prompt.length, true]);
     assert.equal(await page.locator('.gp-review-state').textContent(), '未コピー');
     assert.deepEqual(await page.evaluate(() => window.reviewClipboard), []);
+  });
+
+  await t.test('コピーして Agents Window を開き、同じ依頼文では一度だけ起動する', async (t) => {
+    const { page, server, root } = await reviewPage(t, source, { beforeNavigate: (page) => clipboard(page) });
+    await enter(page);
+    await addComment(page, page.locator('#gp-content > p').first(), '起動して送るコメント');
+    const prompt = await prepare(page);
+    const launches = [];
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    t.after(() => release());
+    await page.route('**/_/review/launch*', async (route) => {
+      launches.push(route.request().postDataJSON());
+      await gate;
+      await route.continue();
+    });
+    await page.locator('#gp-review-launch').click();
+    await page.waitForFunction(() => document.querySelector('.gp-review-state').textContent === 'コピー済み');
+    assert.equal(await page.locator('#gp-review-launch').isDisabled(), true);
+    assert.equal(await page.locator('#gp-review-copy').isDisabled(), true);
+    release();
+    const success = '依頼文をコピーし、Agents Window を開きました。Copilot か Claude のセッションで作業場所を Branch にし、貼り付けて送ってください。';
+    await page.waitForFunction((text) => document.querySelector('#gp-review-status').textContent === text, success);
+    await server.sync();
+    assert.deepEqual(await page.evaluate(() => window.reviewClipboard), [prompt]);
+    assert.deepEqual(server.launches, [{ root }]);
+    assert.equal(launches.length, 1);
+    assert.deepEqual(Object.keys(launches[0]), ['id']);
+    assert.match(launches[0].id, /^[0-9a-f]{32}$/);
+    assert.equal(await page.locator('#gp-review-launch').isDisabled(), false);
+    await page.locator('#gp-review-launch').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-status').textContent === 'Agents Window はもう開いています。貼り付けて送ってください。');
+    await server.sync();
+    assert.deepEqual(server.launches, [{ root }]);
+    assert.deepEqual(await page.evaluate(() => window.reviewClipboard), [prompt, prompt]);
+    assert.deepEqual(launches[1], launches[0]);
+
+    await addComment(page, page.locator('#gp-content h1'), '新しい依頼文のコメント');
+    const next = await prepare(page);
+    await page.locator('#gp-review-launch').click();
+    await page.waitForFunction((text) => document.querySelector('#gp-review-status').textContent === text, success);
+    await server.sync();
+    assert.equal(server.launches.length, 2);
+    assert.notEqual(launches[2].id, launches[0].id);
+    assert.deepEqual(await page.evaluate(() => window.reviewClipboard), [prompt, prompt, next]);
+  });
+
+  await t.test('ファイル文書の起動にも doc を付け、prepare のルートを開く', async (t) => {
+    const { page, server, root } = await reviewPage(t, source, {
+      files: { 'other.md': '別の文書。\n' }, beforeNavigate: (page) => clipboard(page),
+    });
+    await page.goto(server.url + '?doc=other.md');
+    await page.waitForFunction(() => document.querySelector('#gp-content').textContent.includes('別の文書。'));
+    await enter(page);
+    await addComment(page, page.locator('#gp-content > p'), '別の文書で起動');
+    await prepare(page);
+    const response = page.waitForResponse((r) => r.url().includes('/_/review/launch?doc=other.md'));
+    await page.locator('#gp-review-launch').click();
+    assert.equal((await response).status(), 200);
+    await server.sync();
+    assert.deepEqual(server.launches, [{ root }]);
+  });
+
+  await t.test('起動が失敗してもコピー済みを保ち、サーバーの文を知らせて再試行できる', async (t) => {
+    const { page, server, root } = await reviewPage(t, source, { launchFail: true, beforeNavigate: (page) => clipboard(page) });
+    await enter(page);
+    await addComment(page, page.locator('#gp-content > p').first(), '起動できなくてもコピーする');
+    const prompt = await prepare(page);
+    for (let i = 0; i < 2; i++) {
+      await page.locator('#gp-review-launch').click();
+      await page.waitForFunction(() => document.querySelector('#gp-review-status').textContent.includes('依頼文はコピーしました。') && !document.querySelector('#gp-review-launch').disabled);
+      assert.match(await page.locator('#gp-review-status').textContent(), /VS Code の code コマンドが見つかりません。.*依頼文はコピーしました。/);
+      assert.equal(await page.locator('.gp-review-state').textContent(), 'コピー済み');
+      await server.sync();
+      assert.equal(server.launches.length, i + 1);
+    }
+    assert.deepEqual(server.launches, [{ root }, { root }]);
+    assert.deepEqual(await page.evaluate(() => window.reviewClipboard), [prompt, prompt]);
+    await page.route('**/_/review/launch*', (route) => route.fulfill({ status: 503, contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'launch', message: '<img src=x onerror="window.reviewInjected=1">' } }) }));
+    await page.locator('#gp-review-launch').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-status').textContent.startsWith('<img'));
+    assert.equal(await page.locator('#gp-review-status img').count(), 0);
+    assert.equal(await page.evaluate(() => window.reviewInjected), undefined);
+  });
+
+  await t.test('起動ボタンでもコピーの失敗では全選択し、起動の要求を送らない', async (t) => {
+    const { page, server } = await reviewPage(t, source, { beforeNavigate: (page) => clipboard(page, true) });
+    await enter(page);
+    await addComment(page, page.locator('#gp-content > p').first(), 'コピーできないので起動しない');
+    const prompt = await prepare(page);
+    const requests = [];
+    page.on('request', (r) => { if (r.url().includes('/_/review/launch')) requests.push(r.url()); });
+    await page.locator('#gp-review-launch').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-status').textContent.includes('Ctrl+C'));
+    assert.deepEqual(await page.locator('#gp-review-prompt').evaluate((el) => [el.selectionStart, el.selectionEnd, el === document.activeElement]), [0, prompt.length, true]);
+    assert.equal(await page.locator('.gp-review-state').textContent(), '未コピー');
+    assert.equal(await page.locator('#gp-review-launch').isDisabled(), false);
+    assert.deepEqual(await page.evaluate(() => window.reviewClipboard), []);
+    await server.sync();
+    assert.deepEqual(requests, []);
+    assert.deepEqual(server.launches, []);
   });
 
   await t.test('HTML を文字として表示し、保存が無効でも続け、壊れた保存は捨てる', async (t) => {
