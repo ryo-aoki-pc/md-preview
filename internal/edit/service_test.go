@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ryo-aoki-pc/md-tools/engine"
@@ -45,14 +46,25 @@ func (h *testHost) Unpositioned(ctx context.Context, src session.Source) (pipeli
 	return h.renderer.Render(ctx, src.Text, c)
 }
 func (h *testHost) Reload(*string) { h.reloads++ }
+
+var (
+	sharedEngineOnce sync.Once
+	sharedEngine     *engine.Engine
+	sharedEngineErr  error
+)
+
+// testEngine は、このパッケージの試験で 1 個の描画エンジンを使い回す。
+// エンジンの用意は -race で 1 回に数秒かかり、試験の関数ごとに作ると、パッケージの試験が 10 分の上限を超える。
+// 試験は並列に動かさず、出力の属性の並び（呼び出しの履歴で変わる）にも頼らない。
 func testEngine(t *testing.T) *engine.Engine {
 	t.Helper()
-	e, err := engine.New(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	sharedEngineOnce.Do(func() {
+		sharedEngine, sharedEngineErr = engine.New(context.Background())
+	})
+	if sharedEngineErr != nil {
+		t.Fatal(sharedEngineErr)
 	}
-	t.Cleanup(func() { _ = e.Close(context.Background()) })
-	return e
+	return sharedEngine
 }
 func testService(t *testing.T, e *engine.Engine, text string, files map[string]string) (*Service, *testHost) {
 	t.Helper()
