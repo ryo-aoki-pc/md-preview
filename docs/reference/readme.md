@@ -173,6 +173,13 @@ Neovim の橋渡しは [LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimSt
 
 利用する端末には実行ファイルを 1 つ置く。描画エンジン・ページ・数式と図のライブラリ・ライセンスの原文を埋め込み、Go・Node.js・Rust やコンテナを利用時の前提にしない。置き場所は `~/.local/bin/mdpreview`（Windows は `%USERPROFILE%\.local\bin\mdpreview.exe`）。取得したファイルを sha256 で確かめ、導入も更新も同じ手順で置く。
 
-配布は [release.yml](../../.github/workflows/release.yml) が `v` + 数字 3 つのタグで行う。[scripts/build-release.sh](../../scripts/build-release.sh) が `windows/amd64`・`linux/amd64`・`linux/arm64` の実行ファイルを作り、検査を通して GitHub Releases に `SHA256SUMS`・`THIRD-PARTY-LICENSES.txt` と一緒に置く。版は `internal/version/version.go` と [licenses/manifest.json](../../licenses/manifest.json) に同じ値を記す。
+配布は [release.yml](../../.github/workflows/release.yml) が `v` + 数字 3 つのタグで行い、`mdpreview` と `mdtable` を 1 つの GitHub Release に置く。[scripts/build-release.sh](../../scripts/build-release.sh) が次の7つを作る。
+
+- `mdpreview-windows-amd64.exe`・`mdpreview-linux-amd64`・`mdpreview-linux-arm64` — 各 OS・CPU 向けの mdpreview
+- `mdtable-windows-amd64.exe` — Windows の amd64 向けの mdtable
+- `mdpreview-THIRD-PARTY-LICENSES.txt`・`mdtable-THIRD-PARTY-LICENSES.txt` — それぞれの `--licenses` の出力
+- `SHA256SUMS` — 上の6つの sha256
+
+版はルートの `internal/version/version.go` で共通にし、[licenses/manifest.json](../../licenses/manifest.json) の md-preview、[mdtable/licenses/manifest.json](../../mdtable/licenses/manifest.json) の md-table-excel、`package.json`・`package-lock.json` に同じ値を記す。
 
 同梱しているもののライセンスは [licenses/](../../licenses/) の一覧と原文で管理し、`mdpreview --licenses` で原文を出す。Go 本体とモジュール・描画エンジン・KaTeX・mermaid の版と原文の対応を試験で確かめる。公式スタイルはこの実行ファイルに入れず、利用者が明示して取得する。

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ryo-aoki-pc/md-tools/internal/version"
 	mdtable "github.com/ryo-aoki-pc/md-tools/mdtable"
-	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/version"
 )
 
 func TestLicensesAction(t *testing.T) {

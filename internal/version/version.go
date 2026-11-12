@@ -1,5 +1,5 @@
-// Package version はビルド時に差し替えられるアプリの版を持つ。
+// Package version は mdpreview と mdtable で共通の、ビルド時に差し替えられる版を持つ。
 package version
 
-// Version は -ldflags "-X github.com/ryo-aoki-pc/md-tools/internal/version.Version=..." で変更する。
-var Version = "0.4.0"
+// Version は両コマンドの既定の版で、-ldflags "-X github.com/ryo-aoki-pc/md-tools/internal/version.Version=..." で変更する。
+var Version = "0.9.0"

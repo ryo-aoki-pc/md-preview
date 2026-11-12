@@ -6,7 +6,7 @@ Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本
 
 ## 導入手順の正本
 
-AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/install.md)、使い方の手順の正本は [docs/usage.md](docs/usage.md) にある。設計は [docs/reference/readme.md](docs/reference/readme.md) にある。配布は `.github/workflows/release.yml` と `scripts/build-release.sh` で行い、OS・CPU ごとの単体の実行ファイルを GitHub Releases に置く。版を上げるときは `internal/version/version.go` と `licenses/manifest.json` の md-preview の版を同じ値にし、`v<版>` のタグを push する。導入の操作を変えたら、README と `docs/install.md` の案内を合わせる。項の見出しを変えたら、そこへリンクしている README・ほかの手順書・LazyVimStarter などのリンクも直す。
+AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/install.md)、使い方の手順の正本は [docs/usage.md](docs/usage.md) にある。設計は [docs/reference/readme.md](docs/reference/readme.md) にある。配布は `.github/workflows/release.yml` と `scripts/build-release.sh` で行い、OS・CPU ごとの単体の実行ファイルを GitHub Releases に置く。版を上げるときは `internal/version/version.go`、`licenses/manifest.json` の md-preview、`mdtable/licenses/manifest.json` の md-table-excel、`package.json`・`package-lock.json` の版を同じ値にする。`v<版>` のタグを push すると、`mdpreview` と `mdtable` の配布物が 1 つの Release に載る。導入の操作を変えたら、README と `docs/install.md` の案内を合わせる。項の見出しを変えたら、そこへリンクしている README・ほかの手順書・LazyVimStarter などのリンクも直す。
 
 ## 守ること
 
@@ -37,11 +37,11 @@ AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/
 - `cmd/mdpreview/` — コマンド。描画エンジンを起動ごとに1回だけ用意し（`--help`・`--version`・`--licenses`・`install-style` では用意しない）、PATH の `plantuml` と公式スタイルを、プレビュー・Neovim の JSON 行・書き出しにつなぐ
 - `mdtable/` — Markdown の表を Excel で編集する `mdtable`。決まりは `mdtable/AGENTS.md`
 - `sticky/` — GitLab の表を固定するブックマークレット md-table-sticky。`mdpreview` は `sticky/src/sticky-table.js` を埋め込んでページに配る。決まりは `sticky/AGENTS.md`
-- `internal/version/` — 既定の版と、ビルド時に差し替える変数
+- `internal/version/` — `mdpreview` と `mdtable` に共通の既定の版と、ビルド時に差し替える変数
 - `licenses.go`・`licenses/` — `mdpreview` に入るもののライセンスの原文の同梱と、`mdpreview --licenses` の出力。`licenses/manifest.json` は出す順の一覧（名前・版・種類・原文の場所）、`licenses/go/` は Go 本体と Go のモジュールの原文の写し（書き換えない）。`mdtable` の一覧と原文は `mdtable/licenses/` に置く。描画エンジンの crate の原文は `engine/licenses/`（`engine/licenses.go` が埋め込む）、KaTeX・mermaid の原文は `page/lib/` を、元の場所のまま使う
-- `scripts/build-release.sh` — 配布用のビルド。`windows/amd64`・`linux/amd64`・`linux/arm64` 向けの実行ファイルを、同じ設定（CGO 無し・`-trimpath`・版の埋め込み）で作る。GitHub Actions の検査と配布の両方が呼ぶ
-- `.github/workflows/test.yml`・`test-mdtable.yml` — `mdpreview` 側と `mdtable` 側の検査（ubuntu・windows）と配布物のビルド。`test.yml` の「sticky の検証」は Node.js 22 で格子・組み立てとブックマークレットの生成物を検査する
-- `.github/workflows/release.yml` — `v` + 数字3つのタグでの配布（検査・ビルド・`SHA256SUMS`・`THIRD-PARTY-LICENSES.txt`・GitHub Releases）
+- `scripts/build-release.sh` — 両コマンドの配布用のビルド。`mdpreview` は `windows/amd64`・`linux/amd64`・`linux/arm64`、`mdtable` は `windows/amd64` 向けの実行ファイルを、同じ設定（CGO 無し・`-trimpath`・版の埋め込み）で作る。各コマンドのライセンス全文と、6 ファイルの `SHA256SUMS` も作る。GitHub Actions の検査と配布の両方が呼ぶ
+- `.github/workflows/test.yml`・`test-mdtable.yml` — `mdpreview` 側と `mdtable` 側の検査（ubuntu・windows）。両コマンドの配布物のビルドと sha256 の検査は `test.yml` が行う。`test.yml` の「sticky の検証」は Node.js 22 で格子・組み立てとブックマークレットの生成物を検査する
+- `.github/workflows/release.yml` — `v` + 数字3つのタグで、両コマンドを 1 つの GitHub Release に配布する。検査とビルドを通し、実行ファイル4つ・`mdpreview-THIRD-PARTY-LICENSES.txt`・`mdtable-THIRD-PARTY-LICENSES.txt`・`SHA256SUMS` を載せる
 - `internal/plantuml/` — 絶対パスの PATH の探索、原文を標準入力だけに渡す手元の描画、共有・直列の待ち行列・成功のキャッシュ。取り消し・時間切れ・終了では子孫も止める
 - `assets/embed.go` — 公式資産そのものを含めず、`assets/assets.lock.json` の元のバイト列だけを埋め込む
 - `internal/assets/` — 固定した公式資産の取得・CSS の相対化・一時領域からの入れ替えと、通信しない導入状態の検査。検査済みのバイト列の写しだけを許可リストで渡す
@@ -129,13 +129,13 @@ go test -race ./...
 gofmt -l .
 ```
 
-`./...` は `mdtable/` のパッケージも含む。`mdtable/` の `-race` は時間がかかるので、まとめて動かすときは `-timeout 20m` を付ける。GitHub Actions は、`mdtable/` を除いた検査（`test.yml`）と、`mdtable/` だけの検査（`test-mdtable.yml`。`mdtable/**`・`go.mod`・`go.sum`・`LICENSE`・`.gitattributes` が変わったときだけ）に分けて動かす。`mdtable/` だけを確かめるコマンドは `mdtable/AGENTS.md` にある。
+`./...` は `mdtable/` のパッケージも含む。`mdtable/` の `-race` は時間がかかるので、まとめて動かすときは `-timeout 20m` を付ける。GitHub Actions は、`mdtable/` を除いた検査（`test.yml`）と、`mdtable/` だけの検査（`test-mdtable.yml`。`mdtable/**`・`internal/version/**`・`go.mod`・`go.sum`・`LICENSE`・`.gitattributes` が変わったときだけ）に分けて動かす。`mdtable/` だけを確かめるコマンドは `mdtable/AGENTS.md` にある。
 
 ルートを受け取る関数（`resolve.Resolve`・`documents.ListMarkdown`・`session.FileContext`・`watch.IncludePath` など）は、ルートが実パスであることを前提にする。試験で一時フォルダーをルートにするときは、`resolve.RealPath(t.TempDir())` で実パスにしてから渡す（Windows の一時フォルダーのパスには、8.3 形式の短い名前が入ることがある）。
 
 `sticky/src/sticky-table.js` を変えたら、`sticky/` で `npm run build`（`dist/` を作り直す）と `npm test`、ルートで `go test ./...` と `node --test test/page.test.mjs` を通す。
 
-依存を足す・上げるとき、Go の版を上げるときは、各実行ファイルの `licenses/manifest.json` と `licenses/go/` の原文の写しも合わせる。試験は `go list -deps` で `mdpreview` の windows/amd64・linux/amd64・linux/arm64 の依存の和と、`mdtable` の windows/amd64 の依存を求め、それぞれの一覧と比べる。両一覧の和はルートの `go.mod` の直接・間接の require と比べ、原文とほかの部品の版は Go のモジュールのキャッシュ・`engine/Cargo.lock`・`page/lib/lock.json` と比べる。版を上げるときは、`internal/version/version.go` と `licenses/manifest.json` の md-preview の版を同じ値にする（配布の workflow は、タグと `version.go` の版が違うと止まる）。
+依存を足す・上げるとき、Go の版を上げるときは、各実行ファイルの `licenses/manifest.json` と `licenses/go/` の原文の写しも合わせる。試験は `go list -deps` で `mdpreview` の windows/amd64・linux/amd64・linux/arm64 の依存の和と、`mdtable` の windows/amd64 の依存を求め、それぞれの一覧と比べる。両一覧の和はルートの `go.mod` の直接・間接の require と比べ、原文とほかの部品の版は Go のモジュールのキャッシュ・`engine/Cargo.lock`・`page/lib/lock.json` と比べる。版を上げるときは、`internal/version/version.go`、`licenses/manifest.json` の md-preview、`mdtable/licenses/manifest.json` の md-table-excel、`package.json`・`package-lock.json` の版を同じ値にする（配布の workflow は、タグと `version.go` の版が違うと止まる）。
 
 `GOPROXY=off` で試験する前に、通信できる環境で一度 `go mod download` を実行し、固定した依存をキャッシュへ用意しておく。
 

@@ -23,13 +23,13 @@ Windows 11 の導入・更新の手順は [docs/install.md](docs/install.md)、�
 - `internal/verify/` — Excel に依存しない、書き戻した表と前後の Markdown の解釈、表のセル・行の原文のバイトの検査
 - `internal/workbook/` — ブックの書き出しと読み込み。書き出しは自前の XML と ZIP、読み込みは excelize
 - `internal/pycompat/` — 文字・差分・数値などの互換処理。`gen_tables.py`・`gen_testdata.py` は Unicode などの表と正解データを作り直すためのスクリプトで、そのときだけ Python 3 が要る
-- `internal/version/version.go` — 版を置く所。`licenses/manifest.json` の md-table-excel の版も同じにする（テストが照合する）
+- ルートの `internal/version/version.go` — `mdpreview` と `mdtable` に共通の版を置く所。`licenses/manifest.json` の md-table-excel の版も同じにする（テストが照合する）
 - `licenses.go`・`licenses/` — 実行ファイルに同梱するライセンスの原文と一覧。`--licenses` で全文を出す
 - `licenses_test.go`・`internal/cli/licenses_test.go` — 依存の版・原文と、ライセンスの表示の検査
 - `testdata/` — テストの入力と正解。`documents/`（見本と乱数の文書）、`goldens.json.gz`（文書ごとのコマンドの出力の正解。版は `<VERSION>`）、`unit/`（単体テストの入力と期待値）、`workbooks.zip`（openpyxl で作って編集したブック）、`comrak_ast.mjs`（comrak と突き合わせるテストが使う）
   - 正解は Python 版 0.5.2 の出力から作った。`regenerate.py` などは作った方法の記録で、Python 版が無いので今は動かない。正解を直すときは、期待値を手で直し、理由をコミットに書く
-- `scripts/build-release.sh` — Windows の amd64 向けの実行ファイル、ライセンス全文、sha256 の一覧を作る
-- ルートの `.github/workflows/test-mdtable.yml` — `mdtable` の Go の検査と配布物のビルド
+- ルートの `scripts/build-release.sh` — 両コマンドの配布物を作る。`mdtable` は Windows の amd64 向けの実行ファイルと `mdtable-THIRD-PARTY-LICENSES.txt` を作り、共通の `SHA256SUMS` に載せる
+- ルートの `.github/workflows/test-mdtable.yml` — `mdtable` の Go の検査。配布物のビルドは `test.yml` が確かめる
 - `docs/install.md` — Windows 11 の導入・更新の手順
 - `docs/usage.md` — Markdown の表を Excel と往復する手順と、ブックを Excel で編集するときの注意
 - `docs/reference/readme.md` — 設計と変換の規則
@@ -45,17 +45,17 @@ go test ./mdtable/...
 ```
 
 - リポジトリの直下で動かす。`gofmt -l .` は何も出ないこと
-- `mdtable/**`・ルートの `go.mod`・`go.sum`・`LICENSE`・`.gitattributes`・`.github/workflows/test-mdtable.yml` を変えた Pull Request と `main` への push では、GitHub Actions が ubuntu-latest と windows-latest で検査し、Linux では `go test -race -timeout 20m ./mdtable/...` も動かす。取り込む前に `gh pr checks` で結果を見る
+- `mdtable/**`・ルートの `internal/version/**`・`go.mod`・`go.sum`・`LICENSE`・`.gitattributes`・`.github/workflows/test-mdtable.yml` を変えた Pull Request と `main` への push では、GitHub Actions が ubuntu-latest と windows-latest で検査し、Linux では `go test -race -timeout 20m ./mdtable/...` も動かす。取り込む前に `gh pr checks` で結果を見る
 - comrak と突き合わせる Go のテストは、`MDTABLE_COMRAK_DIR` を設定したときだけ動く。`node_modules/comrak` を持つフォルダー（[md-format](https://github.com/ryo-aoki-pc/md-format) の導入先など）を指定する
 - 手元の文書で無編集の往復を確かめる Go のテストは、`MDTABLE_CORPUS` を設定したときだけ動く。文書のフォルダーを指定する
-- リポジトリのルートから `bash mdtable/scripts/build-release.sh <版> <出力のフォルダー>` で、CI と同じ配布物のビルドを確かめる
+- リポジトリのルートから `bash scripts/build-release.sh <版> <出力のフォルダー>` で、CI と同じ配布物のビルドを確かめる
 - ライセンスの検査は、`go list -deps` で求めた `mdtable` の windows/amd64 の依存と `mdtable/licenses/manifest.json`、原文の写しを照合する。ルートの試験は、両実行ファイルの一覧の和とルートの `go.mod` の直接・間接の require も照合する。依存を変えたら一覧と原文も確認する
 
 ## 書き方の規則
 
 - Go は gofmt で整える。コードのコメントと利用者に出すメッセージは日本語で書く
 - 移した元の関数名のコメントは記録として残す
-- 版は `internal/version/version.go` の `Version` で決め、`licenses/manifest.json` の md-table-excel の版も合わせる。配布物はルートから `bash mdtable/scripts/build-release.sh <版> <出力のフォルダー>` で作る
+- 版はルートの `internal/version/version.go` の `Version` で決め、`mdpreview` と共通にする。ルートの `licenses/manifest.json` の md-preview、`mdtable/licenses/manifest.json` の md-table-excel、`package.json`・`package-lock.json` の版も合わせる。配布物はルートから `bash scripts/build-release.sh <版> <出力のフォルダー>` で作る
 - エラーは日本語 1 行で出し、想定外の失敗のスタックは `MDTABLE_DEBUG=1` のときだけ出す
 - 表の検出やブロックの規則を変えたら、Go のテストで comrak と突き合わせる。GitLab の描画に関わる変更は、GitLab の Markdown API（`/api/v4/markdown`）でも確かめ、検証記録に残す
 - 変えていない表・行・セルを 1 文字も変えないことを、往復のテストで確かめる
