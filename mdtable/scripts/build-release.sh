@@ -19,7 +19,7 @@ cd -- "$script_dir/.."
 
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build \
   -trimpath -buildvcs=false \
-  -ldflags "-s -w -X github.com/ryo-aoki-pc/md-table-excel/internal/version.Version=$version" \
+  -ldflags "-s -w -X github.com/ryo-aoki-pc/md-tools/mdtable/internal/version.Version=$version" \
   -o "$output_dir/mdtable-windows-amd64.exe" ./cmd/mdtable
 
 # ライセンスの出力には、ビルドしたホストで動く一時的な実行ファイルを使う。
@@ -28,7 +28,7 @@ license_binary="$temporary_dir/mdtable$(go env GOEXE)"
 trap 'rm -f -- "$license_binary"; rmdir -- "$temporary_dir"' EXIT
 CGO_ENABLED=0 GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" go build \
   -trimpath -buildvcs=false \
-  -ldflags "-s -w -X github.com/ryo-aoki-pc/md-table-excel/internal/version.Version=$version" \
+  -ldflags "-s -w -X github.com/ryo-aoki-pc/md-tools/mdtable/internal/version.Version=$version" \
   -o "$license_binary" ./cmd/mdtable
 
 actual_version=$("$license_binary" --version | tr -d '\r')

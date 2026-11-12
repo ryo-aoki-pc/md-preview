@@ -4,7 +4,7 @@ package model
 import (
 	"crypto/sha256"
 	"fmt"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/pycompat"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/pycompat"
 	"regexp"
 	"sort"
 	"strings"

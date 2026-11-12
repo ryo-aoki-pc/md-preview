@@ -3,8 +3,8 @@ package table
 import (
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/blocks"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/blocks"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
 )
 
 // moveIndex は元の座標から並べ替え後の座標への対応。gap も元の座標。

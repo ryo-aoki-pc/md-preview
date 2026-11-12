@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/pycompat"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/pycompat"
 )
 
 func fontInstalled(family string) bool {

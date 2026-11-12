@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/version"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/version"
 )
 
 // cli.main の --version が共通の版を表示することを確かめる。

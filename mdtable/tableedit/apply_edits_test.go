@@ -3,7 +3,7 @@ package tableedit
 import (
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
 )
 
 // 入力の順序と違う位置にある二つの表も、一度の差し替えと検査で編集する。

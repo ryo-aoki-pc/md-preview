@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	mdsync "github.com/ryo-aoki-pc/md-table-excel/internal/sync"
+	mdsync "github.com/ryo-aoki-pc/md-tools/mdtable/internal/sync"
 	"github.com/xuri/excelize/v2"
 )
 

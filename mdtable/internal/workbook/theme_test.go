@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
 )
 
 // workbook.write が openpyxl.writer.theme.theme_xml と同じテーマを結び付けることを確かめる。

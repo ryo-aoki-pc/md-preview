@@ -3,10 +3,10 @@ package tableedit
 import (
 	"fmt"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/cellsyntax"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/htmltok"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/cellsyntax"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/htmltok"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
 )
 
 // copyBounds は範囲を切る結合の左上を報告する。同じ表の操作に JSON の検査は挟まない。

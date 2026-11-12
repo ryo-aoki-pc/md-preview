@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/tableedit"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/tableedit"
 )
 
 func mustChange(t *testing.T, result *tableedit.Result, err error) *tableedit.Document {

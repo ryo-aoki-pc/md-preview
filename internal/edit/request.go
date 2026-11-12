@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	"github.com/ryo-aoki-pc/md-table-excel/tableedit"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/tableedit"
 )
 
 type request struct {

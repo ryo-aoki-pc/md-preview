@@ -1,8 +1,8 @@
 package sync
 
 import (
-	"github.com/ryo-aoki-pc/md-table-excel/internal/cellsyntax"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/cellsyntax"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
 	"testing"
 )
 

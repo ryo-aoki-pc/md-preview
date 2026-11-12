@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/tableedit"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/tableedit"
 )
 
 var moveOne = tableedit.Target{Number: 1}

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
 )
 
 func TestReadPieceBoundaries(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
 	"os"
 	"reflect"
 	"sort"

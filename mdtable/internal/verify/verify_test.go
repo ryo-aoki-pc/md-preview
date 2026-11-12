@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	sheetsync "github.com/ryo-aoki-pc/md-table-excel/internal/sync"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/verify"
+	sheetsync "github.com/ryo-aoki-pc/md-tools/mdtable/internal/sync"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/verify"
 )
 
 func TestKeepHolesAndLegacyVerification(t *testing.T) {

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/ryo-aoki-pc/md-table-excel/internal/cli"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/cli"
 	"os"
 )
 

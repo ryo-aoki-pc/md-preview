@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/table"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/table"
 )
 
 // sameHoles は穴の集まりを比べる。nil と空を同じに扱い、偽の値の項目は穴に数えない。

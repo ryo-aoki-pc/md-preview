@@ -1,8 +1,8 @@
 package table
 
 import (
-	"github.com/ryo-aoki-pc/md-table-excel/internal/cellsyntax"
-	"github.com/ryo-aoki-pc/md-table-excel/internal/model"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/cellsyntax"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
 	"os"
 	"path/filepath"
 	"strings"

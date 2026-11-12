@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-table-excel/tableedit"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/tableedit"
 )
 
 var updatePageFragments = flag.Bool("update", false, "ページと Go の写しの見本を作り直す")
