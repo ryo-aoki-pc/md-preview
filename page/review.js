@@ -392,6 +392,8 @@
   }
   document.addEventListener('selectionchange', () => { if (mode && !stopped) readSelection(); });
   window.addEventListener('click', (event) => {
+    // 列幅のドラッグを離したときの click は、md-table-sticky が後の受け手で捨てる。
+    if (window.__mdTableSticky?.resizeClick) return;
     if (!mode || stopped || ignored(event.target) || !inBody(event.target)) return;
     event.preventDefault();
     event.stopPropagation();

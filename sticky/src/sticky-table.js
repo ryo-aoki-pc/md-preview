@@ -132,6 +132,11 @@
     });
   }
 
+  function cellManualWrap(model, widths) {
+    // 覆う列の 1 つでも手で幅を決めたセルは、折り返さないと隣の列を狭められないので折り返す。
+    return model.cells.map((cell) => widths.slice(cell.col, cell.col + cell.colspan).some((width) => Number.isFinite(width)));
+  }
+
   function frozenRegion(model, selectedRows = null) {
     const { rowCount, colCount, cells, grid } = model;
     if (!rowCount || !colCount || model.overlap) {
@@ -371,7 +376,7 @@
   }
 
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, pickBoundaries, crossCells, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, clampColumnWidth, resizableColumns, columnShape, reconcileColumnWidths, cellColumnWidths, searchMatches, filterRows, tableMatrix, toTsv, toHtml };
+    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, pickBoundaries, crossCells, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, clampColumnWidth, resizableColumns, columnShape, reconcileColumnWidths, cellColumnWidths, cellManualWrap, searchMatches, filterRows, tableMatrix, toTsv, toHtml };
   }
   if (typeof document === "undefined") return;
 
@@ -1693,11 +1698,12 @@
     const modes = cellWrapModes(parts.model, record.wrap);
     const wrapStyles = modes.map((mode) => mode === "nowrap" ? { "white-space": "nowrap" } : { "white-space": "normal", "overflow-wrap": "anywhere" });
     const cellWidths = record.printing ? parts.elements.map(() => null) : cellColumnWidths(parts.model, record.widths);
-    const widthStyles = cellWidths.map((width) => width === null ? {} : {
-      width: width + "px", "min-width": width + "px", "max-width": width + "px", "box-sizing": "border-box",
-      // 手動幅では折り返して、狭めた列でも文字を隠さず読めるようにする。
-      "white-space": "normal", "overflow-wrap": "anywhere",
-    });
+    const manualWraps = record.printing ? parts.elements.map(() => false) : cellManualWrap(parts.model, record.widths);
+    // 手動幅では折り返して、狭めた列でも文字を隠さず読めるようにする。
+    const widthStyles = cellWidths.map((width, index) => ({
+      ...(width === null ? {} : { width: width + "px", "min-width": width + "px", "max-width": width + "px", "box-sizing": "border-box" }),
+      ...(manualWraps[index] ? { "white-space": "normal", "overflow-wrap": "anywhere" } : {}),
+    }));
     const compactStyles = record.compact ? { padding: "2px 6px", "line-height": "1.3", "font-size": "0.875em" } : {};
     parts.elements.forEach((element, index) => desired.set(element, { ...record.borderCache.styles[index], ...wrapStyles[index], ...compactStyles, ...widthStyles[index] }));
     addHighlights(record, desired);
@@ -1900,7 +1906,8 @@
 
   function printMode(printing) {
     write(() => {
-      if (printing) stopResizing(true, false);
+      // 印刷は見た目だけを外すので、ドラッグ中の幅も取り消さずに確定してから外す。
+      if (printing) stopResizing(false, false);
       if (printing && state.floating) closeFloating(true, false);
       for (const record of state.records.values()) {
         record.printing = printing;

@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = await readFile(new URL("../src/sticky-table.js", import.meta.url), "utf8");
 const context = { module: { exports: {} } };
 vm.runInNewContext(source, context, { filename: "src/sticky-table.js" });
-const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, clampColumnWidth, resizableColumns, columnShape, reconcileColumnWidths, cellColumnWidths, pickBoundaries, crossCells, searchMatches, filterRows, tableMatrix, toTsv, toHtml } = context.module.exports;
+const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, clampColumnWidth, resizableColumns, columnShape, reconcileColumnWidths, cellColumnWidths, cellManualWrap, pickBoundaries, crossCells, searchMatches, filterRows, tableMatrix, toTsv, toHtml } = context.module.exports;
 const th = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: true });
 const td = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: false });
 const many = (count, make = td) => Array.from({ length: count }, () => make());
@@ -24,6 +24,16 @@ test("手動幅は単独セルと全列が決まった結合セルだけに当�
   assert.deepEqual(plain(cellColumnWidths(model, [80, 100, null])), [80, 100, null, 80, null, 100, null]);
   assert.deepEqual(plain(cellColumnWidths(model, [80, 100, 120])), [80, 100, 120, 80, 220, 100, 120]);
   assert.deepEqual(plain(cellColumnWidths(model, [null, null, null])), Array(model.cells.length).fill(null));
+});
+
+test("覆う列の 1 つでも手動幅なら、結合セルも折り返す", () => {
+  const model = buildGrid(body([[th(), th(), th()], [td(2), td(1, 2)], [td(), td()]]));
+  // セルの並び: 見出し 3 つ、2 行の結合（列 1）、2 列の結合（列 2〜3）、3 行目の列 2・3。
+  assert.deepEqual(plain(cellManualWrap(model, [80, null, null])), [true, false, false, true, false, false, false]);
+  // 2 列の結合は、列 2 だけを手で決めても折り返す（幅の数値は当てない）。
+  assert.deepEqual(plain(cellManualWrap(model, [null, 100, null])), [false, true, false, false, true, true, false]);
+  assert.deepEqual(plain(cellColumnWidths(model, [null, 100, null])), [null, 100, null, null, null, 100, null]);
+  assert.deepEqual(plain(cellManualWrap(model, [null, null, null])), Array(model.cells.length).fill(false));
 });
 
 test("左上を持つセルがない結合だけの列にはつまみを置かない", () => {
@@ -49,6 +59,11 @@ test("本文だけの変更では幅を保ち、見出しや列位置が変わ�
   assert.deepEqual(plain(reconcileColumnWidths([80, 90, 100], shape, inserted)), [80, null, null, null]);
   const appended = columnShape(wider, ["名前", "数", "備考", "新列"]);
   assert.deepEqual(plain(reconcileColumnWidths([80, 90, 100], shape, appended)), [80, 90, 100, null]);
+  const narrower = buildGrid(body([many(2, th), many(2)]));
+  const removedLast = columnShape(narrower, ["名前", "数"]);
+  assert.deepEqual(plain(reconcileColumnWidths([80, 90, 100], shape, removedLast)), [80, 90]);
+  const removedMiddle = columnShape(narrower, ["名前", "備考"]);
+  assert.deepEqual(plain(reconcileColumnWidths([80, 90, 100], shape, removedMiddle)), [80, null]);
   const noHeaders = columnShape(buildGrid(body([many(3)])), []);
   assert.deepEqual(plain(reconcileColumnWidths([80, 90], ["[]", "[]"], noHeaders)), [null, null, null]);
 });

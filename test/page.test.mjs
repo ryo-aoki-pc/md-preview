@@ -343,6 +343,30 @@ test('画面のコメント', { skip, timeout: 240000 }, async (t) => {
     } });
   }, fail);
 
+  await t.test('列幅のつまみを本文の上で離しても、コメントの対象を変えない', async (t) => {
+    const { page } = await reviewPage(t);
+    await enter(page);
+    await page.locator('#gp-sticky-toggle').click();
+    const handle = page.locator('[data-md-table-sticky-resizer="0"]').first();
+    await handle.waitFor();
+    await page.locator('#gp-content p').filter({ hasText: '次の段落' }).click();
+    const label = await page.locator('#gp-review-target').textContent();
+    assert.match(label, /段落/);
+    const cell = await page.locator('#gp-content td').filter({ hasText: /^値$/ }).boundingBox();
+    // 離したときの click は、つまみと離した位置の共通の祖先（本文の中）へ届く。
+    for (const cancel of [false, true]) {
+      const box = await handle.boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(cell.x + cell.width / 2, cell.y + cell.height / 2, { steps: 4 });
+      if (cancel) await page.keyboard.press('Escape');
+      await page.mouse.up();
+      assert.equal(await page.locator('#gp-review-target').textContent(), label, cancel ? 'Esc で取り消した後' : '離したとき');
+    }
+    await page.locator('#gp-content td').filter({ hasText: /^値$/ }).click();
+    assert.notEqual(await page.locator('#gp-review-target').textContent(), label, '後の通常のクリックは妨げない');
+  });
+
   await t.test('指定した画面だけにボタンを出し、毎回閉じて始め、印刷と狭い画面で配置する', async (t) => {
     const disabled = await reviewPage(t, source, { review: false });
     assert.equal(await disabled.page.locator('#gp-review-toggle').isVisible(), false);
@@ -1708,6 +1732,21 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     await editIdle(page);
     await page.locator('#gp-content td').first().click();
     assert.equal(await page.locator('#gp-edit-input').evaluate((el) => document.activeElement === el), true);
+  });
+
+  await t.test('結合した見出しの下の 1 列だけを手で狭めても、結合セルを折り返す', async (t) => {
+    const text = '<table><thead><tr><th colspan="2">とても長い結合した見出しの文字をここに書いて幅を広げる</th></tr></thead>' +
+      '<tbody><tr><td>左</td><td>右</td></tr></tbody></table>\n';
+    const { page } = await editablePage(t, browser, text);
+    await page.locator('#gp-sticky-toggle').click();
+    await page.locator('[data-md-table-sticky-action="nowrap-all"]').first().click();
+    const header = page.locator('#gp-content th').first();
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('#gp-content th')).whiteSpace === 'nowrap');
+    await page.locator('[data-md-table-sticky-resizer="0"]').first().focus();
+    await page.keyboard.press('Shift+ArrowLeft');
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('#gp-content th')).whiteSpace === 'normal');
+    assert.equal(await header.evaluate((cell) => cell.style.width), '', '覆う列の一部だけが手動なので、幅の数値は当てない');
+    assert.notEqual(await page.locator('#gp-content td').first().evaluate((cell) => cell.style.width), '');
   });
 
   await t.test('列幅のつまみでは編集の選択と入力を変えず、ドラッグ中の Esc は幅だけを戻す', async (t) => {
