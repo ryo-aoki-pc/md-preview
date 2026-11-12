@@ -17,7 +17,8 @@ var (
 	errRootDirectory = errors.New("プレビューのルートには存在するフォルダーを指定してください。")
 )
 
-var windowsCLI = regexp.MustCompile(`(?m)^[\t ]*"%~dp0\.\.\\Code\.exe"[\t ]+"%~dp0\.\.\\([^"\r\n]+)\\resources\\app\\out\\cli\.js"[\t ]+%\*[\t ]*\r?$`)
+// 今の配置は「<版のフォルダー>\resources\app\out\cli.js」。版のフォルダーの無い前の配置も受ける。
+var windowsCLI = regexp.MustCompile(`(?m)^[\t ]*"%~dp0\.\.\\Code\.exe"[\t ]+"%~dp0\.\.\\(?:([^"\r\n]+)\\)?resources\\app\\out\\cli\.js"[\t ]+%\*[\t ]*\r?$`)
 
 // AgentsCommand は、PATH の絶対パスの項目だけから code を探し、root を開くコマンドを組む。
 // goos には runtime.GOOS を渡す。パスの表現と区切りは、実行中の OS のものを使う。
@@ -77,22 +78,29 @@ func windowsCommand(bin string, environ []string, root string) (Command, bool) {
 		return Command{}, false
 	}
 	for _, match := range windowsCLI.FindAllSubmatch(data, -1) {
-		parts := strings.Split(string(match[1]), `\`)
-		if !validRelative(parts) {
-			continue
+		var parts []string
+		if len(match[1]) > 0 {
+			parts = strings.Split(string(match[1]), `\`)
+			if !validRelative(parts) {
+				continue
+			}
 		}
 		cliParts := append([]string{install}, parts...)
 		cli := filepath.Join(append(cliParts, "resources", "app", "out", "cli.js")...)
 		if !regularFile(cli) || !inside(install, cli) {
 			continue
 		}
-		// リンクやジャンクションでも、cli.js の実体をインストール先の外へ出さない。
+		// リンクやジャンクションでも、cli.js と Code.exe の実体をインストール先の外へ出さない。
 		realInstall, err := filepath.EvalSymlinks(install)
 		if err != nil {
 			continue
 		}
 		realCLI, err := filepath.EvalSymlinks(cli)
 		if err != nil || !inside(realInstall, realCLI) {
+			continue
+		}
+		realExe, err := filepath.EvalSymlinks(exe)
+		if err != nil || !inside(realInstall, realExe) {
 			continue
 		}
 		env := make([]string, 0, len(environ)+1)
@@ -110,7 +118,8 @@ func windowsCommand(bin string, environ []string, root string) (Command, bool) {
 
 func validRelative(parts []string) bool {
 	for _, part := range parts {
-		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, "/:%\"\x00") {
+		// Windows は名前の末尾の点と空白を落とすので、「.. 」のような名前で上へ出られないよう断る。
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, "/:%\"\x00") || strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") {
 			return false
 		}
 	}

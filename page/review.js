@@ -524,7 +524,8 @@
         const response = await fetch(url('launch'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: snapshot.id }) });
         const data = await response.json();
-        if (prepared !== snapshot || stopped) return;
+        // 起動を待つ間に描き直されて依頼文の欄が閉じても、コピーと起動の結果は知らせる。
+        if (stopped) return;
         if (!response.ok) {
           launchFailure = messageOf(data) || launchFailure;
           throw new Error(launchFailure);
@@ -539,11 +540,12 @@
       }
       notice('依頼文をコピーしました。');
     } catch {
-      if (prepared !== snapshot || stopped) return;
+      if (stopped) return;
       if (copied) {
         notice(launchFailure + ' 依頼文はコピーしました。');
         return;
       }
+      if (prepared !== snapshot) return;
       promptInput.focus();
       promptInput.select();
       notice('コピーできませんでした。依頼文を選んだので、Ctrl+C でコピーしてください。');

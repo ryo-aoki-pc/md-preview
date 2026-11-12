@@ -485,10 +485,10 @@ func TestReviewLaunchConcurrent(t *testing.T) {
 		t.Fatal("起動中の印がありません", entry)
 	}
 	go launch()
-	// 起動中の2回目は、先の起動を待たずに既存の要求として返す。
+	// 起動中の2回目は、先の起動を待たずに「開いています」として返し、開いたことにはしない。
 	select {
 	case r := <-results:
-		if r.status != 200 || r.body != `{"again":true,"launched":true}` || calls.Load() != 1 {
+		if r.status != 409 || !strings.Contains(r.body, `"code":"launching"`) || calls.Load() != 1 {
 			t.Fatal(r, calls.Load())
 		}
 	case <-time.After(time.Second):
@@ -502,6 +502,10 @@ func TestReviewLaunchConcurrent(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("最初の起動要求が終わりません")
+	}
+	// 起動が済んだ後の要求は、起こし直さずに「もう開いている」と返す。
+	if r := request(t, s, "POST", "_/review/launch", fmt.Sprintf(`{"id":%q}`, id), reviewHeaders(s)); r.status != 200 || r.body != `{"again":true,"launched":true}` || calls.Load() != 1 {
+		t.Fatal(r, calls.Load())
 	}
 }
 

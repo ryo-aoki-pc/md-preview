@@ -549,3 +549,73 @@ func TestOpenRealProcess(t *testing.T) {
 		})
 	}
 }
+
+// この PC の VS Code 1.145.3 の code.cmd そのもの（版のフォルダーは更新で変わる）。
+const realCodeCMD = "@echo off\r\nsetlocal\r\nset VSCODE_DEV=\r\nset ELECTRON_RUN_AS_NODE=1\r\n" +
+	`"%~dp0..\Code.exe" "%~dp0..\dcd3ad6e36\resources\app\out\cli.js" %*` + "\r\n" +
+	"IF %ERRORLEVEL% NEQ 0 EXIT /b %ERRORLEVEL%\r\nendlocal\r\n"
+
+func TestAgentsCommandWindowsRealAndOldLayouts(t *testing.T) {
+	for name, c := range map[string]struct{ batch, cli string }{
+		"今の配置": {realCodeCMD, filepath.Join("dcd3ad6e36", "resources", "app", "out", "cli.js")},
+		"版のフォルダーの無い前の配置": {strings.Replace(realCodeCMD, `dcd3ad6e36\`, "", 1), filepath.Join("resources", "app", "out", "cli.js")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			install := t.TempDir()
+			bin := filepath.Join(install, "bin")
+			writeFile(t, filepath.Join(bin, "code.cmd"), c.batch)
+			writeFile(t, filepath.Join(install, "Code.exe"), "偽の実行ファイル")
+			writeFile(t, filepath.Join(install, c.cli), "偽の CLI")
+			root := t.TempDir()
+			command, err := AgentsCommand("windows", bin, nil, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{filepath.Join(install, c.cli), "--agents", root}
+			if command.Path != filepath.Join(install, "Code.exe") || !reflect.DeepEqual(command.Args, want) {
+				t.Fatalf("起動コマンドが違います: %#v", command)
+			}
+		})
+	}
+}
+
+// Windows は名前の末尾の点と空白を落とすので、「.. 」のような名前の版のフォルダーは受けない。
+func TestAgentsCommandWindowsRejectsTrailingDotsAndSpaces(t *testing.T) {
+	for _, relative := range []string{`版の名前.`, `版の名前 `, `.. `, `...`, `版の名前\nested.`} {
+		install := t.TempDir()
+		bin := filepath.Join(install, "bin")
+		writeFile(t, filepath.Join(bin, "code.cmd"), batchContents(relative))
+		writeFile(t, filepath.Join(install, "Code.exe"), "偽の実行ファイル")
+		if _, err := AgentsCommand("windows", bin, nil, t.TempDir()); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("%q を受けました: %v", relative, err)
+		}
+	}
+}
+
+// Code.exe そのものがインストール先の外を指すリンクなら、その候補を使わない。
+func TestAgentsCommandWindowsRejectsEscapingExecutable(t *testing.T) {
+	fixture := fakeWindowsInstall(t)
+	outside := filepath.Join(t.TempDir(), "外の Code.exe")
+	writeFile(t, outside, "外の実行ファイル")
+	if err := os.Remove(fixture.exe); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, fixture.exe); err != nil {
+		t.Skip("シンボリックリンクを作れない環境です: ", err)
+	}
+	if _, err := AgentsCommand("windows", fixture.bin, nil, t.TempDir()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("外を指す Code.exe を受けました: %v", err)
+	}
+}
+
+// 期限が切れた後は、VS Code を見つけていても起こさない。
+func TestLauncherDoesNotStartAfterDeadline(t *testing.T) {
+	root, _ := nativeInstall(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	called := false
+	l := Launcher{Run: func(context.Context, Command) error { called = true; return nil }}
+	if err := l.Open(ctx, root); !errors.Is(err, ErrLaunch) || !errors.Is(err, context.Canceled) || called {
+		t.Fatalf("期限の後に起こしました: %v、呼んだ=%v", err, called)
+	}
+}

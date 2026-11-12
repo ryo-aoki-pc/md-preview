@@ -280,8 +280,12 @@ func (p *reviewPreparations) beginLaunch(id string, doc *string, now time.Time) 
 	if entry.Doc != key {
 		return entry, false, &edit.Error{Status: 409, Code: "changed", Message: "依頼文の文書が違います。もう一度「依頼文を作る」を押してください。"}
 	}
-	if entry.Launched || entry.Launching {
+	if entry.Launched {
 		return entry, false, nil
+	}
+	// 先の起動がまだ終わっていない。終わる前に「開いた」とは返さない。
+	if entry.Launching {
+		return entry, false, &edit.Error{Status: 409, Code: "launching", Message: "Agents Window を開いています。少し待ってから、もう一度押してください。"}
 	}
 	entry.Launching = true
 	p.entries[id] = entry

@@ -632,6 +632,28 @@ test('画面のコメント', { skip, timeout: 240000 }, async (t) => {
     assert.deepEqual(await page.evaluate(() => window.reviewClipboard), [prompt, prompt, next]);
   });
 
+  await t.test('起動を待つ間に描き直されても、起動の結果を知らせる', async (t) => {
+    const { page, server, root } = await reviewPage(t, source, { beforeNavigate: (page) => clipboard(page) });
+    await enter(page);
+    await addComment(page, page.locator('#gp-content > p').first(), '描き直しをまたぐ起動');
+    await prepare(page);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    t.after(() => release());
+    await page.route('**/_/review/launch*', async (route) => { await gate; await route.continue(); });
+    await page.locator('#gp-review-launch').click();
+    await page.waitForFunction(() => /Agents Window を開いています/.test(document.querySelector('#gp-review-status').textContent));
+    const before = await page.evaluate(() => window.gpPreview.current().render);
+    const changed = source.replace('次の段落。', '次の段落を変えた。');
+    writeFileSync(join(root, 'README.md'), changed);
+    await server.setDocument({ path: join(root, 'README.md'), text: changed, rev: 2 });
+    await page.waitForFunction((n) => window.gpPreview.current().render !== n, before);
+    release();
+    await page.waitForFunction(() => /Agents Window を開きました/.test(document.querySelector('#gp-review-status').textContent));
+    await server.sync();
+    assert.deepEqual(server.launches, [{ root }]);
+  });
+
   await t.test('ファイル文書の起動にも doc を付け、prepare のルートを開く', async (t) => {
     const { page, server, root } = await reviewPage(t, source, {
       files: { 'other.md': '別の文書。\n' }, beforeNavigate: (page) => clipboard(page),

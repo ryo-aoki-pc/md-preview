@@ -41,12 +41,40 @@ func Open(ctx context.Context, root string) error {
 // Open は、PATH から起動コマンドを組み、30秒以内に実行する。
 // 親の ctx の期限が短ければ、その期限を使う。
 func (l Launcher) Open(ctx context.Context, root string) error {
-	command, err := AgentsCommand(runtime.GOOS, os.Getenv("PATH"), os.Environ(), root)
-	if err != nil {
-		return err
-	}
 	ctx, cancel := context.WithTimeout(ctx, launchTimeout)
 	defer cancel()
+	// PATH に応答しないネットワークのフォルダーがあると、探す途中の os.Stat が長く戻らない。
+	// 探す処理も同じ期限で打ち切り、期限の後に戻った結果では起動しない。
+	type found struct {
+		command Command
+		err     error
+	}
+	result := make(chan found, 1)
+	go func() {
+		command, err := AgentsCommand(runtime.GOOS, os.Getenv("PATH"), os.Environ(), root)
+		result <- found{command, err}
+	}()
+	stopped := func() error {
+		reason := "VS Code を探す途中で待ち時間を超えました"
+		if errors.Is(ctx.Err(), context.Canceled) {
+			reason = "起動の待機が取り消されました"
+		}
+		return &launchError{cause: ctx.Err(), reason: reason}
+	}
+	var command Command
+	select {
+	case f := <-result:
+		if f.err != nil {
+			return f.err
+		}
+		command = f.command
+	case <-ctx.Done():
+		return stopped()
+	}
+	// 探し終えたのと期限が同時なら、起こさない。
+	if ctx.Err() != nil {
+		return stopped()
+	}
 	run := l.Run
 	if run == nil {
 		run = runCommand
