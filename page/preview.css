@@ -324,7 +324,7 @@ body {
 
 /* 編集の UI（書き出す本文のスタイルには含めない） */
 /* ダブルクリックで原文を直せるブロック。入れ子では、いちばん内側（直す対象）だけに枠を出す */
-:root[data-edit='on'] #gp-content :is(p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre)[data-sourcepos]:not(table *):not(section[data-footnotes] *):hover:not(:has(:is(p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre)[data-sourcepos]:hover)) {
+:root[data-edit='on'] #gp-content :is(p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, div.markdown-alert)[data-sourcepos]:not(table *):not(section[data-footnotes] *):hover:not(:has(:is(p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, div.markdown-alert)[data-sourcepos]:hover)) {
   outline: 1px dashed var(--gp-border);
   outline-offset: 2px;
 }
@@ -419,7 +419,23 @@ body {
   pointer-events: auto;
   z-index: 5;
 }
-#gp-edit-actions button {
+#gp-edit-block-actions {
+  position: fixed;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--gp-border);
+  color: var(--gp-fg);
+  background: var(--gp-bg);
+  pointer-events: auto;
+  z-index: 4;
+}
+#gp-edit-actions button,
+#gp-edit-block-actions button {
   border: 1px solid var(--gp-border);
   border-radius: 3px;
   padding: 3px 7px;
@@ -427,6 +443,9 @@ body {
   background: var(--gp-bg);
   font: inherit;
   cursor: pointer;
+}
+#gp-edit-block-actions button {
+  font-size: 12px;
 }
 #gp-edit-actions button:disabled {
   opacity: 0.5;

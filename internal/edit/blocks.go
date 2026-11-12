@@ -19,6 +19,14 @@ type block struct {
 	public, actual   Range
 	start, end, line int
 	reason           *Error
+	outer            int
+}
+
+// OuterBlock は、公開の位置で取り直せる外側の編集対象。
+type OuterBlock struct {
+	Tag   string `json:"tag"`
+	Range Range  `json:"range"`
+	Kind  string `json:"kind"`
 }
 
 type positionAttribute struct {
@@ -93,6 +101,10 @@ func blockKind(tag string) string {
 		return "heading"
 	case "li":
 		return "item"
+	case "ul", "ol":
+		return "list"
+	case "dl":
+		return "deflist"
 	case "dt":
 		return "term"
 	case "dd":
@@ -129,6 +141,8 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 	s.untrustedPositions(ctx, src, m)
 	lines := strings.Split(src.Text, "\n")
 	starts := lineStarts(src.Text)
+	nodes := []*html.Node{}
+	indices := map[*html.Node]int{}
 	err = htmltree.Walk(ctx, root, func(n *html.Node) error {
 		if n.Type != html.ElementNode {
 			return nil
@@ -141,6 +155,9 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 			}
 		}
 		kind := blockKind(n.Data)
+		if n.Data == "div" && htmltree.HasClass(n, "markdown-alert") {
+			kind = "alert"
+		}
 		r := Range(htmltree.Get(n, "data-sourcepos"))
 		if kind == "" || !rangePattern.MatchString(string(r)) || excludedBlock(n) || htmltree.Ancestor(n, excludedBlock) {
 			return nil
@@ -154,7 +171,13 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 				return nil
 			}
 		}
-		b := block{tag: n.Data, kind: kind, public: r}
+		b := block{tag: n.Data, kind: kind, public: r, outer: -1}
+		for parent := n.Parent; parent != nil; parent = parent.Parent {
+			if i, ok := indices[parent]; ok {
+				b.outer = i
+				break
+			}
+		}
 		b.actual, b.reason = blockRange(src, lines, starts, n, r)
 		if reason := m.positionReason(n, "data-sourcepos"); reason != nil {
 			b.reason = reason
@@ -171,11 +194,49 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 		if b.reason == nil {
 			b.start, b.end, b.line, b.reason = offsetsAt(src, b.actual, starts)
 		}
+		indices[n] = len(m.blocks)
+		nodes = append(nodes, n)
 		m.blocks = append(m.blocks, b)
 		return nil
 	})
 	if err != nil {
 		return nil, fault(422, "cancelled", "ブロックの対応の確認を取り消しました。")
+	}
+	// 注記の閉じの行が欠けた祖先も、公開の終端が同じで、注記が最後にある場合だけ補う。
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		b := &m.blocks[i]
+		if b.kind != "alert" || b.reason != nil {
+			continue
+		}
+		public, _ := coordinates(b.public)
+		actual, _ := coordinates(b.actual)
+		if actual[2] < public[2] || actual[2] == public[2] && actual[3] <= public[3] {
+			continue
+		}
+		for child := nodes[i]; child.Parent != nil; child = child.Parent {
+			last := true
+			for sibling := child.NextSibling; sibling != nil; sibling = sibling.NextSibling {
+				if sibling.Type == html.ElementNode || sibling.Type == html.TextNode && strings.TrimSpace(sibling.Data) != "" {
+					last = false
+					break
+				}
+			}
+			if !last {
+				break
+			}
+			if index, ok := indices[child.Parent]; ok {
+				ancestor := &m.blocks[index]
+				end, _ := coordinates(ancestor.public)
+				if end[2] == public[2] && end[3] == public[3] && (ancestor.reason == nil || ancestor.reason.Code == "boundary") {
+					end[2], end[3] = actual[2], actual[3]
+					ancestor.actual = rangeOf(end)
+					ancestor.reason = blockBoundary(src, lines, starts, ancestor.actual)
+					if ancestor.reason == nil {
+						ancestor.start, ancestor.end, ancestor.line, ancestor.reason = offsetsAt(src, ancestor.actual, starts)
+					}
+				}
+			}
+		}
 	}
 	// 表と同じく、文書ごとに最新の描画だけを上限付きで保持する。
 	if len(s.blockCache) >= historyDocuments {
@@ -238,17 +299,72 @@ func blockRange(src session.Source, lines []string, starts []int, n *html.Node, 
 		}
 	}
 	actual := rangeOf(c)
+	if n.Data == "div" && htmltree.HasClass(n, "markdown-alert") {
+		if _, _, _, e = offsetsAt(src, actual, starts); e != nil {
+			return actual, e
+		}
+		c, e = alertRange(src, lines, c)
+		if e != nil {
+			return actual, e
+		}
+		actual = rangeOf(c)
+	}
+	return actual, blockBoundary(src, lines, starts, actual)
+}
+
+func blockBoundary(src session.Source, lines []string, starts []int, actual Range) *Error {
+	c, e := coordinates(actual)
+	if e != nil {
+		return e
+	}
 	if _, _, _, e = offsetsAt(src, actual, starts); e != nil {
-		return actual, e
+		return e
 	}
 	line, e := blockLine(src, lines, c[2])
 	if e != nil {
-		return actual, e
+		return e
 	}
 	if strings.Trim(line[c[3]:], " \t") != "" {
-		return actual, blockFault("boundary")
+		return blockFault("boundary")
 	}
-	return actual, nil
+	return nil
+}
+
+func alertRange(src session.Source, lines []string, c [4]int) ([4]int, *Error) {
+	first, e := blockLine(src, lines, c[0])
+	if e != nil {
+		return c, e
+	}
+	if !strings.HasPrefix(first[c[1]-1:], ">>>") {
+		return c, nil
+	}
+	closing := first[:c[1]-1] + ">>>"
+	// 公開の範囲が閉じの行まで含んでいれば、そのまま使う（上流の位置が直ったときに断らない）。
+	if c[2] > c[0] {
+		last, e := blockLine(src, lines, c[2])
+		if e != nil {
+			return c, e
+		}
+		if strings.TrimRight(last, " \t") == closing {
+			return c, nil
+		}
+	}
+	for line := c[2] + 1; line <= src.Lines.Expanded(len(lines)); line++ {
+		text, e := blockLine(src, lines, line)
+		if e != nil {
+			return c, e
+		}
+		if strings.Trim(text, " \t") == "" {
+			continue
+		}
+		if strings.TrimRight(text, " \t") != closing {
+			return c, blockFault("boundary")
+		}
+		c[2], c[3] = line, len(closing)
+		return c, nil
+	}
+	// 閉じずに文書が終わる注記は、公開された終端のまま扱う。
+	return c, nil
 }
 
 func termRange(src session.Source, lines []string, n *html.Node, c [4]int) ([4]int, *Error) {
@@ -335,4 +451,25 @@ func (m *blockMapping) writable(r Range) (*block, *Error) {
 		return nil, denied
 	}
 	return nil, blockFault("target")
+}
+
+func (m *blockMapping) outerBlocks(b *block) []OuterBlock {
+	outer := []OuterBlock{}
+	last := Range("")
+	if b.reason == nil {
+		last = b.actual
+	}
+	for i := b.outer; i >= 0; i = m.blocks[i].outer {
+		ancestor := &m.blocks[i]
+		if _, e := m.target(ancestor.tag, ancestor.public); e != nil {
+			continue
+		}
+		// 項目が 1 つだけのリストのように、内側と同じ範囲の対象は、移っても原文が変わらないので飛ばす。
+		if ancestor.actual == last {
+			continue
+		}
+		outer = append(outer, OuterBlock{ancestor.tag, ancestor.public, ancestor.kind})
+		last = ancestor.actual
+	}
+	return outer
 }

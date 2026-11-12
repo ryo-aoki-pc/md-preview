@@ -16,6 +16,7 @@ import (
 type testEditor struct {
 	apply  func(context.Context, *string, map[string]any) (any, *edit.Error)
 	tables func(context.Context) (any, *edit.Error)
+	text   func() (any, *edit.Error)
 }
 
 func (*testEditor) Config() map[string]any { return map[string]any{"scope": "all", "undo": true} }
@@ -25,7 +26,10 @@ func (e *testEditor) Tables(ctx context.Context, doc *string, render uint64) (an
 	}
 	return map[string]any{"render": render, "doc": doc}, nil
 }
-func (*testEditor) Text(_ context.Context, doc *string, render uint64, tag string, r edit.Range) (any, *edit.Error) {
+func (e *testEditor) Text(_ context.Context, doc *string, render uint64, tag string, r edit.Range) (any, *edit.Error) {
+	if e.text != nil {
+		return e.text()
+	}
 	return map[string]any{"render": render, "range": r, "tag": tag, "doc": doc}, nil
 }
 func (e *testEditor) Apply(ctx context.Context, doc *string, body map[string]any) (any, *edit.Error) {
@@ -189,5 +193,24 @@ func TestEditContexts(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("GET の切断が伝わらない")
+	}
+}
+
+func TestEditSourceErrorOuter(t *testing.T) {
+	s, _, _ := fixture(t, func(o *Options) {
+		o.Edit = &testEditor{text: func() (any, *edit.Error) {
+			return nil, &edit.Error{Status: 422, Code: "boundary", Message: "範囲を確かめられません。", Outer: []edit.OuterBlock{{Tag: "ul", Range: "1:1-2:3", Kind: "list"}}}
+		}}
+	})
+	r := request(t, s, "GET", "_/edit/source?render=1&tag=li&range=2:1-2:3", "", nil)
+	var value struct {
+		Outer []edit.OuterBlock `json:"outer"`
+	}
+	if err := json.Unmarshal([]byte(r.body), &value); err != nil || r.status != 422 || len(value.Outer) != 1 || value.Outer[0].Tag != "ul" || value.Outer[0].Range != "1:1-2:3" || value.Outer[0].Kind != "list" {
+		t.Fatal(r, err)
+	}
+	r = request(t, s, "GET", "_/edit/source?render=1&tag=li&range=bad", "", nil)
+	if r.status != 400 || strings.Contains(r.body, `"outer"`) {
+		t.Fatal(r)
 	}
 }

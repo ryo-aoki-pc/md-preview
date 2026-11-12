@@ -39,6 +39,16 @@
   input.spellcheck = false;
   const sourceLabel = make('span', 'gp-edit-source-label');
   sourceLabel.textContent = '原文';
+  const blockBar = make('div', 'gp-edit-block-actions');
+  blockBar.setAttribute('role', 'toolbar');
+  blockBar.setAttribute('aria-label', 'ブロックの編集対象');
+  const outerButton = make('button', 'gp-edit-outer', blockBar);
+  outerButton.type = 'button';
+  outerButton.title = 'Alt+↑ で外側を編集';
+  const innerButton = make('button', 'gp-edit-inner', blockBar);
+  innerButton.type = 'button';
+  innerButton.textContent = '内側に戻る';
+  innerButton.title = 'Alt+↓ で内側に戻る';
   const bar = make('div', 'gp-edit-actions');
   bar.setAttribute('role', 'toolbar');
   bar.setAttribute('aria-label', '表の編集');
@@ -96,7 +106,7 @@
   // 誤りの応答は {"error": {"code", "message"}}。文は利用者の文字を含みうるので、textContent だけに入れる。
   const messageOf = (data) => (typeof data?.error?.message === 'string' ? data.error.message : '');
   const rangePattern = /^[1-9][0-9]*:[1-9][0-9]*-[1-9][0-9]*:[0-9]+$/;
-  const blockSelector = 'p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre';
+  const blockSelector = 'p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, ul, ol, dl, div.markdown-alert';
   const excludedBlock = 'table, section[data-footnotes], .section-nav, .gp-math-display, .gp-math-inline, .gp-mermaid, .gp-plantuml-error, [data-diagram], .js-render-math, .js-render-mermaid';
   function blockOf(element) {
     if (!element?.closest || !element.closest('#gp-content') || element.closest(excludedBlock)) return null;
@@ -105,6 +115,24 @@
     }
     return null;
   }
+  const outerLabels = { list: 'リスト全体を編集', quote: '引用全体を編集', deflist: '説明リスト全体を編集',
+    alert: '注記全体を編集', item: '項目全体を編集', description: '説明全体を編集' };
+  function outerElement(element, target) {
+    if (!target || typeof target.tag !== 'string' || !rangePattern.test(target.range || '')) return null;
+    for (let node = element.parentElement; node && node.id !== 'gp-content'; node = node.parentElement) {
+      if (node.localName === target.tag && node.getAttribute('data-sourcepos') === target.range && blockOf(node) === node) return node;
+    }
+    return null;
+  }
+  function moveBlock(outside) {
+    if (!editor?.point.range || composing || sourceFetching) return;
+    const inner = editor.inner || [];
+    const element = outside ? outerElement(editor.element, editor.outer?.[0]) : inner.at(-1);
+    if (!element?.isConnected) return;
+    beginBlock(element, { preserve: true, inner: outside ? [...inner, editor.element] : inner.slice(0, -1) });
+  }
+  outerButton.addEventListener('click', () => moveBlock(true));
+  innerButton.addEventListener('click', () => moveBlock(false));
   function checkboxOf(element) {
     return element?.matches?.('input.task-list-item-checkbox[type="checkbox"][data-checkbox-sourcepos]:not([data-inapplicable])') &&
       element.closest('#gp-content') && !element.closest('table, section[data-footnotes]') &&
@@ -437,7 +465,7 @@
     // 開き直した入力欄が閉じたら、次の送信を止めたままにしない。
     failed = null;
     input.value = '';
-    input.hidden = frame.hidden = rangeFrame.hidden = sourceLabel.hidden = bar.hidden = true;
+    input.hidden = frame.hidden = rangeFrame.hidden = sourceLabel.hidden = bar.hidden = blockBar.hidden = true;
     layer.dataset.typing = 'off';
     cancelAnimationFrame(animation);
     animation = 0;
@@ -547,10 +575,21 @@
         editor.width = width;
         editor.resize = false;
       }
-      const height = editor.point.range
+      let height = editor.point.range
         ? Math.min(Math.max(64, editor.content), Math.max(64, innerHeight - rect.top - 8))
         : Math.min(Math.max(rect.height, editor.content), Math.max(rect.height, innerHeight - rect.top - 8));
+      blockBar.hidden = !editor.point.range || (!editor.outer?.length && !editor.inner?.length);
+      if (!blockBar.hidden) {
+        const toolbarHeight = blockBar.offsetHeight, gap = 6;
+        const header = document.getElementById('gp-header').getBoundingClientRect().bottom;
+        const above = rect.top - toolbarHeight - gap >= Math.max(8, header + gap);
+        if (!above) height = Math.min(height, Math.max(1, innerHeight - rect.top - toolbarHeight - gap - 8));
+        blockBar.style.left = Math.max(8, Math.min(rect.left, innerWidth - blockBar.offsetWidth - 8)) + 'px';
+        const top = above ? rect.top - toolbarHeight - gap : rect.top + height + gap;
+        blockBar.style.top = Math.max(header + gap, Math.min(top, innerHeight - toolbarHeight - 8)) + 'px';
+      }
       place(input, cell.element, { width, height });
+      if (input.style.visibility === 'hidden') blockBar.hidden = true;
       // 「原文」の札は、入力欄の右下の内側に重ねる（外に出すと、前後の本文やページのヘッダーに重なる）。
       sourceLabel.hidden = !editor.source || input.style.visibility === 'hidden';
       if (!sourceLabel.hidden) {
@@ -562,6 +601,7 @@
       input.style.clipPath = '';
       input.style.visibility = 'visible';
       sourceLabel.hidden = true;
+      blockBar.hidden = true;
     }
     for (const item of [...queue, ...(busy ? [busy.item] : [])]) {
       if (!item.mask) continue;
@@ -579,6 +619,9 @@
     closeMenus();
     selected = null;
     editor = { ...draft, source: true, em: 16, resize: true };
+    outerButton.hidden = !editor.outer?.length;
+    outerButton.textContent = outerLabels[editor.outer?.[0]?.kind] || '外側のブロックを編集';
+    innerButton.hidden = !editor.inner?.length;
     input.value = draft.value;
     input.setAttribute('aria-label', 'ブロックの原文の編集');
     input.style.fontFamily = 'sans-serif';
@@ -595,7 +638,7 @@
     position();
   }
   async function loadBlock() {
-    const element = pendingBlock;
+    const pending = pendingBlock, element = pending?.element;
     if (!element || sourceFetching || busy || queue.length || failed || stopped || !mode ||
       infoRender !== preview.current()?.render) return;
     pendingBlock = null;
@@ -613,26 +656,39 @@
       const response = await fetch(target, { signal: controller.signal });
       if (number !== sourceNumber || response.status === 409) return;
       const data = await response.json();
-      if (!response.ok) throw new Error(messageOf(data) || '原文を読み込めませんでした');
       if (!mode || stopped || number !== sourceNumber || render !== preview.current()?.render ||
         version !== externalVersion || !element.isConnected) return;
+      if (!response.ok) {
+        const outer = response.status === 422 && Array.isArray(data.outer) && data.outer[0];
+        const next = outerElement(element, outer);
+        if (next) {
+          const fallbackNotice = data.error?.code === 'term' && outer.kind === 'deflist'
+            ? 'この用語だけの範囲を決められないので、説明リスト全体を開きました'
+            : 'このブロックだけの範囲を確かめられないので、外側のブロックを開きました';
+          beginBlock(next, { preserve: true, inner: pending.inner, fallbackNotice });
+          return;
+        }
+        throw new Error(messageOf(data) || '原文を読み込めませんでした');
+      }
       if (data.render !== render || typeof data.text !== 'string' || typeof data.range !== 'string' ||
         !rangePattern.test(data.range)) throw new Error('原文の応答の形が正しくありません');
       const point = { range: data.range }, saved = drafts.get(keyOf(point));
       const value = saved?.original === data.text ? saved.value : data.text;
       drafts.delete(keyOf(point));
-      openBlock({ point, kind: data.kind, element, render, version, original: data.text, value });
+      openBlock({ point, kind: data.kind, element, render, version, original: data.text, value,
+        outer: Array.isArray(data.outer) ? data.outer : [], inner: pending.inner });
+      if (pending.fallbackNotice) notice(pending.fallbackNotice);
     } catch (error) {
       if (number === sourceNumber && error.name !== 'AbortError') notice(error.message || '原文を読み込めませんでした', true);
     } finally {
       if (number === sourceNumber) sourceFetching = null;
     }
   }
-  function beginBlock(element) {
+  function beginBlock(element, { preserve = false, inner = [], fallbackNotice = '' } = {}) {
     cancelSource();
-    if (editor) endEdit(true);
+    if (editor && !preserve) endEdit(true);
     clearSelection();
-    pendingBlock = element;
+    pendingBlock = { element, inner, fallbackNotice };
     operationStart();
     void loadBlock();
   }
@@ -1455,7 +1511,8 @@
       return;
     }
     if (handleMenuKey(event)) return;
-    if (document.activeElement !== input || (!selected && !editor?.point.range)) return;
+    if ((document.activeElement !== input && !(editor?.point.range && blockBar.contains(document.activeElement))) ||
+      (!selected && !editor?.point.range)) return;
     const key = event.key;
     if (selected && ((key === 'F10' && shiftOnly(event)) || key === 'ContextMenu')) {
       event.preventDefault(); event.stopImmediatePropagation();
@@ -1464,7 +1521,10 @@
     }
     if (editor) {
       if (editor.point.range) {
-        if (key === 'Escape') {
+        if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && (key === 'ArrowUp' || key === 'ArrowDown')) {
+          event.preventDefault(); event.stopImmediatePropagation();
+          moveBlock(key === 'ArrowUp');
+        } else if (key === 'Escape') {
           event.preventDefault(); event.stopImmediatePropagation();
           endEdit(false);
         } else if (key === 'Enter' && (event.ctrlKey || event.metaKey)) {

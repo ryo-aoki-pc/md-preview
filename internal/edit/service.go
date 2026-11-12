@@ -45,10 +45,13 @@ type BufferEdit struct {
 type Error struct {
 	Status        int
 	Code, Message string
+	Outer         []OuterBlock
 }
 
-func (e *Error) Error() string                      { return e.Message }
-func fault(status int, code, message string) *Error { return &Error{status, code, message} }
+func (e *Error) Error() string { return e.Message }
+func fault(status int, code, message string) *Error {
+	return &Error{Status: status, Code: code, Message: message}
+}
 func invalid() *Error {
 	return fault(400, "invalid", "編集の要求の形が正しくありません。")
 }
@@ -141,12 +144,17 @@ func (s *Service) Text(ctx context.Context, doc *string, render uint64, tag stri
 	}
 	b, e := m.target(tag, r)
 	if e != nil {
+		if b != nil && e.Code != "invalid" {
+			copy := *e
+			copy.Outer = m.outerBlocks(b)
+			e = &copy
+		}
 		return nil, e
 	}
 	if ctx.Err() != nil {
 		return nil, fault(422, "cancelled", "原文の読み取りを取り消しました。")
 	}
-	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": b.kind}, nil
+	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": b.kind, "outer": m.outerBlocks(b)}, nil
 }
 func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (any, *Error) {
 	s.mu.Lock()

@@ -33,7 +33,11 @@ func editJSON(conn net.Conn, r *http.Request, status int, value any) {
 	send(conn, r, status, content("application/json; charset=utf-8", "no-store"), b)
 }
 func editError(conn net.Conn, r *http.Request, e *edit.Error) {
-	editJSON(conn, r, e.Status, map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}})
+	value := map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}}
+	if e.Outer != nil {
+		value["outer"] = e.Outer
+	}
+	editJSON(conn, r, e.Status, value)
 }
 func isEditPath(r *http.Request) bool {
 	p := pathOf(r)
