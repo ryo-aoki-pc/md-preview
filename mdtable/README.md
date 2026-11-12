@@ -1,6 +1,6 @@
 # md-table-excel
 
-GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して、元の文書に書き戻すツール（`mdtable` コマンド）です。Markdown の表（パイプ表）と HTML の表のどちらも扱い、セルの中は Excel 上でも Markdown の記法で書けます。
+GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して、元の文書に書き戻すツール（`mdtable` コマンド）です。Markdown の表（パイプ表）と HTML の表のどちらも扱い、セルの中は Excel 上でも Markdown の記法で書けます。md-tools の `mdtable/` に置いています。
 
 ほかの Go のプログラムからは、公開パッケージ `github.com/ryo-aoki-pc/md-tools/mdtable/tableedit` を import して表を編集できます。行・列の複製と移動、範囲の写しの貼り付けも扱います（[公開の窓口](docs/reference/readme.md#公開の窓口-tableedit)）。
 
@@ -73,7 +73,7 @@ GLFM（GitLab Flavored Markdown）の文書にある表を Excel で編集して
 - [導入と更新](docs/install.md) — Windows 11 の導入・更新の手順
 - [使い方](docs/usage.md) — Markdown の表を Excel と往復する手順と、ブックを Excel で編集するときの注意
 - [設計と変換の規則](docs/reference/readme.md)
-- 検証記録（`repos/md-table-excel/docs/verification/readme.md`）: 手元の文書と comrak での確認、Excel の実機での確認とその手順
+- 検証記録（`repos/md-tools/mdtable/docs/verification/readme.md`）: 手元の文書と comrak での確認、Excel の実機での確認とその手順
 - テストのコマンドと、変更するときの決まりは [AGENTS.md](AGENTS.md)
 
 ## ライセンス

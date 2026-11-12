@@ -1,8 +1,8 @@
 # AGENTS.md
 
-このリポジトリで作業するコーディングエージェント（Claude Code・Codex・Grok Build・Antigravity CLI）への指示。Claude Code は CLAUDE.md の `@AGENTS.md` で、Codex・Grok Build・Antigravity CLI はこのファイルを直接読む。
+md-tools の `sticky/` で作業するコーディングエージェント（Claude Code・Codex・Grok Build・Antigravity CLI）への指示。ルートの [AGENTS.md](../AGENTS.md) と、このファイルを読む。Claude Code は CLAUDE.md の `@AGENTS.md` で、Codex・Grok Build・Antigravity CLI はこのファイルを直接読む。
 
-GitLab の Markdown の表で、先頭行・先頭列を固定してスクロールし、セルの折り返し・横スクロール・全幅表示を切り替える `md-table-sticky` のブックマークレット。使い方は [README.md](README.md)、Edge での登録と使う手順は [docs/install.md](docs/install.md)・[docs/usage.md](docs/usage.md)、設計は [docs/reference/design.md](docs/reference/design.md)、検証記録は `repos/md-table-sticky/docs/verification/readme.md`。
+GitLab の Markdown の表で、先頭行・先頭列を固定してスクロールし、セルの折り返し・横スクロール・全幅表示を切り替える `md-table-sticky` のブックマークレット。使い方は [README.md](README.md)、Edge での登録と使う手順は [docs/install.md](docs/install.md)・[docs/usage.md](docs/usage.md)、設計は [docs/reference/design.md](docs/reference/design.md)、検証記録は `repos/md-tools/sticky/docs/verification/readme.md`。
 
 ## 導入手順の正本
 
@@ -26,7 +26,7 @@ Windows 11 の Edge での登録と更新の手順は [docs/install.md](docs/ins
 - `AGENTS.md`・`CLAUDE.md` — エージェントへの指示と Claude Code の入口
 - `package.json`・`.gitignore` — Node.js のスクリプトと、リポジトリへ含めないもの
 - `LICENSE` — md-table-sticky の MIT ライセンス
-- 検証記録は、Forgejo の非公開リポジトリ `setup-notes-verification` の `repos/md-table-sticky/docs/verification/` に置く。このリポジトリには利用者の GitLab の URL・ホスト名を書かない。このリポジトリから検証記録へは URL で指さず、「`<検証記録のパス>` の「<見出し>」」と文字で書く（見出しを指さないときは、同じ名前の文書の記録なら「検証記録」とだけ書き、ほかの記録はパスを添える）
+- 検証記録は、Forgejo の非公開リポジトリ `setup-notes-verification` の `repos/md-tools/sticky/docs/verification/` に置く。このリポジトリには利用者の GitLab の URL・ホスト名を書かない。このリポジトリから検証記録へは URL で指さず、「`<検証記録のパス>` の「<見出し>」」と文字で書く（見出しを指さないときは、同じ名前の文書の記録なら「検証記録」とだけ書き、ほかの記録はパスを添える）
 
 ## テスト
 
@@ -50,4 +50,4 @@ git diff --check
 - ブックマークレットは外部への通信と外部のスクリプトの読み込みをしない
 - GitLab の描画に関わる変更は、`tools/render-gitlab.mjs` と gitlab.com の実際の画面で確かめ、検証記録に残す
 - ソースは LF。文書は日本語。検証していないことを「動く」と書かない
-- 検証記録の過去の節は書き換えず、新しい節を足す。検証記録は Forgejo の非公開リポジトリ `setup-notes-verification` の `repos/md-table-sticky/docs/verification/` に置く
+- 検証記録の過去の節は書き換えず、新しい節を足す。検証記録は Forgejo の非公開リポジトリ `setup-notes-verification` の `repos/md-tools/sticky/docs/verification/` に置く

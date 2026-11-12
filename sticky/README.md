@@ -1,6 +1,6 @@
 # md-table-sticky
 
-GitLab の Markdown の表で、先頭行・先頭列を固定してスクロールし、セルの折り返し・横スクロール・全幅表示を切り替えるブックマークレット。結合セルを見て固定する範囲を決める。見る人はソフトウェアや拡張機能を入れず、ブックマークを 1 つ足す。
+GitLab の Markdown の表で、先頭行・先頭列を固定してスクロールし、セルの折り返し・横スクロール・全幅表示を切り替えるブックマークレット。結合セルを見て固定する範囲を決める。見る人はソフトウェアや拡張機能を入れず、ブックマークを 1 つ足す。md-tools の `sticky/` に置く。
 
 対象は GitLab 19.5 以降（gitlab.com と self-managed）、Chrome・Edge。GitLab が描いた後の表に当てる。表の Markdown 自体は変えない。
 
@@ -89,7 +89,7 @@ GitLab 19.5.0 は、`thead` のある表を描き直すとき、`thead` の 2 �
 
 ## 開発
 
-Node.js 22 以上を使う。依存のパッケージは無い。
+Node.js 22 以上を使う。依存のパッケージは無い。次のコマンドは、md-tools の `sticky/` で実行する。
 
 ```sh
 npm test
@@ -113,7 +113,7 @@ node tools/render-gitlab.mjs
 
 `PRIVATE-TOKEN` ヘッダーで送り、`test/fixtures/sample.gitlab.html` を作り直す。`data-sourcepos` は取り除く。トークンはコマンドの引数やファイルに書かない。ブックマークレット自体は通信せず、外部のスクリプトも読み込まない。
 
-設計は [docs/reference/design.md](docs/reference/design.md)。実機での検証記録は `repos/md-table-sticky/docs/verification/readme.md` に置く。
+設計は [docs/reference/design.md](docs/reference/design.md)。実機での検証記録は `repos/md-tools/sticky/docs/verification/readme.md` に置く。
 
 ## ライセンス
 

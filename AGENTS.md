@@ -1,15 +1,20 @@
 # AGENTS.md
 
+md-tools は Markdown を扱う 3 つの道具をまとめたリポジトリ。md-preview（`mdpreview`）はルート（`cmd/mdpreview/`・`internal/`・`engine/`・`page/` など）、md-table-excel（`mdtable`）は `mdtable/`、md-table-sticky（ブックマークレット）は `sticky/` に置く。
+
+`mdtable/`・`sticky/` を触るときは、その中の `AGENTS.md` も読む。
+
 このリポジトリで作業するコーディングエージェント（Claude Code・Codex・Grok Build・Antigravity CLI）への指示。Claude Code は CLAUDE.md の `@AGENTS.md` で、Codex・Grok Build・Antigravity CLI はこのファイルを直接読む。
 
 Markdown を GitLab の描画でプレビューするアプリ `mdpreview`。本文を GitLab にも CDN にも送らず、手元で HTML にする。概要は [README.md](README.md)。Neovim から使う橋渡し（`<leader>cp`）は [LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter) にある。
 
 ## 導入手順の正本
 
-AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/install.md)、使い方の手順の正本は [docs/usage.md](docs/usage.md) にある。設計は [docs/reference/readme.md](docs/reference/readme.md) にある。配布は `.github/workflows/release.yml` と `scripts/build-release.sh` で行い、OS・CPU ごとの単体の実行ファイルを GitHub Releases に置く。版を上げるときは `internal/version/version.go`、`licenses/manifest.json` の md-preview、`mdtable/licenses/manifest.json` の md-table-excel、`package.json`・`package-lock.json` の版を同じ値にする。`v<版>` のタグを push すると、`mdpreview` と `mdtable` の配布物が 1 つの Release に載る。導入の操作を変えたら、README と `docs/install.md` の案内を合わせる。項の見出しを変えたら、そこへリンクしている README・ほかの手順書・LazyVimStarter などのリンクも直す。
+AlmaLinux 10・Windows 11 の導入・更新の手順は [docs/install.md](docs/install.md)、使い方の手順の正本は [docs/usage.md](docs/usage.md) にある。設計は [docs/reference/readme.md](docs/reference/readme.md) にある。配布は `.github/workflows/release.yml` と `scripts/build-release.sh` で行い、OS・CPU ごとの単体の実行ファイルを GitHub Releases に置く。実行ファイルの版は `internal/version/version.go` の 1 か所で決める。版を上げるときは `internal/version/version.go`、`licenses/manifest.json` の md-preview、`mdtable/licenses/manifest.json` の md-table-excel、`package.json`・`package-lock.json` の版を同じ値にする。`v<版>` のタグを push すると、`mdpreview` と `mdtable` の配布物が 1 つの Release に載る。導入の操作を変えたら、README と `docs/install.md` の案内を合わせる。項の見出しを変えたら、そこへリンクしている README・ほかの手順書・LazyVimStarter などのリンクも直す。
 
 ## 守ること
 
+- `mdtable/` の Go のコードがルートから import してよいのは `internal/version` だけ。`mdpreview` に excelize などの `mdtable` だけの依存を入れない。ルートの試験が、両コマンドの依存を検査する
 - 描画と表示の経路から、外へ通信しない。本文を GitLab の API に送る処理、CDN からライブラリを読む処理を足さない
 - PlantUML の原文は手元のコマンドの標準入力だけに渡す。`PLANTUML_SECURITY_PROFILE=SANDBOX` を必ず指定し、PATH の絶対パスの項目だけから探す。SVG は img と sandbox 付きの応答だけで扱い、DOM に入れない。描けなかった場合は原文のコードブロックへ戻す
 - 公式スタイルの取得は、利用者が明示した `mdpreview install-style` だけで行う。起動と `--check` は通信しない。配信する資産はロック・導入情報・全ファイルの大きさと sha256 を確かめ、実パスを `internal/resolve` の `Resolve` で保存先の内側に限り、検証したバイト列だけを許可リストで配る。失敗時は同梱スタイルへ戻す
@@ -187,5 +192,5 @@ git diff --check
 
 - コードのコメントと利用者に出すメッセージは日本語。まわりのコードの書き方に合わせる
 - ソースは LF。文書（README・docs）は日本語。検証していないことを「動く」と書かない
-- 検証記録は、Forgejo の非公開リポジトリ `setup-notes-verification` の `repos/md-preview/docs/verification/` に置く。このリポジトリからは URL で指さず、「`<検証記録のパス>` の「<見出し>」」と文字で書く
+- 検証記録は、Forgejo の非公開リポジトリ `setup-notes-verification` の `repos/md-tools/docs/verification/` に置く。このリポジトリからは URL で指さず、「`<検証記録のパス>` の「<見出し>」」と文字で書く
 - 公開のリポジトリなので、ホスト名・アドレス・機材など、環境が分かる値を書かない

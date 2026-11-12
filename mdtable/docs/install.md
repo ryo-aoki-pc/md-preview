@@ -17,7 +17,7 @@
 **参照**
 
 - [md-table-excel](../README.md)
-- 検証記録（setup-notes-verification の `repos/md-table-excel/docs/verification/readme.md`）
+- 検証記録（setup-notes-verification の `repos/md-tools/mdtable/docs/verification/readme.md`）
 
 </details>
 
@@ -46,8 +46,8 @@
    New-Item -ItemType Directory -Path $downloadDirectory -ErrorAction Stop | Out-Null
    $downloadName = 'mdtable-windows-amd64.exe'
    $downloadFile = Join-Path $downloadDirectory $downloadName
-   Invoke-WebRequest -Uri "https://github.com/ryo-aoki-pc/md-table-excel/releases/latest/download/$downloadName" -OutFile $downloadFile -ErrorAction Stop
-   Invoke-WebRequest -Uri 'https://github.com/ryo-aoki-pc/md-table-excel/releases/latest/download/SHA256SUMS' -OutFile "$downloadDirectory\SHA256SUMS" -ErrorAction Stop
+   Invoke-WebRequest -Uri "https://github.com/ryo-aoki-pc/md-tools/releases/latest/download/$downloadName" -OutFile $downloadFile -ErrorAction Stop
+   Invoke-WebRequest -Uri 'https://github.com/ryo-aoki-pc/md-tools/releases/latest/download/SHA256SUMS' -OutFile "$downloadDirectory\SHA256SUMS" -ErrorAction Stop
    ```
 
    - エラーなく終わればよい
@@ -105,7 +105,7 @@
    where.exe mdtable
    ```
 
-   - `mdtable 0.8.0` などが出ればよい。GitHub Releases の取得した版と比べる
+   - `mdtable 0.9.0` などが出ればよい。GitHub Releases の取得した版と比べる
    - `where.exe mdtable` の最初が `%USERPROFILE%\.local\bin\mdtable.exe` ならよい
    - コマンドが無ければ、この項の手順 5 で PATH を確かめ、PowerShell 7 を開き直してこの項の手順 6 を貼り直す
    - ほかの場所が先に出るときは、ユーザーの `Path` で `%USERPROFILE%\.local\bin` をその場所より上へ移し、PowerShell 7 を開き直してこの項の手順 6 を貼り直す
