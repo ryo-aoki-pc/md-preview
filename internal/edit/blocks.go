@@ -115,6 +115,8 @@ func blockKind(tag string) string {
 		return "quote"
 	case "pre":
 		return "code"
+	case "hr":
+		return "rule"
 	}
 	return ""
 }
@@ -158,6 +160,23 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 	if m := s.blockCache[key]; m != nil && m.render == src.Render {
 		return m, nil
 	}
+	m, e := s.buildBlocks(ctx, src)
+	if e != nil {
+		return nil, e
+	}
+	// 表と同じく、文書ごとに最新の描画だけを上限付きで保持する。
+	if len(s.blockCache) >= historyDocuments {
+		for k := range s.blockCache {
+			delete(s.blockCache, k)
+			break
+		}
+	}
+	s.blockCache[key] = m
+	return m, nil
+}
+
+// buildBlocks は、保持せずに一覧を作る。試しの描画の一覧にも使う。
+func (s *Service) buildBlocks(ctx context.Context, src session.Source) (*blockMapping, *Error) {
 	root, err := htmltree.Fragment(ctx, src.HTML)
 	if err != nil {
 		return nil, fault(422, "render", "描画したブロックを読み取れません。")
@@ -246,14 +265,14 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 	if err != nil {
 		return nil, fault(422, "cancelled", "ブロックの対応の確認を取り消しました。")
 	}
-	// 注記の閉じの行が欠けた祖先も、公開の終端が同じで、注記が最後にある場合だけ補う。
-	// 注記の終端を決められなかったときは、同じ終端の祖先も決められないので断る。
+	// 注記の閉じや水平線の終端が欠けた祖先も、公開の終端が同じで、最後の子孫の場合だけ補う。
+	// 終端を決められなかったときは、同じ終端の祖先も決められないので断る。
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		b := &m.blocks[i]
-		if b.kind != "alert" {
+		if b.kind != "alert" && b.kind != "rule" {
 			continue
 		}
-		public, e := coordinates(b.public)
+		public, e := positionCoordinates(b.public)
 		if e != nil {
 			continue
 		}
@@ -294,15 +313,26 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 			}
 		}
 	}
-	// 表と同じく、文書ごとに最新の描画だけを上限付きで保持する。
-	if len(s.blockCache) >= historyDocuments {
-		for k := range s.blockCache {
-			delete(s.blockCache, k)
-			break
-		}
-	}
-	s.blockCache[key] = m
 	return m, nil
+}
+
+// correctedRanges は、一覧で範囲を決められた対象の「要素名と公開の範囲」から、実際の範囲を引く表を返す。
+// 断った対象と、同じ要素名と範囲が複数ある対象は入れない（target と同じ規則）。
+// 上流の公開の終端（終了列 0、入れ物の中の水平線）は、後ろに続く内容で変わるので、描画どうしを比べるときに使う。
+func (m *blockMapping) correctedRanges() map[positionAttribute]Range {
+	count := map[positionAttribute]int{}
+	out := map[positionAttribute]Range{}
+	for i := range m.blocks {
+		b := &m.blocks[i]
+		k := positionAttribute{b.tag, "data-sourcepos", string(b.public)}
+		count[k]++
+		if count[k] > 1 || b.reason != nil {
+			delete(out, k)
+			continue
+		}
+		out[k] = b.actual
+	}
+	return out
 }
 
 func blockLine(src session.Source, lines []string, line int) (string, *Error) {
@@ -324,6 +354,22 @@ func rangeOf(c [4]int) Range {
 }
 
 func blockRange(src session.Source, lines []string, starts []int, n *html.Node, r Range) (Range, *Error) {
+	if n != nil && n.Data == "hr" {
+		c, e := positionCoordinates(r)
+		if e != nil {
+			return r, e
+		}
+		line, e := blockLine(src, lines, c[0])
+		if e != nil {
+			return r, e
+		}
+		c[2], c[3] = c[0], len(strings.TrimRight(line, " \t"))
+		if c[1] > c[3] || !ruleSource(line[c[1]-1:c[3]]) {
+			return r, blockFault("boundary")
+		}
+		actual := rangeOf(c)
+		return actual, blockBoundary(src, lines, starts, actual)
+	}
 	c, e := coordinates(r)
 	if e != nil {
 		return r, e
@@ -366,6 +412,23 @@ func blockRange(src session.Source, lines []string, starts []int, n *html.Node, 
 		actual = rangeOf(c)
 	}
 	return actual, blockBoundary(src, lines, starts, actual)
+}
+
+func ruleSource(text string) bool {
+	var marker byte
+	count := 0
+	for i := range len(text) {
+		ch := text[i]
+		if ch == ' ' || ch == '\t' {
+			continue
+		}
+		if ch != '-' && ch != '*' && ch != '_' || marker != 0 && marker != ch {
+			return false
+		}
+		marker = ch
+		count++
+	}
+	return count >= 3
 }
 
 func blockBoundary(src session.Source, lines []string, starts []int, actual Range) *Error {

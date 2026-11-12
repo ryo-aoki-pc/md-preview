@@ -309,13 +309,12 @@ func TestBlockBoundariesAndTargets(t *testing.T) {
 	if _, err := s.Text(context.Background(), nil, h.src.Render, "li", "3:1-3:3"); err == nil || err.Code != "boundary" {
 		t.Fatalf("最後の項目=%v\n%s", err, h.src.HTML)
 	}
-	// 水平線で終わる項目の後ろに段落が続くと、項目の終端が水平線の開始位置で切れる。
+	// 水平線で終わる項目とリストは、公開の終端を変えずに実際の終端を補う。
 	s, h = testService(t, e, "- item\n\n  ---\n\n次\n", nil)
-	if _, err := s.Text(context.Background(), nil, h.src.Render, "li", "1:1-3:3"); err == nil || err.Code != "boundary" {
-		t.Fatalf("水平線で終わる項目=%v\n%s", err, h.src.HTML)
-	}
-	if _, err := s.Text(context.Background(), nil, h.src.Render, "ul", "1:1-3:3"); err == nil || err.Code != "boundary" || err.Outer == nil || len(err.Outer) != 0 {
-		t.Fatalf("水平線で終わるリスト=%v\n%s", err, h.src.HTML)
+	for _, tag := range []string{"li", "ul"} {
+		if value, err := s.Text(context.Background(), nil, h.src.Render, tag, "1:1-3:3"); err != nil || value.(map[string]any)["range"] != Range("1:1-3:5") {
+			t.Fatalf("水平線で終わる%s=%v、誤り=%v\n%s", tag, value, err, h.src.HTML)
+		}
 	}
 	if _, err := applyJSON(t, s, h, `{"range":"1:1-3:3","text":"- x"}`); err == nil || err.Code != "target" || disk(t, h) != h.src.Text {
 		t.Fatal("範囲を確かめられない項目を書き込みで許した", err)
@@ -563,6 +562,115 @@ func TestBlockBufferTerm(t *testing.T) {
 	}
 	if len(*sent) != 1 || (*sent)[0].Start != 0 || (*sent)[0].End != 1 || strings.Join((*sent)[0].Lines, "\n") != "みかん" {
 		t.Fatal(*sent)
+	}
+}
+
+func TestRuleRangesAndWrites(t *testing.T) {
+	e := testEngine(t)
+	for _, c := range []struct{ text, public, actual, source string }{
+		{"前\n\n---\n\n後", "3:1-3:3", "3:1-3:3", "---"},
+		{"前\n\n* * *\n\n後", "3:1-3:5", "3:1-3:5", "* * *"},
+		{"前\n\n___  \n\n後", "3:1-3:5", "3:1-3:3", "___"},
+		{"  ---\n\n後", "1:3-1:5", "1:3-1:5", "---"},
+		{"> ---", "1:3-1:5", "1:3-1:5", "---"},
+		{"> 前\n>\n> ---\n>\n> 後", "3:3-3:3", "3:3-3:5", "---"},
+		{"- item\n\n  ---\n\n  後", "3:3-3:3", "3:3-3:5", "---"},
+		{"- item\n\n  ---", "3:3-3:5", "3:3-3:5", "---"},
+		{"- item\n\n  ---\n\n次", "3:3-3:3", "3:3-3:5", "---"},
+		{"- a\n  - b\n\n    ---\n\n    c", "4:5-4:3", "4:5-4:7", "---"},
+		{"- a\n  - b\n\n    ---\n\n次", "4:5-4:3", "4:5-4:7", "---"},
+		{"1. a\n\n   ***\n\n   b", "3:4-3:3", "3:4-3:6", "***"},
+	} {
+		for _, mode := range []Mode{File, Buffer} {
+			for _, ending := range []string{"\n", "\r\n"} {
+				for _, replacement := range []string{"***", "段落"} {
+					if replacement == c.source {
+						replacement = "___"
+					}
+					t.Run(fmt.Sprintf("%s/%v/%q/%s", c.public+c.text, mode, ending, replacement), func(t *testing.T) {
+						text := strings.ReplaceAll(c.text, "\n", ending)
+						s, h, updated := footnoteService(t, e, text, mode)
+						originalHTML := h.src.HTML
+						value, err := s.Text(context.Background(), nil, h.src.Render, "hr", Range(c.public))
+						if err != nil {
+							t.Fatalf("取得=%v\n%s", err, h.src.HTML)
+						}
+						got := value.(map[string]any)
+						if got["range"] != Range(c.actual) || got["text"] != c.source || got["kind"] != "rule" || h.src.HTML != originalHTML {
+							t.Fatal(got, h.src.HTML)
+						}
+						start, end, _, err := offsets(h.src, Range(c.actual))
+						if err != nil {
+							t.Fatal(err)
+						}
+						if _, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render, "range": c.actual, "text": replacement}); err != nil {
+							t.Fatal(err)
+						}
+						want := text[:start] + replacement + text[end:]
+						if mode == Buffer && !strings.HasSuffix(want, "\n") {
+							want += "\n"
+						}
+						if got := updated(); got != want {
+							t.Fatalf("原文=%q、期待=%q", got, want)
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestRuleAncestorRangesAndWrites(t *testing.T) {
+	e := testEngine(t)
+	for _, c := range []struct{ text, tag, public, actual, want string }{
+		{"- item\n\n  ---\n\n次\n", "li", "1:1-3:3", "1:1-3:5", "- x\n\n次\n"},
+		{"- item\n\n  ---\n\n次\n", "ul", "1:1-3:3", "1:1-3:5", "- x\n\n次\n"},
+		{"- a\n  - b\n\n    ---\n\n次\n", "li", "1:1-4:3", "1:1-4:7", "- x\n\n次\n"},
+		{"- a\n  - b\n\n    ---\n\n次\n", "ul", "1:1-4:3", "1:1-4:7", "- x\n\n次\n"},
+		{"- a\n  - b\n\n    ---\n\n次\n", "li", "2:3-4:3", "2:3-4:7", "- a\n  - x\n\n次\n"},
+		{"- a\n  - b\n\n    ---\n\n次\n", "ul", "2:3-4:3", "2:3-4:7", "- a\n  - x\n\n次\n"},
+	} {
+		for _, mode := range []Mode{File, Buffer} {
+			t.Run(fmt.Sprint(c, mode), func(t *testing.T) {
+				s, h, updated := footnoteService(t, e, c.text, mode)
+				value, err := s.Text(context.Background(), nil, h.src.Render, c.tag, Range(c.public))
+				if err != nil || value.(map[string]any)["range"] != Range(c.actual) || !strings.HasSuffix(value.(map[string]any)["text"].(string), "---") {
+					t.Fatalf("祖先の取得=%v、誤り=%v\n%s", value, err, h.src.HTML)
+				}
+				if _, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render, "range": c.actual, "text": "- x"}); err != nil {
+					t.Fatal(err)
+				}
+				if got := updated(); got != c.want {
+					t.Fatalf("原文=%q、期待=%q", got, c.want)
+				}
+			})
+		}
+	}
+}
+
+func TestRuleBoundaryAndPropagation(t *testing.T) {
+	e := testEngine(t)
+	s, h := testService(t, e, "-- \n", nil)
+	h.src.HTML = `<ul data-sourcepos="1:1-1:3"><li data-sourcepos="1:1-1:3"><hr data-sourcepos="1:1-1:3"></li></ul>`
+	for _, tag := range []string{"hr", "li", "ul"} {
+		if _, err := s.Text(context.Background(), nil, h.src.Render, tag, "1:1-1:3"); err == nil || err.Code != "boundary" {
+			t.Fatal("行末だけでは断られない祖先にも拒否を伝える", tag, err)
+		}
+	}
+	for _, text := range []string{"  ab-\n", "  --\n", "  -*-\n", "  ---x\n", "  \t \n"} {
+		s, h := testService(t, e, text, nil)
+		h.src.HTML = `<ul data-sourcepos="1:1-1:3"><li data-sourcepos="1:1-1:3"><hr data-sourcepos="1:3-1:1"></li></ul>`
+		for _, c := range []struct{ tag, r string }{{"hr", "1:3-1:1"}, {"li", "1:1-1:3"}, {"ul", "1:1-1:3"}} {
+			// 祖先へ拒否を伝えるときは、公開の終端も水平線とそろえる。
+			if c.tag != "hr" {
+				h.src.Render++
+				h.src.HTML = strings.ReplaceAll(h.src.HTML, "1:1-1:3", "1:1-1:1")
+				c.r = "1:1-1:1"
+			}
+			if _, err := s.Text(context.Background(), nil, h.src.Render, c.tag, Range(c.r)); err == nil || err.Code != "boundary" {
+				t.Fatal(text, c, err)
+			}
+		}
 	}
 }
 

@@ -119,7 +119,7 @@ func (s *Server) edit(conn net.Conn, r *http.Request, route string) {
 			return
 		}
 		var value edit.Range
-		value, e = edit.ParseRange(p.Get("range"))
+		value, e = edit.ParseSourceRange(tag, p.Get("range"))
 		if e == nil {
 			result, e = s.opts.Edit.Text(r.Context(), doc, render, tag, value)
 		}

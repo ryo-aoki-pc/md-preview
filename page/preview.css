@@ -323,6 +323,16 @@ body {
 }
 
 /* 編集の UI（書き出す本文のスタイルには含めない） */
+/* 線の両側の余白を当たり判定へ移す。線の太さと全体の高さは保つ。 */
+:root[data-edit='on'] #gp-content hr {
+  position: relative;
+  overflow: visible;
+}
+:root[data-edit='on'] #gp-content hr::before {
+  content: '';
+  position: absolute;
+  inset: -8px 0;
+}
 :root[data-edit='on'] #gp-content input.task-list-item-checkbox:not(:disabled) {
   cursor: pointer;
 }

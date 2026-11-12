@@ -50,6 +50,12 @@
   innerButton.type = 'button';
   innerButton.textContent = '内側に戻る';
   innerButton.title = 'Alt+↓ で内側に戻る';
+  const beforeButton = make('button', 'gp-edit-before', blockBar);
+  beforeButton.type = 'button';
+  beforeButton.textContent = '前に追加';
+  const afterButton = make('button', 'gp-edit-after', blockBar);
+  afterButton.type = 'button';
+  afterButton.textContent = '後ろに追加';
   const bar = make('div', 'gp-edit-actions');
   bar.setAttribute('role', 'toolbar');
   bar.setAttribute('aria-label', '表の編集');
@@ -93,7 +99,7 @@
   const menus = new Map();
   const menuItems = [];
   const openMenus = [];
-  const keyOf = (point) => point.range ? 'range:' + point.range : [point.table, point.row, point.col].join(':');
+  const keyOf = (point) => point.range ? (point.insert ? 'insert:' + point.insert + ':' : 'range:') + point.range : [point.table, point.row, point.col].join(':');
   const samePoint = (a, b) => a && b && keyOf(a) === keyOf(b);
   const allowed = () => !preview.config.list &&
     (config.scope === 'all' || (config.scope === 'current' && preview.doc === null &&
@@ -107,7 +113,7 @@
   // 誤りの応答は {"error": {"code", "message"}}。文は利用者の文字を含みうるので、textContent だけに入れる。
   const messageOf = (data) => (typeof data?.error?.message === 'string' ? data.error.message : '');
   const rangePattern = /^[1-9][0-9]*:[1-9][0-9]*-[1-9][0-9]*:[0-9]+$/;
-  const blockTags = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'dt', 'dd', 'blockquote', 'pre', 'ul', 'ol', 'dl']);
+  const blockTags = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'dt', 'dd', 'blockquote', 'pre', 'ul', 'ol', 'dl', 'hr']);
   const excludedBlock = 'table, .section-nav';
   function blockOf(element) {
     if (!element?.closest || !element.closest('#gp-content') || element.closest('table')) return null;
@@ -134,7 +140,7 @@
     return live && live !== element && live.contains(element) && blockOf(live) === live ? live : null;
   }
   function moveBlock(outside) {
-    if (!editor?.point.range || composing || sourceFetching) return;
+    if (!editor?.point.range || editor.insert || composing || sourceFetching) return;
     const inner = editor.inner || [];
     // 描き直しで画面から外れた内側の要素は飛ばす。
     const rest = inner.filter((item) => preview.findSource(item.tag, item.range));
@@ -148,6 +154,19 @@
   }
   outerButton.addEventListener('click', () => moveBlock(true));
   innerButton.addEventListener('click', () => moveBlock(false));
+  function beginInsert(side) {
+    if (!editor?.anchor || editor.insert || composing || sourceFetching) return;
+    const anchor = editor.anchor;
+    const element = preview.findSource(anchor.tag, anchor.range);
+    if (!element?.isConnected) return;
+    saveDraft();
+    editor = null;
+    openBlock({ point: { range: anchor.actual, insert: side }, insert: { anchor: anchor.actual, side },
+      anchor, element, target: { tag: anchor.tag, range: anchor.range }, render: preview.current().render,
+      version: externalVersion, original: '', value: '', outer: [], inner: [], previousHTML: preview.current().html });
+  }
+  beforeButton.addEventListener('click', () => beginInsert('before'));
+  afterButton.addEventListener('click', () => beginInsert('after'));
   function checkboxOf(element) {
     return element?.matches?.('input.task-list-item-checkbox[type="checkbox"][data-checkbox-sourcepos]:not([data-inapplicable])') &&
       element.closest('#gp-content') && !element.closest('table, section[data-footnotes]') &&
@@ -583,7 +602,7 @@
     if (range && !editor) placeRect(rangePieces, models[tableSelection.table], range);
     frame.hidden = Boolean(editor?.point.range);
     frame.dataset.pending = String([...queue, ...(busy ? [busy.item] : [])].some((item) => samePoint(item.point, selected)));
-    const rect = place(frame, cell.element);
+    let rect = place(frame, cell.element);
     input.hidden = false;
     input.style.left = rect.left + 'px';
     input.style.top = rect.top + 'px';
@@ -601,17 +620,26 @@
       let height = editor.point.range
         ? Math.min(Math.max(64, editor.content), Math.max(64, innerHeight - rect.top - 8))
         : Math.min(Math.max(rect.height, editor.content), Math.max(rect.height, innerHeight - rect.top - 8));
-      blockBar.hidden = !editor.point.range || (!editor.outer?.length && !editor.inner?.length);
+      blockBar.hidden = !editor.point.range || editor.insert || (!editor.outer?.length && !editor.inner?.length && !editor.anchor);
+      if (editor.insert) {
+        const header = document.getElementById('gp-header').getBoundingClientRect().bottom;
+        height = Math.min(height, Math.max(64, innerHeight - header - 24));
+        const top = Math.max(header + 8, Math.min(editor.insert.side === 'before' ? rect.top - height - 6 : rect.bottom + 6,
+          innerHeight - height - 8));
+        rect = { ...rect, left: rect.left, right: rect.right, width: rect.width, top, bottom: top + height, height };
+      }
       if (!blockBar.hidden) {
         const toolbarHeight = blockBar.offsetHeight, gap = 6;
         const header = document.getElementById('gp-header').getBoundingClientRect().bottom;
         const above = rect.top - toolbarHeight - gap >= Math.max(8, header + gap);
         if (!above) height = Math.min(height, Math.max(1, innerHeight - rect.top - toolbarHeight - gap - 8));
-        blockBar.style.left = Math.max(8, Math.min(rect.left, innerWidth - blockBar.offsetWidth - 8)) + 'px';
+        // 下へ置くときは右端へ寄せ、すぐ次の表の左端を操作欄でふさがない。
+        const left = above ? rect.left : rect.left + width - blockBar.offsetWidth;
+        blockBar.style.left = Math.max(8, Math.min(left, innerWidth - blockBar.offsetWidth - 8)) + 'px';
         const top = above ? rect.top - toolbarHeight - gap : rect.top + height + gap;
         blockBar.style.top = Math.max(header + gap, Math.min(top, innerHeight - toolbarHeight - 8)) + 'px';
       }
-      place(input, cell.element, { width, height });
+      placeBox(input, cell.element, rect, { width, height });
       if (input.style.visibility === 'hidden') blockBar.hidden = true;
       // 「原文」の札は、入力欄の右下の内側に重ねる（外に出すと、前後の本文やページのヘッダーに重なる）。
       sourceLabel.hidden = !editor.source || input.style.visibility === 'hidden';
@@ -642,11 +670,13 @@
     closeMenus();
     selected = null;
     editor = { ...draft, source: true, em: 16, resize: true };
+    sourceLabel.textContent = editor.insert ? '追加' : '原文';
+    beforeButton.hidden = afterButton.hidden = !editor.anchor || Boolean(editor.insert);
     outerButton.hidden = !editor.outer?.length;
     outerButton.textContent = outerLabels[editor.outer?.[0]?.kind] || '外側のブロックを編集';
     innerButton.hidden = !editor.inner?.length;
     input.value = draft.value;
-    input.setAttribute('aria-label', 'ブロックの原文の編集');
+    input.setAttribute('aria-label', editor.insert ? 'ブロックの追加' : 'ブロックの原文の編集');
     input.style.fontFamily = 'sans-serif';
     input.style.fontSize = '16px';
     input.style.fontWeight = 'normal';
@@ -702,7 +732,9 @@
       const value = saved?.original === data.text ? saved.value : data.text;
       drafts.delete(keyOf(point));
       openBlock({ point, kind: data.kind, element, target: source, render, version, original: data.text, value,
-        outer: Array.isArray(data.outer) ? data.outer : [], inner: pending.inner });
+        outer: Array.isArray(data.outer) ? data.outer : [], inner: pending.inner,
+        anchor: data.anchor && typeof data.anchor.tag === 'string' && rangePattern.test(data.anchor.range || '') &&
+          rangePattern.test(data.anchor.actual || '') ? data.anchor : null });
       if (pending.fallbackNotice) notice(pending.fallbackNotice);
     } catch (error) {
       if (number === sourceNumber && error.name !== 'AbortError') notice(error.message || '原文を読み込めませんでした', true);
@@ -733,6 +765,7 @@
     collapseRange();
     closeMenus();
     operationStart();
+    sourceLabel.textContent = '原文';
     source ||= cell.raw;
     const original = currentValue(cell, source).replace(/\r\n?/g, '\n');
     // 下書きは、書き始めたときと同じ中身のセルにだけ戻す。行や列がずれた後の別のセルには出さない。
@@ -817,7 +850,7 @@
     operationStart();
     item.tableElement = models[item.point?.table]?.table;
     item.version = externalVersion;
-    item.structural = Boolean(item.history || /^(insert|delete|duplicate|move)/.test(item.op?.type || ''));
+    item.structural = Boolean(item.insert || item.history || /^(insert|delete|duplicate|move)/.test(item.op?.type || ''));
     if (first) queue.unshift(item);
     else queue.push(item);
     addMask(item);
@@ -871,6 +904,40 @@
   function completeSend() {
     if (busy?.ok && preview.current()?.render > busy.render && infoRender === preview.current()?.render)
       finishSend(true, true);
+  }
+  // 前へ追加したときは、既存の原文は同じまま行だけがずれる。追加前の下書きも、その同じ対象へ戻せるようにする。
+  function shiftInsertDrafts(item) {
+    if (item.insert?.side !== 'before' || typeof item.previousHTML !== 'string' || typeof preview.current()?.html !== 'string') return;
+    const positioned = (html) => {
+      const template = document.createElement('template');
+      // 入れるのは、サーバーが消毒した pipeline.Result.HTML のみ。
+      template.innerHTML = html;
+      return [...template.content.querySelectorAll('[data-sourcepos]')].map((element) =>
+        ({ tag: element.localName, range: element.getAttribute('data-sourcepos') }));
+    };
+    const before = positioned(item.previousHTML), after = positioned(preview.current().html);
+    const index = before.findIndex((target) => target.tag === item.anchor.tag && target.range === item.anchor.range);
+    const anchor = after[index + after.length - before.length];
+    const coordinates = (range) => rangePattern.test(range || '') ? range.split(/[:-]/).map(Number) : null;
+    const from = coordinates(item.anchor.range), to = coordinates(anchor?.range);
+    if (index < 0 || anchor?.tag !== item.anchor.tag || !from || !to || from[1] !== to[1] || from[3] !== to[3] ||
+      to[0] <= from[0] || to[0] - from[0] !== to[2] - from[2]) return;
+    const delta = to[0] - from[0];
+    const shift = (range) => {
+      const c = coordinates(range);
+      if (!c || c[0] < from[0]) return range;
+      return `${c[0] + delta}:${c[1]}-${c[2] + delta}:${c[3]}`;
+    };
+    const shifted = [];
+    for (const [key, draft] of drafts) {
+      if (!draft.point.range || draft.insert || draft.version !== item.version) continue;
+      const range = shift(draft.point.range);
+      if (range === draft.point.range) continue;
+      drafts.delete(key);
+      const target = { ...draft.target, range: shift(draft.target.range) };
+      shifted.push({ ...draft, point: { range }, target, render: preview.current().render });
+    }
+    for (const draft of shifted) drafts.set(keyOf(draft.point), draft);
   }
   function reopen(item) {
     failed = item.value === undefined ? null : item;
@@ -929,7 +996,8 @@
       // 待ち行列に入れたときの番号は使わず、直前に確かめた描画へ送る。
       const body = item.history ? { [item.history]: true } : item.checkbox
         ? { render, checkbox: item.checkbox.getAttribute('data-checkbox-sourcepos'), checked: item.checked }
-        : item.point.range ? { render, range: item.point.range, text: item.value }
+        : item.insert ? { render, insert: item.insert, text: item.value }
+          : item.point.range ? { render, range: item.point.range, text: item.value }
           : { render, table: item.point.table, op: item.op };
       const response = await fetch(url(''), { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body) });
@@ -1713,7 +1781,10 @@
       cancelCut();
       closeMenus();
       // 自分の書き込みの描画は、送信ごとに最初の 1 回だけ（時間切れの後に遅れて届く 1 回を含む）。ほかは外の変更と数える。
-      if (busy && !busy.seen && render > busy.render) busy.seen = true;
+      if (busy && !busy.seen && render > busy.render) {
+        busy.seen = true;
+        shiftInsertDrafts(busy.item);
+      }
       else if (late !== null && render > late) late = null;
       else externalVersion++;
       checkInsert();
