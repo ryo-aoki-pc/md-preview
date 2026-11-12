@@ -57,6 +57,18 @@
   const afterButton = make('button', 'gp-edit-after', blockBar);
   afterButton.type = 'button';
   afterButton.textContent = '後ろに追加';
+  const insertTableButton = make('button', 'gp-edit-insert-table', blockBar);
+  insertTableButton.type = 'button';
+  insertTableButton.textContent = '表を入れる…';
+  insertTableButton.setAttribute('aria-haspopup', 'dialog');
+  insertTableButton.setAttribute('aria-controls', 'gp-edit-table-picker');
+  insertTableButton.setAttribute('aria-expanded', 'false');
+  insertTableButton.hidden = true;
+  layer.append(document.getElementById('gp-edit-table-template').content.cloneNode(true));
+  const tablePicker = layer.querySelector('#gp-edit-table-picker');
+  const tableCols = layer.querySelector('#gp-edit-table-cols');
+  const tableRows = layer.querySelector('#gp-edit-table-rows');
+  let tableCaret = null;
   const bar = make('div', 'gp-edit-actions');
   bar.setAttribute('role', 'toolbar');
   bar.setAttribute('aria-label', '表の編集');
@@ -177,6 +189,62 @@
       render: preview.current().render, version: externalVersion, original: '',
       value: saved?.version === externalVersion ? saved.value : '', outer: [], inner: [], previousHTML: preview.current().html });
   }
+  function beginTableInsert(side) {
+    const model = models[selected?.table];
+    const actual = model?.info.anchor;
+    if (!rangePattern.test(actual || '')) return;
+    const anchor = { tag: 'table', range: preview.sourceOf(model.table)?.range || actual, actual };
+    operationStart();
+    if (editor) endEdit(true);
+    if (busy || queue.length) return;
+    clearSelection();
+    const point = { range: actual, insert: side }, saved = drafts.get(keyOf(point));
+    drafts.delete(keyOf(point));
+    openBlock({ point, insert: { anchor: actual, side }, anchor, tableInsert: true, tableIndex: model.info.index, element: model.table,
+      target: { tag: 'table', range: anchor.range }, render: preview.current().render,
+      version: externalVersion, original: '', value: saved?.version === externalVersion ? saved.value : '',
+      outer: [], inner: [], previousHTML: preview.current().html });
+  }
+  function closeTablePicker(restore = false) {
+    tablePicker.hidden = true;
+    insertTableButton.setAttribute('aria-expanded', 'false');
+    if (restore && editor?.insert) {
+      focusInput();
+      if (tableCaret) input.setSelectionRange(tableCaret.start, tableCaret.end);
+    }
+    tableCaret = null;
+  }
+  insertTableButton.addEventListener('click', () => {
+    if (!editor?.insert || composing) return;
+    if (!tablePicker.hidden) { closeTablePicker(true); return; }
+    tableCaret = { start: input.selectionStart, end: input.selectionEnd };
+    tablePicker.hidden = false;
+    insertTableButton.setAttribute('aria-expanded', 'true');
+    cancelAnimationFrame(animation);
+    position();
+    tableCols.focus({ preventScroll: true });
+    tableCols.select();
+  });
+  layer.querySelector('#gp-edit-table-cancel').addEventListener('click', () => closeTablePicker(true));
+  tablePicker.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!editor?.insert || !tableCaret || !tablePicker.reportValidity()) return;
+    const { start, end } = tableCaret;
+    let value;
+    try { value = editGrid.emptyPipeTable(tableCols.valueAsNumber, tableRows.valueAsNumber); }
+    catch (error) { notice(error.message, true); return; }
+    const left = input.value.slice(0, start), right = input.value.slice(end);
+    const gap = (text, before) => {
+      if (!text || (before ? /\n[ \t]*\n[ \t]*$/ : /^[ \t]*\n[ \t]*\n/).test(text)) return '';
+      return (before ? /\n[ \t]*$/ : /^[ \t]*\n/).test(text) ? '\n' : '\n\n';
+    };
+    value = gap(left, true) + value + gap(right, false);
+    input.setRangeText(value, start, end, 'end');
+    editor.resize = true;
+    saveDraft();
+    closeTablePicker();
+    focusInput();
+  });
   addButton.addEventListener('click', () => {
     if (documentEmpty) beginDocumentInsert('end');
     else if (addButton.getAttribute('aria-expanded') === 'true') closeMenus();
@@ -468,6 +536,7 @@
     if (editor) drafts.set(keyOf(editor.point), { ...editor, value: input.value });
   }
   function clearSelection() {
+    closeTablePicker();
     cancelInsert();
     closeMenus();
     collapseRange();
@@ -562,7 +631,9 @@
     if (!blockPoint(editor?.point) || editor.element.isConnected) return;
     // 探し直すのは、数式・図の描き直しや配色の切り替えで置き換わったときだけ。
     // 文書が外で変わった後は、同じ位置に別の内容が来ているかもしれないので付け替えない。
-    const element = editor.version === externalVersion && findBlock(editor.target);
+    const element = editor.version === externalVersion && (editor.tableInsert
+      ? models[editor.tableIndex]?.info.anchor === editor.anchor.actual && models[editor.tableIndex].table
+      : findBlock(editor.target));
     if (element) editor.element = element;
     else {
       clearSelection();
@@ -575,7 +646,8 @@
     const cutModel = models[cutState?.table];
     cutFrame.hidden = !mode || !cutState?.active || cutModel?.table !== cutState.tableElement;
     if (!cutFrame.hidden) placeRect(cutPieces, cutModel, cutState.rect);
-    const cell = blockPoint(editor?.point) ? { element: editor.element } : selectionCell();
+    const cell = blockPoint(editor?.point) ? { element: editor.tableInsert
+      ? editor.element.closest('[data-md-table-sticky-wrap]') || editor.element : editor.element } : selectionCell();
     if (!cell || !mode) {
       if (!cutFrame.hidden) animation = requestAnimationFrame(position);
       return;
@@ -611,7 +683,7 @@
       let height = blockPoint(editor.point)
         ? Math.min(Math.max(64, editor.content), Math.max(64, innerHeight - rect.top - 8))
         : Math.min(Math.max(rect.height, editor.content), Math.max(rect.height, innerHeight - rect.top - 8));
-      blockBar.hidden = !blockPoint(editor.point) || editor.insert || (!editor.outer?.length && !editor.inner?.length && !editor.anchor);
+      blockBar.hidden = !blockPoint(editor.point) || (!editor.insert && !editor.outer?.length && !editor.inner?.length && !editor.anchor);
       if (editor.insert) {
         const header = document.getElementById('gp-header').getBoundingClientRect().bottom;
         height = Math.min(height, Math.max(64, innerHeight - header - 24));
@@ -631,7 +703,13 @@
         const top = above ? rect.top - toolbarHeight - gap : rect.top + height + gap;
         blockBar.style.top = Math.max(header + gap, Math.min(top, innerHeight - toolbarHeight - 8)) + 'px';
       }
-      placeBox(input, cell.element, rect, { width, height });
+      // 表の外へ追加する入力欄は、表を固定するスクロールの包みで切らない。
+      placeBox(input, editor.tableInsert ? document.getElementById('gp-content') : cell.element, rect, { width, height });
+      if (!tablePicker.hidden) {
+        const box = blockBar.getBoundingClientRect(), size = tablePicker.getBoundingClientRect();
+        tablePicker.style.left = Math.max(8, Math.min(box.left, innerWidth - size.width - 8)) + 'px';
+        tablePicker.style.top = Math.max(8, Math.min(box.bottom + 4, innerHeight - size.height - 8)) + 'px';
+      }
       if (input.style.visibility === 'hidden') blockBar.hidden = true;
       // 「原文」の札は、入力欄の右下の内側に重ねる（外に出すと、前後の本文やページのヘッダーに重なる）。
       sourceLabel.hidden = !editor.source || input.style.visibility === 'hidden';
@@ -656,6 +734,7 @@
   }
 
   function openBlock(draft) {
+    closeTablePicker();
     cancelInsert();
     saveDraft();
     collapseRange();
@@ -664,6 +743,7 @@
     editor = { ...draft, source: true, em: 16, resize: true };
     sourceLabel.textContent = editor.insert ? '追加' : '原文';
     beforeButton.hidden = afterButton.hidden = !editor.anchor || Boolean(editor.insert);
+    insertTableButton.hidden = !editor.insert;
     outerButton.hidden = !editor.outer?.length;
     outerButton.textContent = outerLabels[editor.outer?.[0]?.kind] || '外側のブロックを編集';
     innerButton.hidden = !editor.inner?.length;
@@ -796,6 +876,7 @@
   }
   function endEdit(commit) {
     if (!editor) return;
+    closeTablePicker();
     const draft = { ...editor, point: { ...editor.point }, value: input.value };
     editor = null;
     composing = false;
@@ -941,7 +1022,7 @@
     const coordinates = (range) => rangePattern.test(range || '') ? range.split(/[:-]/).map(Number) : null;
     const raw = item.target?.tag === 'html';
     const cut = item.insert.document === 'start' ? item.startCut : coordinates(item.anchor.actual)?.[0];
-    const reference = item.insert.document === 'start' ? before.find((target, i) => {
+    const reference = item.insert.document === 'start' || item.tableInsert ? before.find((target, i) => {
       const from = coordinates(target.range), candidate = after[i + after.length - before.length];
       const to = coordinates(candidate?.range);
       // 値が変わらない、利用者が書いた位置は基準にしない。
@@ -1237,6 +1318,13 @@
     if (!cell) return 'セルを選んでください';
     if (stopped) return 'プレビューが止まっています';
     if (infoRender !== preview.current()?.render) return '表の情報を読み込んでいます';
+    if (action === 'table') return '';
+    if (action === 'table-before' || action === 'table-after') {
+      if (busy || queue.length || sourceFetching) return '前の書き込みの反映を待っています';
+      if (composing) return '文字の入力を終えてから操作してください';
+      const info = models[cell.table].info;
+      return rangePattern.test(info.anchor || '') ? '' : info.anchorReason || 'この表の前後には追加できません';
+    }
     const selecting = ['rows', 'cols', 'row-select', 'col-select'].includes(action);
     if (!selecting && (busy || queue.length)) return '前の書き込みの反映を待っています';
     const model = models[cell.table], info = model.info, rect = actionRect(action);
@@ -1318,7 +1406,7 @@
       item.setAttribute('role', 'menuitem');
       item.tabIndex = -1;
       item.dataset.action = action;
-      if (action === 'rows' || action === 'cols') {
+      if (['rows', 'cols', 'table'].includes(action)) {
         item.setAttribute('aria-haspopup', 'menu');
         item.setAttribute('aria-expanded', 'false');
         item.setAttribute('aria-controls', 'gp-edit-menu-' + action);
@@ -1332,7 +1420,7 @@
       item.addEventListener('pointerover', () => showMenuReason(menu, item));
       item.addEventListener('click', () => {
         if (reasonFor(action)) { updateMenus(); showMenuReason(menu, item); return; }
-        if (action === 'rows' || action === 'cols') openSubmenu(action, item);
+        if (['rows', 'cols', 'table'].includes(action)) openSubmenu(action, item);
         else runAction(action);
       });
     }
@@ -1352,8 +1440,9 @@
     ]);
   }
   buildMenu('cell', 'セルの操作', [['copy', 'コピー（Ctrl+C）', 'cell-copy'], ['cut', '切り取り（Ctrl+X）', 'cell-cut'],
-    ['paste', '貼り付け（Ctrl+V）', 'cell-paste'], null, ['rows', '行', 'cell-rows'], ['cols', '列', 'cell-cols'], null,
+    ['paste', '貼り付け（Ctrl+V）', 'cell-paste'], null, ['rows', '行', 'cell-rows'], ['cols', '列', 'cell-cols'], ['table', '表', 'cell-table'], null,
     ['source', '原文を編集', 'cell-source']]);
+  buildMenu('table', '表の操作', [['table-before', '表の前にブロックを追加'], ['table-after', '表の後ろにブロックを追加']]);
   buildMenu('document', '文書への追加', [['document-start', '文書の先頭に追加'], ['document-end', '文書の末尾に追加']]);
 
   function closeMenus(restore = false) {
@@ -1434,6 +1523,7 @@
     }
     operationStart();
     closeMenus();
+    if (action === 'table-before' || action === 'table-after') { beginTableInsert(action.slice('table-'.length)); return; }
     if (action === 'source') { if (editor) endEdit(true); beginEdit({ source: true }); return; }
     if (editor) endEdit(true);
     // 入力の確定が先に送られたなら、座標を使う次の操作は反映を待つ。
@@ -1483,7 +1573,7 @@
         return true;
       }
       const action = [...buttons].find(([, button]) => button === document.activeElement)?.[0];
-      if (!['rows', 'cols'].includes(action) || buttons.get(action).disabled || !['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(key)) return false;
+      if (!['rows', 'cols', 'table'].includes(action) || buttons.get(action).disabled || !['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(key)) return false;
       openMenu(action, buttons.get(action), { last: key === 'ArrowUp' });
     } else {
       const menu = openMenus.at(-1).menu;
@@ -1503,19 +1593,19 @@
     event.stopImmediatePropagation();
     return true;
   }
-  for (const [action, label] of [['rows', '行'], ['cols', '列'], ['source', '原文を編集'], ['undo', '元に戻す'], ['redo', 'やり直し']]) {
+  for (const [action, label] of [['rows', '行'], ['cols', '列'], ['table', '表'], ['source', '原文を編集'], ['undo', '元に戻す'], ['redo', 'やり直し']]) {
     if ((action === 'undo' || action === 'redo') && !config.undo) continue;
     const button = make('button', 'gp-edit-' + action, bar);
     button.type = 'button';
     button.textContent = label;
     buttons.set(action, button);
-    if (action === 'rows' || action === 'cols') {
+    if (['rows', 'cols', 'table'].includes(action)) {
       button.setAttribute('aria-haspopup', 'menu');
       button.setAttribute('aria-expanded', 'false');
       button.setAttribute('aria-controls', 'gp-edit-menu-' + action);
     }
     button.addEventListener('click', () => {
-      if (action === 'rows' || action === 'cols') {
+      if (['rows', 'cols', 'table'].includes(action)) {
         if (button.getAttribute('aria-expanded') === 'true') closeMenus();
         else openMenu(action, button);
       } else runAction(action);
@@ -1567,7 +1657,8 @@
   // 登録は一度だけ。全幅表示を開いたときに登録される Esc の受け手より先に動かす。
   window.addEventListener('pointerdown', (event) => {
     if (!mode) return;
-    if (openMenus.length && !event.target.closest?.('.gp-edit-menu, #gp-edit-rows, #gp-edit-cols, #gp-edit-add')) closeMenus();
+    if (!tablePicker.hidden && event.target !== insertTableButton && !tablePicker.contains(event.target)) closeTablePicker();
+    if (openMenus.length && !event.target.closest?.('.gp-edit-menu, #gp-edit-rows, #gp-edit-cols, #gp-edit-table, #gp-edit-add')) closeMenus();
     down = { x: event.clientX, y: event.clientY };
     dragged = false;
   }, true);
@@ -1716,6 +1807,9 @@
   new MutationObserver(refreshHover).observe(document.getElementById('gp-content'), { childList: true, subtree: true });
   window.addEventListener('keydown', (event) => {
     if (!mode || stopped) return;
+    if (!tablePicker.hidden && event.key === 'Escape' && !event.isComposing && !composing) {
+      event.preventDefault(); event.stopImmediatePropagation(); closeTablePicker(true); return;
+    }
     if (event.isComposing || event.keyCode === 229 || composing) {
       // IME の取り消しは入力欄へ渡すが、全幅表示の Esc へは渡さない。
       if (event.key === 'Escape') event.stopImmediatePropagation();
@@ -1799,6 +1893,7 @@
   }, true);
   window.addEventListener('input', (event) => {
     if (event.target !== input || !mode || (!selected && !blockPoint(editor?.point))) return;
+    closeTablePicker();
     if (!editor) beginEdit({ replace: true, value: input.value, composition: event.isComposing });
     if (event.isComposing) composing = true;
     editor.resize = true;

@@ -1381,9 +1381,9 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     await page.locator('#gp-content td').first().click({ button: 'right' });
     const cellMenu = page.locator('#gp-edit-menu-cell'), rows = page.locator('#gp-edit-menu-rows'), cols = page.locator('#gp-edit-menu-cols');
     assert.equal(await cellMenu.getAttribute('role'), 'menu');
-    assert.equal(await page.locator('#gp-edit-actions > button').count(), 5);
+    assert.equal(await page.locator('#gp-edit-actions > button').count(), 6);
     assert.equal(await page.locator('#gp-edit-actions [role="menu"]').count(), 0);
-    assert.equal(await page.locator('#gp-edit-layer > [role="menu"]').count(), 4);
+    assert.equal(await page.locator('#gp-edit-layer > [role="menu"]').count(), 5);
     assert.equal(await page.locator('#gp-edit-cell-rows').getAttribute('role'), 'menuitem');
     for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
@@ -3082,6 +3082,33 @@ test('Neovim の橋渡しで表の編集をバッファへ頼み、拒否の知�
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
   const original = '| 見出し |\n| --- |\n| 本文 |\n';
+  for (const side of ['before', 'after']) await t.test('表の ' + side + ' への追加を一個の行の置き換えにする', async (t) => {
+    const bridge = await startGoStdio(t);
+    const context = await browser.newContext();
+    t.after(() => context.close());
+    const page = await context.newPage();
+    await page.goto(bridge.url);
+    await bridge.send({ type: 'doc', path: null, name: '表.md', text: original, buf: 7, rev: 1 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 1);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    await page.locator('#gp-content td').click();
+    await page.locator('#gp-edit-table').click();
+    await page.locator('#gp-edit-table-' + side).click();
+    await page.locator('#gp-edit-input').fill('追加');
+    await page.keyboard.press('Control+Enter');
+    const edit = await bridge.waitFor('edit');
+    const replacement = side === 'before' ? { start: 0, end: 0, lines: ['追加', ''] }
+      : { start: 3, end: 3, lines: ['', '追加'] };
+    assert.deepEqual(edit, { type: 'edit', id: 1, path: null, buf: 7, rev: 1, edits: [replacement] });
+    const text = side === 'before' ? '追加\n\n' + original : original + '\n追加\n';
+    await bridge.send({ type: 'edit_result', id: edit.id, ok: true });
+    await bridge.send({ type: 'doc', path: null, name: '表.md', text, buf: 7, rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 2);
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-content table').count(), 1);
+    assert.equal(await page.locator('#gp-content > p').textContent(), '追加');
+  });
   for (const side of ['start', 'end', 'empty']) await t.test('文書の' + side + 'への追加を一個の行の置き換えにする', async (t) => {
     const bridge = await startGoStdio(t);
     const context = await browser.newContext();
@@ -4707,7 +4734,7 @@ test('水平線とブロック追加を本物のファイルで確かめる', { 
     await page.locator('#gp-edit-' + side).click();
     assert.equal(await page.locator('#gp-edit-source-label').textContent(), '追加');
     assert.equal(await page.locator('#gp-edit-input').inputValue(), '');
-    assert.equal(await page.locator('#gp-edit-block-actions').isVisible(), false);
+    assert.equal(await page.locator('#gp-edit-block-actions').isVisible(), true);
     assert.equal(readFileSync(file, 'utf8'), original, '元の入力は確定しない');
     await page.locator('#gp-edit-input').fill('追加した段落');
     await page.keyboard.press('Alt+ArrowUp');
@@ -5077,5 +5104,137 @@ test('数式と図の原文を編集し、描き直しと編集の枠を確か�
     assert.notEqual(await page.locator('#gp-edit-hover').textContent(), '');
     await page.evaluate(() => document.dispatchEvent(new CustomEvent('gp:stop', { detail: { reason: 'exit' } })));
     assert.equal(await page.locator('#gp-edit-hover').textContent(), '');
+  });
+});
+
+test('最上位の表の前後への追加と、追加欄で空の表を入れる操作を確かめる', { skip }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const pipe = '| 見出し |\n| --- |\n| 本文 |\n';
+  const html = '<table>\n<tr><th>見出し</th></tr>\n<tr><td>本文</td></tr>\n</table>\n';
+  const open = async (page, side, context = false) => {
+    await page.locator('#gp-content td').first().click(context ? { button: 'right' } : {});
+    if (context) {
+      await page.locator('#gp-edit-cell-table').focus();
+      await page.keyboard.press('ArrowRight');
+      assert.equal(await page.locator('#gp-edit-cell-table').getAttribute('aria-expanded'), 'true');
+    } else {
+      assert.equal(await page.locator('#gp-edit-table').getAttribute('aria-haspopup'), 'menu');
+      await page.locator('#gp-edit-table').click();
+    }
+    await page.locator('#gp-edit-table-' + side).click();
+    assert.equal(await page.locator('#gp-edit-input').getAttribute('aria-label'), 'ブロックの追加');
+  };
+  const commit = async (page) => {
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.keyboard.press('Control+Enter');
+    assert.equal((await response).status(), 200);
+    await editIdle(page);
+  };
+  for (const table of [pipe, html]) for (const side of ['before', 'after']) for (const ending of ['\n', '\r\n'])
+    await t.test((table === pipe ? 'パイプ' : 'HTML') + 'の ' + side + ' への追加 ' + JSON.stringify(ending), async (t) => {
+      const original = ('前\n\n' + table + '\n後\n').replaceAll('\n', ending);
+      const { page, file } = await editablePage(t, browser, original);
+      await open(page, side, table === html);
+      await page.locator('#gp-edit-input').fill('追加');
+      await commit(page);
+      const want = (side === 'before' ? '前\n\n追加\n\n' + table + '\n後\n' : '前\n\n' + table + '\n追加\n\n後\n').replaceAll('\n', ending);
+      assert.equal(readFileSync(file, 'utf8'), want);
+      assert.equal(await page.locator('#gp-content table').count(), 1);
+    });
+
+  await t.test('セルの入力を確定してから表の前に追加する', async (t) => {
+    const { page, file } = await editablePage(t, browser, pipe);
+    await page.locator('#gp-content td').dblclick();
+    await page.locator('#gp-edit-input').fill('確定したセル');
+    // 「表」を押すとセルの入力を確定する。書き込みの描き直しでメニューは閉じる（「行」「列」と同じ）。
+    await page.locator('#gp-edit-table').click();
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), pipe.replace('本文', '確定したセル'));
+    await page.locator('#gp-content td').click();
+    await page.locator('#gp-edit-table').click();
+    await page.locator('#gp-edit-table-before').click();
+    await page.locator('#gp-edit-input').fill('追加');
+    await commit(page);
+    assert.equal(readFileSync(file, 'utf8'), '追加\n\n' + pipe.replace('本文', '確定したセル'));
+  });
+
+  await t.test('追加先にできない表もメニューを開き、理由を文字で表示する', async (t) => {
+    const original = '- 項目\n\n  ' + pipe.trimEnd().replaceAll('\n', '\n  ') + '\n';
+    const { page, file } = await editablePage(t, browser, original);
+    await page.locator('#gp-content td').click();
+    assert.equal(await page.locator('#gp-edit-table').isEnabled(), true);
+    await page.locator('#gp-edit-table').focus();
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.locator('#gp-edit-table-before').getAttribute('aria-disabled'), 'true');
+    assert.match(await page.locator('#gp-edit-menu-table-reason').textContent(), /最上位/);
+    // 無効の項目（aria-disabled）を押しても何も書かない。
+    await page.locator('#gp-edit-table-before').click({ force: true });
+    assert.equal(readFileSync(file, 'utf8'), original);
+    await page.keyboard.press('Escape');
+    const malicious = '<img src=x onerror=alert(1)>追加できない';
+    await page.route('**/_/edit/tables?*', async (route) => {
+      const response = await route.fetch(), data = await response.json();
+      data.tables[0].anchorReason = malicious;
+      await route.fulfill({ json: data });
+    });
+    await page.reload();
+    await page.waitForFunction(() => Number(document.querySelector('#gp-edit-layer').dataset.render) > 0);
+    await page.locator('#gp-content td').click();
+    await page.locator('#gp-edit-table').click();
+    assert.equal(await page.locator('#gp-edit-menu-table-reason').textContent(), malicious);
+    assert.equal(await page.locator('#gp-edit-menu-table img').count(), 0);
+  });
+
+  for (const table of [pipe, html]) await t.test((table === pipe ? 'パイプ' : 'HTML') + 'の前への追加で後ろの下書きをずらす', async (t) => {
+    const { page, file } = await editablePage(t, browser, table + '\n後\n');
+    await page.locator('#gp-content > p').dblclick();
+    await page.locator('#gp-edit-input').fill('後ろの下書き');
+    await page.locator('#gp-edit-before').click();
+    await page.keyboard.press('Escape');
+    await open(page, 'before');
+    await page.locator('#gp-edit-input').fill('追加');
+    await commit(page);
+    await page.locator('#gp-content > p').last().dblclick();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '後ろの下書き');
+    assert.equal(readFileSync(file, 'utf8'), '追加\n\n' + table + '\n後\n');
+  });
+
+  for (const location of ['document', 'block', 'table']) await t.test(location + ' の追加欄へカーソルの位置に表を入れる', async (t) => {
+    const original = '元\n\n' + pipe;
+    const { page, file } = await editablePage(t, browser, original);
+    if (location === 'table') await open(page, 'after');
+    else if (location === 'block') {
+      await page.locator('#gp-content > p').dblclick();
+      await page.locator('#gp-edit-after').click();
+    } else {
+      await page.locator('#gp-edit-add').click();
+      await page.locator('#gp-edit-document-end').click();
+    }
+    const input = page.locator('#gp-edit-input');
+    await input.fill('先\n後');
+    await input.evaluate((element) => element.setSelectionRange(1, 1));
+    await page.locator('#gp-edit-insert-table').click();
+    assert.equal(await page.locator('#gp-edit-table-picker').isVisible(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#gp-edit-table-picker').isVisible(), false);
+    assert.equal(await input.evaluate((element) => element === document.activeElement && element.selectionStart === 1), true);
+    assert.equal(await input.inputValue(), '先\n後');
+    await page.locator('#gp-edit-insert-table').click();
+    await page.locator('#gp-edit-table-cols').fill('21');
+    await page.locator('#gp-edit-table-picker button[type="submit"]').click();
+    assert.equal(await input.inputValue(), '先\n後');
+    await page.locator('#gp-edit-table-cols').fill('2');
+    await page.locator('#gp-edit-table-rows').fill('3');
+    await page.locator('#gp-edit-table-picker button[type="submit"]').click();
+    const inserted = '先\n\n| 列1 | 列2 |\n| --- | --- |\n|  |  |\n|  |  |\n|  |  |\n\n後';
+    assert.equal(await input.inputValue(), inserted);
+    await commit(page);
+    assert.equal(await page.locator('#gp-content table').count(), 2);
+    const newTable = page.locator('#gp-content table').filter({ hasText: '列1' });
+    assert.equal(await newTable.locator('tbody tr').count(), 3);
+    const want = location === 'block' ? '元\n\n' + inserted + '\n\n' + pipe : original + '\n' + inserted + '\n';
+    assert.equal(readFileSync(file, 'utf8'), want);
   });
 });
