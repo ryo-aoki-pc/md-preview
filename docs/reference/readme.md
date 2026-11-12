@@ -156,6 +156,66 @@ copy・cut イベントは同期的に、表情報から `text/plain` の引用�
 
 画面の編集の検証記録は、`repos/md-tools/docs/verification/readme.md` の「画面の編集の範囲の拡大（第 1 段）と、版 0.10.0 の配布の検証（2026-11-12）」にある。数式と図の編集の検証記録は、`repos/md-tools/docs/verification/readme.md` の「数式と図の編集と、版 0.11.0 の配布の検証（2026-11-12）」にある。水平線の編集とブロックの追加の検証記録は、`repos/md-tools/docs/verification/readme.md` の「水平線の編集とブロックの追加と、版 0.12.0 の配布の検証（2026-11-12）」にある。生の HTML のブロックの編集の検証記録は、`repos/md-tools/docs/verification/readme.md` の「生の HTML のブロックの編集と、版 0.13.0 の配布の検証（2026-11-12）」にある。
 
+## 画面のコメント
+
+`mdpreview --review <ファイル | フォルダー>` は、[internal/edit](../../internal/edit/review.go) の原文と対象の検査、[internal/review](../../internal/review/prompt.go) の依頼文の組み立て、[internal/vscode](../../internal/vscode/vscode.go) の Agents Window の起動と、[page/review.js](../../page/review.js) を接続する。`--edit` と併用できるが、ページでは編集とコメントのモードを同時に使わない。`--stdio` とは併用できず、Neovim の取り決めにもコメントを加えない。指定しない場合はコメントの経路とページの `review` 設定を有効にせず、`review.js` も操作や層を追加しない。一覧の画面にはコメントの入口を出さない。
+
+コメントをためる操作と依頼文の作成では、Markdown に書かない。ページは利用者のクリックで依頼文をクリップボードへコピーし、その後に VS Code の Agents Window を文書のルートで開く。利用者が入力欄に貼り、内容を確かめて送る。mdpreview 自身は AI の API へ通信せず、依頼文をコマンドラインや URL に入れない。[VS Code の公式の説明](https://code.visualstudio.com/docs/agents/run/agents-window#_limitations)に従い、依頼文の先頭を `/plan` にし、Copilot か Claude のセッションで計画を頼む。Agents Window のエージェントの一覧に Plan は無い。今のプレビューと同じファイルを直すときは作業場所を Branch にする。New Worktree の変更は別のファイルなので、今のプレビューには出ない。
+
+コメントの口は [internal/server/review.go](../../internal/server/review.go) と、編集と共有する [internal/server/edit.go](../../internal/server/edit.go) の `readSource` にある。token は URL の先頭の区切りで照合し、合わない要求はコメントの口に入らない（POST は 405、GET は 404）。Host と Sec-Fetch-Site は共通で検査する。対象の原文を読むときは `Resolve` でルート内の実パスを確かめ、launch は prepare で検査した文書とルートを使う。`doc` を省くと起動した文書、付けるとそのファイル文書を指し、空文字列と省略は区別する。GET は HEAD も受ける。
+
+| 口 | 要求と成功時の応答 |
+| --- | --- |
+| `GET _/review/tables?doc=&render=` | 編集と同じ文書・表・セルの情報を返す。`render` は正の描画番号 |
+| `GET _/review/source?doc=&render=&tag=&range=` | 編集と同じ対象の検査を通し、ブロックの `text`・`render`・実際の `range`・`kind`・`outer`・`anchor` を返す。生の HTML は `tag=html` と `prevTag`・`prevRange`、`nextTag`・`nextRange` の境の組を使い、文書の先頭・末尾の組は省く |
+| `POST _/review/prepare?doc=` | `{render, comments: [{target, selection?, text}]}` を受け、`{id, prompt, comments, bytes}` を返す。応答の `comments` は件数、`bytes` は依頼文の UTF-8 のバイト数 |
+| `POST _/review/launch?doc=` | prepare が返した `{id}` だけを受け、`{launched: true}` を返す。同じ ID の起動が済んでいれば、重ねて起こさず `again: true` を加える。同じ ID の起動がまだ終わっていなければ、409 の `launching` を返す |
+
+POST は、Origin が要求の Host と完全に同じことと、Sec-Fetch-Site が空か same-origin であることを追加で確かめる。Content-Type は `application/json`、本文は UTF-8 の JSON オブジェクトに限り、prepare は 2 MiB、launch は 1 KiB まで。prepare の `render` は正の安全な整数、`comments` は 1〜50 件にする。コメントは空白を除いた空文字列を受けず、`text` と省略できる `selection` はそれぞれ 1〜2,000 文字で、タブと改行以外の制御文字を断る。各オブジェクトの知らないキーと、型の誤りも断る。
+
+`target` は次の 3 つの形だけを受ける。`block` は `{kind: "block", tag, range}` で、`range` は描画した HTML の公開の位置。`html` は `{kind: "html", prev?, next?}` で、境はそれぞれ `{tag, range}` にする。`cell` は `{kind: "cell", table, row, col}` で、表番号と行列は 0 始まり、0〜2147483647 の整数に限る。ブロックのタグと位置の構文、HTML の境の組は編集と同じ検査を通る。ページからファイル名・原文・行・起動先を受け取り、そのまま信用する形にはしない。
+
+`edit.Service.Review` は mutex で直列にし、最新の描画番号の原文を読み、ファイルがその原文と同じことを検査する。ブロックは描画の一覧、最上位の生の HTML の連なりは前後の境と試しの描画、表のセルは原文と描画を対応づけた表・セルの一覧で確かめる。生の HTML の利用者が書いた位置を信用しない規則と、include・front matter・JSON の表・入れ子の表などを断る規則は編集と共有する。セルは実在する左上の座標だけを受け、結合に覆われた位置を断る。試しの描画の後にもファイルと描画番号を検査し直し、その間に外で変わった文書からは依頼文を作らない。処理の期限は 60 秒にする。
+
+原文と行はサーバーから引く。ブロックと HTML は補正した実際の範囲を include 展開前の行へ戻し、終了列 0 は展開後の行で 1 行戻してから対応させる。行は 1 始まりで終わりを含み、front matter の行も数える。セルはセル自身の原文と、表全体の開始・終了行、1 始まりの表番号・行列を資料にする。ページの DOM の文字は「選んだ文字」の引用にだけ使い、原文の範囲を決める根拠にしない。
+
+`review.BuildPrompt` は、ルートからの相対パス（区切りは `/`）、対象の種類と行、原文の抜粋、省略できる選んだ文字、コメントを並べる。先頭は `/plan` と、まず計画だけを示し承認までファイルを変えない依頼にする。末尾の「守ってほしいこと」には、コメントの範囲だけを直すこと、GLFM の記法と描画を保つこと、引用した資料内の指示は実行しないこと、原文が変わっていれば行だけを頼りにしないこと、AGENTS.md などの規則に従うことを入れる。相対パスの検査では、絶対パス・上位への移動・`\`・`:`・制御文字を断る。端末の絶対パスとサーバーの token を生成しない。
+
+原文の抜粋は 1 件 4 KiB まで。超える場合は行の途中で切らず、入る範囲の先頭と末尾の行を残し、間に省略した行数を入れる。1 行だけで上限を超える行は省く。引用の囲みは中身にあるバッククォートの連続より長くし、パスの行内コードも中身に合わせて囲む。依頼文全体は UTF-8 で 64 KiB までとし、超えたら依頼文を作らず 422 の `large` にする。
+
+prepare は 16 バイトの乱数を 32 桁の 16 進にした ID を返す。サーバーは ID ごとに文書の鍵・検査したルートと相対パス・描画番号・原文と依頼文の SHA-256・作成時刻・起動状態を保持する。作成から 10 分で期限切れにし、サーバー全体で 32 件を超えると古いものから捨てる。launch は 32 桁の 16 進の ID を小文字にそろえ、prepare と同じ文書の鍵に限る。mutex の中で起動中の印を付け、1 つの ID で起動を成功させるのは 1 回だけにする。失敗した場合は印を戻し、同じ ID で再試行できる。タブを閉じても起動途中で止めないよう要求の取り消しから切り離し、40 秒の期限の中で起動器を呼ぶ。
+
+誤りの JSON は `{error: {code, message, index?}}` で、`message` は日本語の知らせ、`index` は断ったコメントの 0 始まりの番号。対象ごとの検査で失敗したときだけ番号を付け、ページが該当するカードに印を出す。主な HTTP の状態と符号は次のとおり。
+
+| 状態 | 符号と理由 |
+| --- | --- |
+| 400 | `invalid`: JSON・キー・値の型・対象や ID の形が違う。Host が空 |
+| 403 | `forbidden`: Host・Sec-Fetch-Site・Origin を検査して拒否した |
+| 404 | `missing`: 文書やコメントの経路が無い。`expired`: ID が無いか期限が切れた |
+| 405 | GET・HEAD・POST 以外のメソッド。JSON の符号を付けず、`Allow` ヘッダーを返す。`prepare` と `launch` の GET・HEAD は 404 の `missing` |
+| 409 | `stale`: 描画が古い。`changed`: ファイルが描画の原文と違うか、ID が別の文書を指す。`launching`: 同じ ID の起動がまだ終わっていない |
+| 413 | `large`: POST の本文が上限を超えた |
+| 415 | `media`: Content-Type が違う |
+| 422 | `target`・`boundary`・`untrusted` など: ブロックの検査で拒否した。`excluded`・`range`・`merged`: 表やセルが対象外。`unnamed`: 名前の無い文書。`cancelled`: 原文の検査を取り消した。`invalid`・`large`: 依頼文の相対パスが不正か全体が 64 KiB を超えた。`large` は文書が 16 MiB を超えたときにも返す（コメントを分けても解消しない） |
+| 500 | `internal`: コメントの処理を終えられない |
+| 503 | `notfound`: VS Code が見つからない。`launch`: 起動・終了・待機に失敗した |
+
+`internal/vscode.AgentsCommand` は、存在するフォルダーの絶対パスだけをルートに受け、PATH の空の項目と相対パスの項目を飛ばして `code` を探す。Windows 以外は実行の権限がある通常のファイルを選び、リンクを解決した実パスで `code --agents <ルート>` を起こす。Linux の実際の VS Code の起動は未検証。
+
+Windows は `code.cmd` を実行せず、64 KiB まで読んで `Code.exe` と版ごとの `<版のフォルダー>/resources/app/out/cli.js` の配置を確かめる（版のフォルダーの無い前の配置も受ける）。`cli.js` の相対部分に `..`・区切りの混用・`:`・`%`・`"`・NUL・CR・LF・末尾の点と空白（Windows が名前から落とす）などを受けず（タブなどのほかの制御文字は、この段では断らず、解決後のパスがインストール先の内側にあることで閉じる）、`cli.js` と `Code.exe` はリンクやジャンクションの解決後もインストール先の内側にある通常のファイルに限る。`ELECTRON_RUN_AS_NODE` と `VSCODE_DEV` を親の環境から除き、`ELECTRON_RUN_AS_NODE=1` を付け、`Code.exe <cli.js> --agents <ルート>` を引数の配列で起こす。`--agents` を処理する CLI の入口を通すため、`Code.exe --agents <ルート>` だけで GUI を直接起こさない。`cmd.exe`・PowerShell・バッチを通さず、ルートに含まれる文字をシェルの構文として解釈させない。コンソールを作らない指定を使い、VS Code の画面まで隠す指定は使わない。
+
+起動器は、VS Code を探す処理とコマンドの終了を合わせて 30 秒まで待ち（PATH に応答しないフォルダーがあっても止まらない）、期限の後は起こさない。標準入力・出力・エラーは捨てる。コマンドが開始できない場合・終了コードが 0 でない場合・時間切れを区別し、ページの知らせには端末のパスや内部のエラーを出さない。ページはコピーが成功した後だけ launch を呼ぶので、起動が失敗してもコピーした依頼文は使える。コピーが失敗した場合は launch を呼ばず、依頼文を選択して Ctrl+C を案内する。
+
+ページは [edit-targets.js](../../page/edit-targets.js) のブロック・生の HTML・表の格子の検査を編集と共用する。`review.js` は、要素名と公開の位置、HTML の前後の境、表と左上のセルの座標で対象を保持する。文字の選択は 1 つの対象内だけを受ける。表は描画番号・文書順の数と番号・区画ごとの格子・行列数・セル順・結合・th/td を照合し、固定の全幅表示で本文の外へ移った表も対応づけたセルだけを受ける。本文へ属性を足さず、ブロックと HTML は子の番号だけのセレクターの枠、セルは body 直下の層の枠で示す。
+
+右の欄（幅 700 px 以下では下）にコメントの入力・カード・依頼文を置く。「追加」は Ctrl+Enter でも受け、IME の変換中のキーは扱わない。「直す」「消す」「本文へ移る」でカードを操作し、「依頼文を作る」は未コピーだけを送る。コピーが成功したカードを「コピー済み」にし、「コピー済みを消す」で除ける。これは送信や実装の完了を意味しない。再描画で対象が消えた場合や表を検査できなくなった場合は「要確認」、prepare がその対象を断った場合は「誤り」を出す。カード・コメント・知らせは `textContent`、入力欄と依頼文は `value` で入れ、HTML として解釈させない。
+
+保存先はそのタブの sessionStorage の `gitlab-preview-review`。版 1 の `docs` に `current` と `file:<相対パス>` を分け、コメント・対象・選んだ文字・描画番号・コピーの状態・要確認と誤りを保存する。読み戻すときも形と大きさを検査し、不正な文書の分は捨てる。保存できなければメモリーで続ける。コメントモードの開閉は保存せず、依頼文と ID も保存しない。コメントの変更・新しい描画・停止では古い依頼文を捨て、作成中の要求も中止する。編集中の入力・IME・送信待ち・原文取得があるときはコメントへ切り替えず、確定か取り消しを案内する。コメント中は `gpPreview.setEditing` と `holdScroll` で本文のリンクの扱いとスクロールを制御する。印刷ではコメントの欄・枠・知らせを隠す。
+
+外のアプリを起こすのは、`--review` で起動し、利用者が「コピーして Agents Window を開く」を押した検証済みの launch だけ。実行ファイル・引数・フォルダー・URL をページから受け取らず、prepare で確かめたルートを使う。[公式の起動方法](https://code.visualstudio.com/docs/agents/run/agents-window#_open-the-agents-window)の `code --agents` と、利用者が貼り付けて送る形に限る。公式にない URL の受け口や、依頼文を埋め込む URL は使わない。外の拡張機能や非公開の受け口に依存せず、依頼文が URL やコマンドラインに残ることも避けるため。
+
+Windows 11・VS Code 1.145.3 では、ページのボタンから文書の Git のルートで Agents Window が開くことと、新しいフォルダーの信頼の確認を確かめた。Copilot・Claude へ実際に送って計画が返ること、AlmaLinux 10 での VS Code の起動、実際の IME、手で操作するブラウザでの一連の手順は未検証。検証記録は、`repos/md-tools/docs/verification/readme.md` の「画面のコメントと Agents Window への送付と、版 0.14.0 の配布の検証（2026-11-13）」にある。
+
 ## ブラウザの表示
 
 [ページ](../../page/preview.js)は、消毒済みの本文と、見出し・知らせ・ファイル名を別に受け取る。本文以外は `textContent` で入れる。原文を抜き出した知らせには HTML が混ざることがあるため、見出しや通知の表示を通じて HTML として解釈させない。
@@ -166,7 +226,9 @@ copy・cut イベントは同期的に、表情報から `text/plain` の引用�
 
 初回・誤りの表示の前後・文書の変更と、対応する節点や親・並びに食い違いを見つけた場合は、本文を丸ごと入れ替えて対応を作り直す。全置換の `details` は従来どおり番号順に開閉を復元する。部分更新でも全置換でも、外す範囲の読み込み済み PlantUML の画像は同じ URL の新しい図へ使い回す。本文へ追加する節点は、受け取った消毒済み HTML の写しからだけ作る。
 
-ページの JS どうしの接点は `window.gpPreview` に置く。設定・基準 URL・文書名・最後の描画と、元の本文の文書順に並べた画面の表を参照できる。`sourceOf(element)` は、サーバーの HTML の写しと画面の対応から、もとの要素名と公開の位置を `{tag, range}` で返し、写しの節点は外へ渡さない。数式や mermaid の描画結果（mermaid の失敗表示も含む）と PlantUML の失敗表示は、置き換え時に対応を結び直す。位置を持たない要素は中の要素へ読み替えず、数式と図へ置き換えた表示だけ、もとの包みの内側の位置も引く。`findSource(tag, range)` は、この組から今の画面の要素を探す。`htmlOf(element)` は、本文の写しの並びで、その節点を含む最上位の位置のない連なりの前後の境を引き、`{tag: "html", prev, next}` を返す。`findHTML(target)` は、同じ境から今の画面の連なりの要素を返す。どちらも本文の写しの並びで決め、写しの節点は外へ渡さない。`holdScroll(true)` の間はサーバーの scroll イベントだけからスクロールを同期する。`setEditing(true)` の間は表示の層からジャンプを送らず、PlantUML のリンクの扱いを編集の層へ任せる。本文と欄・行対応の同期後、数式や図を非同期に描く前に、描画番号を持つ `gp:render` を document へ通知する。停止時は `gp:stop` を通知し、編集の UI は別ファイルからこの接点を使う。
+ページの JS どうしの接点は `window.gpPreview` に置く。設定・基準 URL・文書名・最後の描画と、元の本文の文書順に並べた画面の表を参照できる。`sourceOf(element)` は、サーバーの HTML の写しと画面の対応から、もとの要素名と公開の位置を `{tag, range}` で返し、写しの節点は外へ渡さない。数式や mermaid の描画結果（mermaid の失敗表示も含む）と PlantUML の失敗表示は、置き換え時に対応を結び直す。位置を持たない要素は中の要素へ読み替えず、数式と図へ置き換えた表示だけ、もとの包みの内側の位置も引く。`findSource(tag, range)` は、この組から今の画面の要素を探す。`htmlOf(element)` は、本文の写しの並びで、その節点を含む最上位の位置のない連なりの前後の境を引き、`{tag: "html", prev, next}` を返す。`findHTML(target)` は、同じ境から今の画面の連なりの要素を返す。どちらも本文の写しの並びで決め、写しの節点は外へ渡さない。`holdScroll(true)` の間はサーバーの scroll イベントだけからスクロールを同期する。`setEditing(true)` の間は表示の層からジャンプを送らず、PlantUML のリンクの扱いを編集の層へ任せる。本文と欄・行対応の同期後、数式や図を非同期に描く前に、描画番号を持つ `gp:render` を document へ通知する。停止時は `gp:stop` を通知し、編集とコメントの UI は別ファイルからこの接点を使う。
+
+[index.html](../../page/index.html) は `preview.js` → `edit-grid.js` → `edit-targets.js` → `edit.js` → `review.js` の順に defer で読み込む。`edit-targets.js` は `gpPreview` の対応から対象のブロック・生の HTML・表の格子を引く `window.gpEditTargets` を用意し、`edit.js` と `review.js` が共用する。`window.gpEditMode` と `window.gpReviewMode` でモードを切り替え、コメントへ入る前に編集の入力や送信が終わっていることを確かめる。
 
 GitLab との差を知らせる [internal/notices](../../internal/notices/notices.go) は、完成した木を変えない。差の説明を加えるために、比較する本文の構造を変えないため。include の展開後の位置も原文の行へ対応させ、知らせから本文へ移る位置に使う。
 
