@@ -139,6 +139,8 @@ func TestPythonEditWaitsForOwner(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			check := func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				defer cancel()
 				r := pythonEdit(t, c.input, nil, func(path, md string) error {
 					if e := pythonEditBook(path, "A2", "lazygit2"); e != nil {
 						return e
@@ -150,9 +152,22 @@ func TestPythonEditWaitsForOwner(t *testing.T) {
 					} else {
 						pythonLater(t, c.appear, func() error { return os.WriteFile(pythonOwner(path), nil, 0600) })
 					}
-					pythonLater(t, c.close, func() error { return os.Remove(pythonOwner(path)) })
+					pythonLater(t, c.close, func() error {
+						// 実時間で動かす場合の一時的な共有違反に備え、短い間隔でやり直す。
+						deadline := time.Now().Add(3 * time.Second)
+						for {
+							e := os.Remove(pythonOwner(path))
+							if e == nil || !time.Now().Before(deadline) {
+								return e
+							}
+							time.Sleep(50 * time.Millisecond)
+						}
+					})
 					return nil
-				}, context.Background())
+				}, ctx)
+				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					t.Fatalf("所有者のファイルが消えるのを待ったまま終わらない: %d %s", r.code, r.err)
+				}
 				if r.code != 0 || !strings.Contains(r.err, "ブックが閉じられたので取り込みます") {
 					t.Fatalf("閉じた後に取り込めない: %d %s", r.code, r.err)
 				}
@@ -163,10 +178,12 @@ func TestPythonEditWaitsForOwner(t *testing.T) {
 					t.Fatal("一時フォルダーが残った")
 				}
 			}
-			if c.close > eofGrace {
-				// EOF の猶予時間は実時間を待たず、入力が閉じた状態の仮想時計で検査する。
+			if c.input != nil {
+				// 閉じたパイプでは実際の入力を待たず、ファイル操作中は仮想時計が進まない。
+				// 作成と削除の順序を保ち、EOF の猶予時間も実時間を待たずに検査する。
 				synctest.Test(t, check)
 			} else {
+				// 開いたパイプの読み取りは確実な停止と見なされず、仮想時計が進まないので実時間で検査する。
 				check(t)
 			}
 		})
