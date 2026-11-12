@@ -11,10 +11,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/highlight"
-	t "github.com/ryo-aoki-pc/md-preview/internal/htmltree"
-	"github.com/ryo-aoki-pc/md-preview/internal/include"
-	"github.com/ryo-aoki-pc/md-preview/internal/paths"
+	"github.com/ryo-aoki-pc/md-tools/internal/highlight"
+	t "github.com/ryo-aoki-pc/md-tools/internal/htmltree"
+	"github.com/ryo-aoki-pc/md-tools/internal/include"
+	"github.com/ryo-aoki-pc/md-tools/internal/paths"
 	"golang.org/x/net/html"
 )
 

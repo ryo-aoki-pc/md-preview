@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
 	"github.com/ryo-aoki-pc/md-table-excel/tableedit"
+	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
 )
 
 func TestInvalidRequestsDoNotWrite(t *testing.T) {

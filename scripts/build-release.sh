@@ -28,6 +28,6 @@ for target in windows/amd64 linux/amd64 linux/arm64; do
   fi
   CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" go build \
     -trimpath -buildvcs=false \
-    -ldflags "-s -w -X github.com/ryo-aoki-pc/md-preview/internal/version.Version=$version" \
+    -ldflags "-s -w -X github.com/ryo-aoki-pc/md-tools/internal/version.Version=$version" \
     -o "$output_dir/$filename" ./cmd/mdpreview
 done

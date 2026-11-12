@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/version"
+	"github.com/ryo-aoki-pc/md-tools/internal/version"
 )
 
 func TestRun(t *testing.T) {
@@ -65,7 +65,7 @@ func TestMainProcess(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
-	build := exec.Command("go", "build", "-ldflags", "-X github.com/ryo-aoki-pc/md-preview/internal/version.Version=0.2.0-test", "-o", binary, "./cmd/mdpreview")
+	build := exec.Command("go", "build", "-ldflags", "-X github.com/ryo-aoki-pc/md-tools/internal/version.Version=0.2.0-test", "-o", binary, "./cmd/mdpreview")
 	build.Dir = root
 	build.Env = append(os.Environ(), "GOTMPDIR="+dir)
 	if output, err := build.CombinedOutput(); err != nil {

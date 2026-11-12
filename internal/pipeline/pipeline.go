@@ -24,11 +24,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/filters"
-	t "github.com/ryo-aoki-pc/md-preview/internal/htmltree"
-	"github.com/ryo-aoki-pc/md-preview/internal/include"
-	"github.com/ryo-aoki-pc/md-preview/internal/notices"
-	"github.com/ryo-aoki-pc/md-preview/internal/sanitize"
+	"github.com/ryo-aoki-pc/md-tools/internal/filters"
+	t "github.com/ryo-aoki-pc/md-tools/internal/htmltree"
+	"github.com/ryo-aoki-pc/md-tools/internal/include"
+	"github.com/ryo-aoki-pc/md-tools/internal/notices"
+	"github.com/ryo-aoki-pc/md-tools/internal/sanitize"
 	"golang.org/x/net/html"
 )
 

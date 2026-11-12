@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
 )
 
 func until(t *testing.T, predicate func() bool) {

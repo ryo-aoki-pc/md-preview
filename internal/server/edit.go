@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/edit"
+	"github.com/ryo-aoki-pc/md-tools/internal/edit"
 )
 
 type Editor interface {

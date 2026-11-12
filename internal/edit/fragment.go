@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/session"
 	"github.com/ryo-aoki-pc/md-table-excel/tableedit"
+	"github.com/ryo-aoki-pc/md-tools/internal/session"
 )
 
 type moveSource struct {

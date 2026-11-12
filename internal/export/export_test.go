@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ryo-aoki-pc/md-preview/engine"
-	h "github.com/ryo-aoki-pc/md-preview/internal/htmltree"
-	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
-	"github.com/ryo-aoki-pc/md-preview/internal/sanitize"
+	"github.com/ryo-aoki-pc/md-tools/engine"
+	h "github.com/ryo-aoki-pc/md-tools/internal/htmltree"
+	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/sanitize"
 	"golang.org/x/net/html"
 )
 

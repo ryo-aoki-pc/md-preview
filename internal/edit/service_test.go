@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-preview/engine"
-	"github.com/ryo-aoki-pc/md-preview/internal/htmltree"
-	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
-	"github.com/ryo-aoki-pc/md-preview/internal/session"
+	"github.com/ryo-aoki-pc/md-tools/engine"
+	"github.com/ryo-aoki-pc/md-tools/internal/htmltree"
+	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/session"
 	"golang.org/x/net/html"
 )
 

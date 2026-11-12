@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ryo-aoki-pc/md-preview/internal/plantumlsource"
+	"github.com/ryo-aoki-pc/md-tools/internal/plantumlsource"
 	"io"
 	"os"
 	"os/exec"

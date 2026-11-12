@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-preview/engine"
-	ht "github.com/ryo-aoki-pc/md-preview/internal/htmltree"
+	"github.com/ryo-aoki-pc/md-tools/engine"
+	ht "github.com/ryo-aoki-pc/md-tools/internal/htmltree"
 	"golang.org/x/net/html"
 )
 

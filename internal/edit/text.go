@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/session"
+	"github.com/ryo-aoki-pc/md-tools/internal/session"
 )
 
 // Range は data-sourcepos と同じ、1 起点で終端を含むバイトの範囲。

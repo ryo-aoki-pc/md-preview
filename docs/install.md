@@ -54,8 +54,8 @@
    ```bash
    # 配布ファイルと sha256 の一覧を、専用のフォルダーへ取得する
    preview_download_dir=$(mktemp -d) &&
-     curl -fL -o "$preview_download_dir/$preview_download_name" "https://github.com/ryo-aoki-pc/md-preview/releases/latest/download/$preview_download_name" &&
-     curl -fL -o "$preview_download_dir/SHA256SUMS" 'https://github.com/ryo-aoki-pc/md-preview/releases/latest/download/SHA256SUMS'
+     curl -fL -o "$preview_download_dir/$preview_download_name" "https://github.com/ryo-aoki-pc/md-tools/releases/latest/download/$preview_download_name" &&
+     curl -fL -o "$preview_download_dir/SHA256SUMS" 'https://github.com/ryo-aoki-pc/md-tools/releases/latest/download/SHA256SUMS'
    ```
 
    - エラーなく終わればよい
@@ -207,8 +207,8 @@
    New-Item -ItemType Directory -Path $downloadDirectory -ErrorAction Stop | Out-Null
    $downloadName = 'mdpreview-windows-amd64.exe'
    $downloadFile = Join-Path $downloadDirectory $downloadName
-   Invoke-WebRequest -Uri "https://github.com/ryo-aoki-pc/md-preview/releases/latest/download/$downloadName" -OutFile $downloadFile -ErrorAction Stop
-   Invoke-WebRequest -Uri 'https://github.com/ryo-aoki-pc/md-preview/releases/latest/download/SHA256SUMS' -OutFile "$downloadDirectory\SHA256SUMS" -ErrorAction Stop
+   Invoke-WebRequest -Uri "https://github.com/ryo-aoki-pc/md-tools/releases/latest/download/$downloadName" -OutFile $downloadFile -ErrorAction Stop
+   Invoke-WebRequest -Uri 'https://github.com/ryo-aoki-pc/md-tools/releases/latest/download/SHA256SUMS' -OutFile "$downloadDirectory\SHA256SUMS" -ErrorAction Stop
    ```
 
    - エラーなく終わればよい

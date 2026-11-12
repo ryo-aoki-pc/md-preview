@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/edit"
-	"github.com/ryo-aoki-pc/md-preview/internal/server"
-	"github.com/ryo-aoki-pc/md-preview/internal/session"
+	"github.com/ryo-aoki-pc/md-tools/internal/edit"
+	"github.com/ryo-aoki-pc/md-tools/internal/server"
+	"github.com/ryo-aoki-pc/md-tools/internal/session"
 )
 
 type editApp struct {

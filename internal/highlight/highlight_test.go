@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	t "github.com/ryo-aoki-pc/md-preview/internal/htmltree"
+	t "github.com/ryo-aoki-pc/md-tools/internal/htmltree"
 	"golang.org/x/net/html"
 )
 

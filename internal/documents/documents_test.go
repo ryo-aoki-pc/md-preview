@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
 )
 
 // realTemp は、一時フォルダーを実パスで返す。ルートは実パスで渡す決まりで、一時フォルダーのパスには

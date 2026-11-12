@@ -18,11 +18,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-preview/engine"
-	"github.com/ryo-aoki-pc/md-preview/internal/assets"
-	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
-	"github.com/ryo-aoki-pc/md-preview/internal/server"
+	"github.com/ryo-aoki-pc/md-tools/engine"
+	"github.com/ryo-aoki-pc/md-tools/internal/assets"
+	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/server"
 )
 
 func commandRoot(t *testing.T) string {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/paths"
-	"github.com/ryo-aoki-pc/md-preview/internal/sanitize"
+	"github.com/ryo-aoki-pc/md-tools/internal/paths"
+	"github.com/ryo-aoki-pc/md-tools/internal/sanitize"
 )
 
 const MaxIncludes = 32

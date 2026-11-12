@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ryo-aoki-pc/md-preview/engine"
-	"github.com/ryo-aoki-pc/md-preview/internal/pipeline"
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
-	"github.com/ryo-aoki-pc/md-preview/internal/session"
+	"github.com/ryo-aoki-pc/md-tools/engine"
+	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/session"
 )
 
 // 保存されていないパスを使い、編集のためにファイルを開かないことも確かめる。

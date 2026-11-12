@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/resolve"
-	"github.com/ryo-aoki-pc/md-preview/internal/session"
+	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
+	"github.com/ryo-aoki-pc/md-tools/internal/session"
 )
 
 func TestEditFixture(t *testing.T) {

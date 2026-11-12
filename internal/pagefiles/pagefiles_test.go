@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/ryo-aoki-pc/md-preview/page"
+	"github.com/ryo-aoki-pc/md-tools/page"
 	"io/fs"
 	"strings"
 	"testing"

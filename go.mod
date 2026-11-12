@@ -1,4 +1,4 @@
-module github.com/ryo-aoki-pc/md-preview
+module github.com/ryo-aoki-pc/md-tools
 
 go 1.27.3
 

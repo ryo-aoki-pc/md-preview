@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/edit"
+	"github.com/ryo-aoki-pc/md-tools/internal/edit"
 )
 
 type testEditor struct {

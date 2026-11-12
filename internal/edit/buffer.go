@@ -3,7 +3,7 @@ package edit
 import (
 	"strings"
 
-	"github.com/ryo-aoki-pc/md-preview/internal/session"
+	"github.com/ryo-aoki-pc/md-tools/internal/session"
 )
 
 // 末尾の改行だけではバッファの行は変わらない。CR は行の文字として残す。
