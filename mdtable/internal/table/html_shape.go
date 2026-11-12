@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/htmltok"
 	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
 )
 
@@ -20,15 +21,8 @@ func ShapeLocks(r *Region) (rows, cols string) {
 			cols = rows
 		}
 	}
-	for _, c := range t.Cells {
-		if c.EndToken == nil {
-			rows = "</td>・</th> が省略されているので、行・列は変えられない"
-			cols = rows
-		}
-		if !spanAttributesValid(c) {
-			rows = "結合の値が 0・数字以外・区画の終わりで切られた値なので、行・列は変えられない"
-			cols = rows
-		}
+	if reason := CellLocks(r); reason != "" {
+		rows, cols = reason, reason
 	}
 	if cols == "" && len(t.Colgroups) > 0 {
 		cols = "<colgroup>・<col> があるので、列は変えられない"
@@ -48,9 +42,34 @@ func ShapeLocks(r *Region) (rows, cols string) {
 	return
 }
 
-// spanEdit は属性を組み直さず、結合の値の数字だけを書き換える。
-func spanEdit(c *HTMLCell, name string, value int) htmlEdit {
-	token := c.StartToken
+// CellLocks は ShapeLocks から取り出した、セルの形を変えられない理由を返す。
+func CellLocks(r *Region) string {
+	if r.Kind != "html" || r.HTML == nil {
+		return ""
+	}
+	reason := ""
+	for _, c := range r.HTML.Cells {
+		if c.EndToken == nil {
+			reason = "</td>・</th> が省略されているので、行・列は変えられない"
+		}
+		if !spanAttributesValid(c) {
+			reason = "結合の値が 0・数字以外・区画の終わりで切られた値なので、行・列は変えられない"
+		}
+	}
+	return reason
+}
+
+// attributeRange の位置は開始タグの文字内のバイト位置で、終わりを含まない。
+// 値の範囲は引用符を含まず、値のない属性では両端を -1 にする。
+type attributeRange struct {
+	name                 string
+	start, end           int
+	valueStart, valueEnd int
+}
+
+// attributeRanges は spanEdit から取り出した、属性の原文の範囲の走査。
+func attributeRanges(token *htmltok.Token) []attributeRange {
+	var ranges []attributeRange
 	pos := len("<") + len(token.Name)
 	for _, a := range token.Attributes {
 		i := strings.Index(token.Text[pos:], a.Raw)
@@ -59,28 +78,49 @@ func spanEdit(c *HTMLCell, name string, value int) htmlEdit {
 		}
 		start := pos + i
 		pos = start + len(a.Raw)
-		if a.Name != name {
+		r := attributeRange{name: a.Name, start: start, end: pos, valueStart: -1, valueEnd: -1}
+		if a.Value != nil {
+			r.valueEnd = pos
+			if token.Text[pos-1] == '\'' || token.Text[pos-1] == '"' {
+				r.valueEnd--
+			}
+			r.valueStart = r.valueEnd - len(*a.Value)
+		}
+		ranges = append(ranges, r)
+	}
+	return ranges
+}
+
+// spanEdit は属性を組み直さず、結合の値の数字だけを書き換える。
+func spanEdit(c *HTMLCell, name string, value int) htmlEdit {
+	token := c.StartToken
+	for _, a := range attributeRanges(token) {
+		if a.name != name {
 			continue
 		}
+		start := a.start
 		if value == 1 {
 			for start > 0 && (token.Text[start-1] == ' ' || token.Text[start-1] == '\t' || token.Text[start-1] == '\n') {
 				start--
 			}
-			return htmlEdit{token.Start + start, token.Start + pos, ""}
+			return htmlEdit{token.Start + start, token.Start + a.end, ""}
 		}
-		eq := strings.IndexByte(a.Raw, '=') + 1
-		for eq < len(a.Raw) && (a.Raw[eq] < '0' || a.Raw[eq] > '9') {
+		eq := a.valueStart
+		if eq < 0 {
+			eq = a.start
+		}
+		for eq < a.end && (token.Text[eq] < '0' || token.Text[eq] > '9') {
 			eq++
 		}
 		end := eq
-		for end < len(a.Raw) && a.Raw[end] >= '0' && a.Raw[end] <= '9' {
+		for end < a.end && token.Text[end] >= '0' && token.Text[end] <= '9' {
 			end++
 		}
 		zeros := 0
-		for eq+zeros < end-1 && a.Raw[eq+zeros] == '0' {
+		for eq+zeros < end-1 && token.Text[eq+zeros] == '0' {
 			zeros++
 		}
-		return htmlEdit{token.Start + start + eq, token.Start + start + end, strings.Repeat("0", zeros) + strconv.Itoa(value)}
+		return htmlEdit{token.Start + eq, token.Start + end, strings.Repeat("0", zeros) + strconv.Itoa(value)}
 	}
 	return htmlEdit{token.Start + 1 + len(token.Name), token.Start + 1 + len(token.Name), " " + name + "=\"" + strconv.Itoa(value) + "\""}
 }
