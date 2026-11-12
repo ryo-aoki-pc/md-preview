@@ -1,10 +1,13 @@
 package table
 
 import (
+	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/blocks"
+	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/htmltok"
 	"github.com/ryo-aoki-pc/md-tools/mdtable/internal/model"
 )
 
@@ -210,6 +213,9 @@ func SetHTMLFormat(r *Region, row, col, rows, cols int, align string, header *bo
 		if header == nil {
 			var local []htmlEdit
 			start, local = alignedCellTag(h, align, t.AlignStyle)
+			if !gitlabAlignMatches(start, h.Tag, align) {
+				return nil, nil, nil, fmt.Errorf("セル（%d 行 %d 列）の style の書き方から、GitLab で効く揃えを決められないので、揃えを変えられません", c.Row+1, c.Col+1)
+			}
 			for _, edit := range local {
 				edit.start += h.StartToken.Start
 				edit.end += h.StartToken.Start
@@ -233,4 +239,31 @@ func SetHTMLFormat(r *Region, row, col, rows, cols int, align string, header *bo
 	}
 	lines, err := applyHTMLEdits(r, t, edits)
 	return lines, n, e, err
+}
+
+// gitlabStyleAlign は GitLab の消毒（ルートの internal/sanitize と同じ規則）が td・th の style に残す部分。
+// style の中で最初に一致した部分だけが残り、一致が無ければ style ごと消える。
+var gitlabStyleAlign = regexp.MustCompile(`text-align: (center|left|right)`)
+
+// gitlabAlignMatches は、書き換えた開始タグが GitLab の描画で align の揃えになるかを返す。
+// コメント・url()・文字列の中に宣言に似た文字があると、消毒が拾う最初の一致が書いた宣言とずれる。
+func gitlabAlignMatches(tag, name, align string) bool {
+	style, attr := "", ""
+	seenStyle, seenAlign := false, false
+	for _, a := range htmltok.ParseAttributes(tag[1+len(name):]) {
+		value := ""
+		if a.Value != nil {
+			value = *a.Value
+		}
+		switch {
+		case a.Name == "style" && !seenStyle:
+			style, seenStyle = value, true
+		case a.Name == "align" && !seenAlign:
+			attr, seenAlign = strings.ToLower(strings.TrimSpace(value)), true
+		}
+	}
+	if m := gitlabStyleAlign.FindStringSubmatch(style); m != nil {
+		return m[1] == align
+	}
+	return attr == align
 }

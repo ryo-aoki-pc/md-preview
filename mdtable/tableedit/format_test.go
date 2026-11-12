@@ -35,9 +35,13 @@ func TestSetPipeAlignPreservesDelimiter(t *testing.T) {
 				mergeContainers(t, source, want, func(d *tableedit.Document) (*tableedit.Result, error) {
 					r, err := d.SetAlign(target(d.Table(1)), tableedit.Rect{Row: 1, Col: 1, Rows: 1, Cols: 1}, to)
 					if err == nil {
+						before := map[int]string{}
+						for _, c := range d.Table(1).Cells {
+							before[c.Col] = c.Align
+						}
 						for _, c := range r.Document.Table(1).Cells {
-							if c.Col == 1 && c.Align != to {
-								t.Fatal("選択行以外の列の揃えが違う", c)
+							if c.Col == 1 && c.Align != to || c.Col != 1 && c.Align != before[c.Col] {
+								t.Fatal("選んだ列か、ほかの列の揃えが違う", c)
 							}
 						}
 					}
@@ -85,6 +89,35 @@ func TestSetHTMLAlignPreservesAttributes(t *testing.T) {
 			})
 		})
 	}
+}
+
+// GitLab の消毒は style の中で最初に一致した「text-align: 値」だけを残す。
+// コメント・url()・文字列の中に宣言に似た文字があり、書いた揃えが効かない形は断る。
+func TestSetHTMLAlignRefusesStyleGitLabWouldMisread(t *testing.T) {
+	for _, attrs := range []string{
+		" style='background:url(data:x;text-align: left); text-align:right'",
+		" style='content: \"text-align: left\"; text-align:right'",
+		" style='/* color: red */ text-align: right'",
+	} {
+		source := "<table>\n<tr><td" + attrs + ">値</td><td>外</td></tr>\n</table>\n"
+		d := tableedit.Parse(source)
+		if r, err := d.SetAlign(target(d.Table(1)), tableedit.Rect{Rows: 1, Cols: 1}, "center"); r != nil || err == nil || !strings.Contains(err.Error(), "GitLab で効く揃え") || d.Text() != source {
+			t.Fatalf("GitLab で効かない揃えを書いた: %q %v", attrs, err)
+		}
+	}
+}
+
+func TestSetHeaderInHeadAndFoot(t *testing.T) {
+	mergeContainers(t, "<table>\n<thead>\n<tr><td colspan='2'>見出し</td></tr>\n</thead>\n<tfoot>\n<tr><th>計</th><td>1</td></tr>\n</tfoot>\n</table>\n",
+		"<table>\n<thead>\n<tr><th colspan='2'>見出し</th></tr>\n</thead>\n<tfoot>\n<tr><th>計</th><td>1</td></tr>\n</tfoot>\n</table>\n",
+		func(d *tableedit.Document) (*tableedit.Result, error) {
+			return d.SetHeader(target(d.Table(1)), tableedit.Rect{Rows: 1, Cols: 2}, true)
+		})
+	mergeContainers(t, "<table>\n<thead>\n<tr><th colspan='2'>見出し</th></tr>\n</thead>\n<tfoot>\n<tr><th>計</th><td>1</td></tr>\n</tfoot>\n</table>\n",
+		"<table>\n<thead>\n<tr><th colspan='2'>見出し</th></tr>\n</thead>\n<tfoot>\n<tr><td>計</td><td>1</td></tr>\n</tfoot>\n</table>\n",
+		func(d *tableedit.Document) (*tableedit.Result, error) {
+			return d.SetHeader(target(d.Table(1)), tableedit.Rect{Row: 1, Rows: 1, Cols: 1}, false)
+		})
 }
 
 func TestSetHeaderAndMergedFormat(t *testing.T) {
