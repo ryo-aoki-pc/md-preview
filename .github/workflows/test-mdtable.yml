@@ -8,6 +8,7 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'LICENSE'
+      - '.gitattributes'
       - '.github/workflows/test-mdtable.yml'
   pull_request:
     paths:
@@ -15,6 +16,7 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'LICENSE'
+      - '.gitattributes'
       - '.github/workflows/test-mdtable.yml'
 
 permissions:

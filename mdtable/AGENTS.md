@@ -45,7 +45,7 @@ go test ./mdtable/...
 ```
 
 - リポジトリの直下で動かす。`gofmt -l .` は何も出ないこと
-- `mdtable/**`・ルートの `go.mod`・`go.sum`・`LICENSE`・`.github/workflows/test-mdtable.yml` を変えた Pull Request と `main` への push では、GitHub Actions が ubuntu-latest と windows-latest で検査し、Linux では `go test -race -timeout 20m ./mdtable/...` も動かす。取り込む前に `gh pr checks` で結果を見る
+- `mdtable/**`・ルートの `go.mod`・`go.sum`・`LICENSE`・`.gitattributes`・`.github/workflows/test-mdtable.yml` を変えた Pull Request と `main` への push では、GitHub Actions が ubuntu-latest と windows-latest で検査し、Linux では `go test -race -timeout 20m ./mdtable/...` も動かす。取り込む前に `gh pr checks` で結果を見る
 - comrak と突き合わせる Go のテストは、`MDTABLE_COMRAK_DIR` を設定したときだけ動く。`node_modules/comrak` を持つフォルダー（[md-format](https://github.com/ryo-aoki-pc/md-format) の導入先など）を指定する
 - 手元の文書で無編集の往復を確かめる Go のテストは、`MDTABLE_CORPUS` を設定したときだけ動く。文書のフォルダーを指定する
 - リポジトリのルートから `bash mdtable/scripts/build-release.sh <版> <出力のフォルダー>` で、CI と同じ配布物のビルドを確かめる

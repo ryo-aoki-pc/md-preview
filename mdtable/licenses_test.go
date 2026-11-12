@@ -126,6 +126,26 @@ func executableGoModules(t *testing.T) map[string]string {
 	return modules
 }
 
+func TestLicenseGoVersion(t *testing.T) {
+	data, err := os.ReadFile("../go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directive := regexp.MustCompile(`(?m)^go (\d+\.\d+\.\d+)$`).FindStringSubmatch(string(data))
+	if directive == nil {
+		t.Fatal("go.mod の go の行は、修正版まで含む版にしてください")
+	}
+	for _, c := range licenseManifest(t) {
+		if c.Name == "Go" {
+			if c.Version != directive[1] {
+				t.Fatalf("Go の版が違います: 一覧=%s go.mod=%s", c.Version, directive[1])
+			}
+			return
+		}
+	}
+	t.Fatal("一覧に Go がありません")
+}
+
 func TestLicenseMatchesRoot(t *testing.T) {
 	license, err := os.ReadFile("LICENSE")
 	if err != nil {

@@ -5,4 +5,5 @@ node_modules/
 engine/target/
 /mdpreview
 /mdpreview.exe
+/mdtable.exe
 /dist/

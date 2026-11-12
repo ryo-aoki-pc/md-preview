@@ -136,6 +136,8 @@ go test -race ./...
 gofmt -l .
 ```
 
+`./...` は `mdtable/` のパッケージも含む。`mdtable/` の `-race` は時間がかかるので、まとめて動かすときは `-timeout 20m` を付ける。GitHub Actions は、`mdtable/` を除いた検査（`test.yml`）と、`mdtable/` だけの検査（`test-mdtable.yml`。`mdtable/**`・`go.mod`・`go.sum`・`LICENSE`・`.gitattributes` が変わったときだけ）に分けて動かす。`mdtable/` だけを確かめるコマンドは `mdtable/AGENTS.md` にある。
+
 ルートを受け取る関数（`resolve.Resolve`・`documents.ListMarkdown`・`session.FileContext`・`watch.IncludePath` など）は、ルートが実パスであることを前提にする。試験で一時フォルダーをルートにするときは、`resolve.RealPath(t.TempDir())` で実パスにしてから渡す（Windows の一時フォルダーのパスには、8.3 形式の短い名前が入ることがある）。
 
 依存を足す・上げるとき、Go の版を上げるときは、各実行ファイルの `licenses/manifest.json` と `licenses/go/` の原文の写しも合わせる。試験は `go list -deps` で `mdpreview` の windows/amd64・linux/amd64・linux/arm64 の依存の和と、`mdtable` の windows/amd64 の依存を求め、それぞれの一覧と比べる。両一覧の和はルートの `go.mod` の直接・間接の require と比べ、原文とほかの部品の版は Go のモジュールのキャッシュ・`engine/Cargo.lock`・`page/lib/lock.json` と比べる。版を上げるときは、`internal/version/version.go` と `licenses/manifest.json` の md-preview の版を同じ値にする（配布の workflow は、タグと `version.go` の版が違うと止まる）。
