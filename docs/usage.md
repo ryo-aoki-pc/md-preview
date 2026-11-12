@@ -41,7 +41,7 @@
      # 試験用の Markdown を、専用のフォルダーに作って開く
      preview_dir=$(mktemp -d) || exit
      trap 'rm -rf -- "$preview_dir"' EXIT
-     printf '# プレビューの確認\n\n本文です。\n' > "$preview_dir/preview.md" || exit
+     printf '# プレビューの確認\n\n本文です。\n\n| 品名 | 説明 |\n| --- | --- |\n| りんご | 青森県で採れた、甘みと酸味のつりあった果物 |\n' > "$preview_dir/preview.md" || exit
      printf '\n\033[7m 確認 \033[0m\n'
      mdpreview --no-open "$preview_dir/preview.md"
    )
@@ -52,7 +52,7 @@
 
 1. ブラウザで、この項の手順 1 に出た URL を開く。
 
-   - 本文に「プレビューの確認」と「本文です。」が出ればよい
+   - 本文に「プレビューの確認」と「本文です。」と、「品名」「説明」の表が出ればよい
    - 操作欄の左に `preview.md` と出ればよい
 
 1. ブラウザの操作欄で、表示を切り替える。
@@ -522,7 +522,7 @@
      $previewDirectory = Join-Path ([IO.Path]::GetTempPath()) ("md-preview-" + [guid]::NewGuid())
      try {
        New-Item -ItemType Directory -Path $previewDirectory -ErrorAction Stop | Out-Null
-       Set-Content -LiteralPath "$previewDirectory\preview.md" -Value "# プレビューの確認`n`n本文です。" -Encoding utf8 -ErrorAction Stop
+       Set-Content -LiteralPath "$previewDirectory\preview.md" -Value "# プレビューの確認`n`n本文です。`n`n| 品名 | 説明 |`n| --- | --- |`n| りんご | 青森県で採れた、甘みと酸味のつりあった果物 |" -Encoding utf8 -ErrorAction Stop
        "`n$([char]27)[7m 確認 $([char]27)[0m"
        mdpreview --no-open "$previewDirectory\preview.md"
      } finally {
@@ -536,7 +536,7 @@
 
 1. ブラウザで、この項の手順 2 に出た URL を開く。
 
-   - 本文に「プレビューの確認」と「本文です。」が出ればよい
+   - 本文に「プレビューの確認」と「本文です。」と、「品名」「説明」の表が出ればよい
    - 操作欄の左に `preview.md` と出ればよい
 
 1. ブラウザの操作欄で、表示を切り替える。
