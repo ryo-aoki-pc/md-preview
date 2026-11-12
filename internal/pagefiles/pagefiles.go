@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/ryo-aoki-pc/md-tools/page"
+	"github.com/ryo-aoki-pc/md-tools/sticky"
 )
 
 type Options struct {
@@ -74,8 +75,9 @@ type Library struct {
 	SHA256 string
 }
 type Libraries struct {
-	files   fs.FS
-	records map[string]Record
+	files    fs.FS
+	records  map[string]Record
+	embedded map[string][]byte
 }
 
 var fileName = regexp.MustCompile(`^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*$`)
@@ -101,7 +103,7 @@ func NewLibraries(files fs.FS) (*Libraries, error) {
 	}
 	l := &Libraries{files: files, records: map[string]Record{}}
 	for name, p := range lock.Packages {
-		if (name != "katex" && name != "mermaid" && name != "md-table-sticky") || name != p.Name {
+		if (name != "katex" && name != "mermaid") || name != p.Name {
 			return nil, errors.New("ライブラリの固定情報が正しくありません")
 		}
 		for file, r := range p.Files {
@@ -127,7 +129,16 @@ func EmbeddedLibraries() (*Libraries, error) {
 	if e != nil {
 		return nil, e
 	}
-	return NewLibraries(sub)
+	l, e := NewLibraries(sub)
+	if e != nil {
+		return nil, e
+	}
+	const name = "md-table-sticky/sticky-table.js"
+	b := []byte(sticky.Source)
+	sum := sha256.Sum256(b)
+	l.records[name] = Record{hex.EncodeToString(sum[:]), int64(len(b))}
+	l.embedded = map[string][]byte{name: b}
+	return l, nil
 }
 
 func (l *Libraries) Read(name string) (Library, bool) {
@@ -135,8 +146,17 @@ func (l *Libraries) Read(name string) (Library, bool) {
 	if !ok {
 		return Library{}, false
 	}
-	b, e := fs.ReadFile(l.files, name)
-	if e != nil || int64(len(b)) != r.Size {
+	b, embedded := l.embedded[name]
+	if embedded {
+		b = append([]byte(nil), b...)
+	} else {
+		var e error
+		b, e = fs.ReadFile(l.files, name)
+		if e != nil {
+			return Library{}, false
+		}
+	}
+	if int64(len(b)) != r.Size {
 		return Library{}, false
 	}
 	sum := sha256.Sum256(b)

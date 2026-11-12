@@ -170,7 +170,7 @@ func TestPageAndLibraries(t *testing.T) {
 			t.Fatal(rel, r)
 		}
 	}
-	for _, rel := range []string{"katex/katex.min.js", "katex/katex.min.css", "katex/fonts/KaTeX_Main-Regular.woff2", "mermaid/mermaid.min.js", "md-table-sticky/sticky-table.js", "katex/LICENSE", "mermaid/LICENSE", "md-table-sticky/LICENSE"} {
+	for _, rel := range []string{"katex/katex.min.js", "katex/katex.min.css", "katex/fonts/KaTeX_Main-Regular.woff2", "mermaid/mermaid.min.js", "md-table-sticky/sticky-table.js", "katex/LICENSE", "mermaid/LICENSE"} {
 		r := request(t, s, "GET", "_/lib/"+rel, "", nil)
 		if r.status != 200 || r.header.Get("Content-Security-Policy") != "sandbox" || r.header.Get("Cache-Control") != "no-cache" {
 			t.Fatal(rel, r.status, r.header)
@@ -184,7 +184,7 @@ func TestPageAndLibraries(t *testing.T) {
 			t.Fatal(head)
 		}
 	}
-	for _, rel := range []string{"katex/../katex.min.js", "katex/%2e%2e/package.json", "katex/package.json", "katex/fonts/a.css", "katex/fonts/KaTeX_Main-Regular.ttf", "lock.json"} {
+	for _, rel := range []string{"katex/../katex.min.js", "katex/%2e%2e/package.json", "katex/package.json", "katex/fonts/a.css", "katex/fonts/KaTeX_Main-Regular.ttf", "lock.json", "md-table-sticky/LICENSE"} {
 		if r := request(t, s, "GET", "_/lib/"+rel, "", nil); r.status != 404 {
 			t.Fatal(rel, r.status)
 		}

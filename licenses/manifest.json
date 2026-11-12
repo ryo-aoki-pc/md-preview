@@ -309,14 +309,6 @@
     ]
   },
   {
-    "name": "md-table-sticky",
-    "version": "0.1.0",
-    "license": "MIT",
-    "files": [
-      "page/lib/md-table-sticky/LICENSE"
-    ]
-  },
-  {
     "name": "mermaid",
     "version": "12.3.0",
     "license": "MIT",

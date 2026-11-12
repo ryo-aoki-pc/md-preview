@@ -27,8 +27,13 @@ func TestEmbeddedFiles(t *testing.T) {
 	if err := json.Unmarshal(data, &lock); err != nil {
 		t.Fatal(err)
 	}
-	if len(lock.Packages) == 0 {
-		t.Fatal("資産の固定値にパッケージがない")
+	if len(lock.Packages) != 2 {
+		t.Fatal("資産の固定値は KaTeX・mermaid だけにしてください")
+	}
+	for name := range lock.Packages {
+		if name != "katex" && name != "mermaid" {
+			t.Fatal("予定外のライブラリの固定情報: " + name)
+		}
 	}
 	expected := map[string]bool{"lib/lock.json": true}
 	for _, name := range []string{"index.html", "preview.js", "edit-grid.js", "edit.js", "preview.css", "fallback.css"} {

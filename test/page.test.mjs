@@ -2556,7 +2556,7 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
 
   const tableHtml = '<table><thead><tr><th>名前</th><th>値</th></tr></thead>' +
     '<tbody><tr><td>項目</td><td>内容</td></tr></tbody></table>';
-  const stickySource = readFileSync(new URL('../page/lib/md-table-sticky/sticky-table.js', import.meta.url), 'utf8');
+  const stickySource = readFileSync(new URL('../sticky/src/sticky-table.js', import.meta.url), 'utf8');
   const waitSticky = (page, want) => page.waitForFunction(
     (want) => Boolean(window.__mdTableSticky) === want &&
       document.querySelector('#gp-sticky-toggle').getAttribute('aria-pressed') === String(want) &&

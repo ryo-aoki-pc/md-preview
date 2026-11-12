@@ -100,25 +100,6 @@
         }
       }
     },
-    "md-table-sticky": {
-      "name": "md-table-sticky",
-      "version": "0.1.0",
-      "source": {
-        "repository": "https://github.com/ryo-aoki-pc/md-table-sticky",
-        "commit": "35951704fc4634707fa322db3a40e8b90bc8c7f6",
-        "path": "src/sticky-table.js"
-      },
-      "files": {
-        "LICENSE": {
-          "sha256": "074e25b28b01390f48c2afcca3cd07f6d20ef5802a4b733c75df71f8be92ce3d",
-          "size": 1065
-        },
-        "sticky-table.js": {
-          "sha256": "0d27253cbacd40e7c3a8734b38aaa253f7528be62711ed9c66c488474288a7e5",
-          "size": 81585
-        }
-      }
-    },
     "mermaid": {
       "name": "mermaid",
       "version": "12.3.0",
