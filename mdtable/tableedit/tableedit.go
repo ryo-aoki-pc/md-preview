@@ -35,6 +35,8 @@ type Section struct {
 	Rows     int    `json:"rows"`
 }
 type Table struct {
+	document   *Document
+	region     *table.Region
 	RowTags    []string     `json:"row_tags"`
 	Delimiters []string     `json:"delimiters"`
 	CopyLocked string       `json:"copy_locked"`
@@ -300,6 +302,7 @@ func (d *Document) snapshot(r *table.Region) *Table {
 			row += len(s.Rows)
 		}
 	}
+	t.document, t.region = d, r
 	return t
 }
 

@@ -226,6 +226,11 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 				return nil, tableError(applyErr)
 			}
 			text, warnings = result.Text, result.Warnings
+			if result.Changed && r.operation.kind == "convert" {
+				if e := s.verifyConversion(ctx, src, r.table, result.Document.Table(t.Number), result.Text); e != nil {
+					return nil, e
+				}
+			}
 		case "range", "checkbox":
 			m, err := s.blocks(ctx, src)
 			if err != nil {

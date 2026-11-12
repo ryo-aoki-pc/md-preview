@@ -33,23 +33,25 @@ type cellInfo struct {
 	CopyLocked string `json:"copyLocked"`
 }
 type tableInfo struct {
-	Index        int            `json:"index"`
-	Number       int            `json:"number"`
-	Kind         tableedit.Kind `json:"kind"`
-	Editable     bool           `json:"editable"`
-	Reason       string         `json:"reason"`
-	Anchor       Range          `json:"anchor"`
-	AnchorReason string         `json:"anchorReason"`
-	Rows         int            `json:"rows"`
-	Cols         int            `json:"cols"`
-	RowsLocked   string         `json:"rowsLocked"`
-	ColsLocked   string         `json:"colsLocked"`
-	Warnings     []string       `json:"warnings"`
-	Cells        []cellInfo     `json:"cells"`
-	Hash         string         `json:"hash"`
-	RowTags      []string       `json:"rowTags"`
-	Delimiters   []string       `json:"delimiters"`
-	CopyLocked   string         `json:"copyLocked"`
+	Index         int               `json:"index"`
+	Number        int               `json:"number"`
+	Kind          tableedit.Kind    `json:"kind"`
+	Editable      bool              `json:"editable"`
+	Reason        string            `json:"reason"`
+	Anchor        Range             `json:"anchor"`
+	AnchorReason  string            `json:"anchorReason"`
+	Rows          int               `json:"rows"`
+	Cols          int               `json:"cols"`
+	RowsLocked    string            `json:"rowsLocked"`
+	ColsLocked    string            `json:"colsLocked"`
+	Warnings      []string          `json:"warnings"`
+	Cells         []cellInfo        `json:"cells"`
+	Hash          string            `json:"hash"`
+	RowTags       []string          `json:"rowTags"`
+	Delimiters    []string          `json:"delimiters"`
+	CopyLocked    string            `json:"copyLocked"`
+	ConvertLocked map[string]string `json:"convertLocked"`
+	DeleteLocked  string            `json:"deleteLocked"`
 }
 type tablesResponse struct {
 	// 文書の先頭へ追加したときに、下書きの位置をずらす最初の行（front matter の後ろ）。
@@ -177,6 +179,8 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 		if t != nil {
 			info.Number, info.Kind, info.Rows, info.Cols = t.Number, t.Kind, t.Rows, t.Cols
 			info.RowsLocked, info.ColsLocked = t.RowsLocked, t.ColsLocked
+			info.ConvertLocked = map[string]string{"html": t.ConvertLocked("html"), "pipe": t.ConvertLocked("pipe")}
+			info.DeleteLocked = t.DeleteLocked()
 			info.Warnings = append(info.Warnings, t.Warnings...)
 			switch {
 			case counts[t.Number] > 1:
