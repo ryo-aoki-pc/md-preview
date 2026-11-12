@@ -50,11 +50,13 @@ type tableInfo struct {
 	CopyLocked string         `json:"copyLocked"`
 }
 type tablesResponse struct {
-	Render   uint64        `json:"render"`
-	Document documentState `json:"document"`
-	Undo     undoState     `json:"undo"`
-	Tables   []tableInfo   `json:"tables"`
-	Origin   string        `json:"origin"`
+	// 文書の先頭へ追加したときに、下書きの位置をずらす最初の行（front matter の後ろ）。
+	InsertStart int           `json:"insertStart"`
+	Render      uint64        `json:"render"`
+	Document    documentState `json:"document"`
+	Undo        undoState     `json:"undo"`
+	Tables      []tableInfo   `json:"tables"`
+	Origin      string        `json:"origin"`
 }
 type mapping struct {
 	response tablesResponse

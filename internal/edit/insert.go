@@ -36,6 +36,34 @@ func (s *Service) insertBlock(ctx context.Context, src session.Source, r request
 	if e != nil {
 		return "", e
 	}
+	point, e := s.insertionPoint(ctx, src, m, r)
+	if e != nil {
+		return "", e
+	}
+	text, delta, e := insertionText(src.Text, point, r.text)
+	if e != nil {
+		return "", e
+	}
+	if e := s.verifyInsertion(ctx, src, m, point, text, delta, r.insertDocument == "end"); e != nil {
+		return "", e
+	}
+	return text, nil
+}
+
+// 追加点は原文のバイト位置と、展開後の要素をずらす行を分けて持つ。
+type insertionPoint struct {
+	pos, line, cut int
+	prefix         int
+	anchor         *block
+	empty          bool
+}
+
+func (s *Service) insertionPoint(ctx context.Context, src session.Source, m *blockMapping, r request) (insertionPoint, *Error) {
+	old := src.Text
+	starts := lineStarts(old)
+	if r.insertDocument != "" {
+		return documentInsertionPoint(src, r.insertDocument), nil
+	}
 	var anchor *block
 	for i := range m.blocks {
 		b := &m.blocks[i]
@@ -45,12 +73,64 @@ func (s *Service) insertBlock(ctx context.Context, src session.Source, r request
 		}
 	}
 	if anchor == nil {
+		var e *Error
 		anchor, e = s.htmlWritable(ctx, src, m, r.rangeValue)
 		if e != nil {
-			return "", e
+			return insertionPoint{}, e
 		}
 	}
-	core := strings.Split(normalizeNewlines(r.text, "\n"), "\n")
+	if strings.Trim(old[starts[anchor.line-1]:anchor.start], " \t") != "" {
+		return insertionPoint{}, blockFault("boundary")
+	}
+	c, _ := coordinates(anchor.actual)
+	public, _ := positionCoordinates(anchor.public)
+	point := insertionPoint{line: anchor.line, cut: public[0], pos: starts[anchor.line-1], anchor: anchor}
+	if r.insertSide == "after" {
+		point.line, _ = src.Lines.Original(c[2])
+		// 補正した水平線や注記の閉じまでを含めて、次の行へ追加する。
+		point.cut, point.pos = c[2]+1, len(old)
+		if point.line < len(starts) {
+			point.pos = starts[point.line]
+		}
+	}
+	return point, nil
+}
+
+func documentInsertionPoint(src session.Source, side string) insertionPoint {
+	old := src.Text
+	starts := lineStarts(old)
+	point := insertionPoint{line: 1, cut: 1, empty: strings.TrimSpace(strings.TrimPrefix(old, "\ufeff")) == ""}
+	if side == "end" {
+		point.pos, point.line = len(old), len(starts)
+		point.cut = src.Lines.Expanded(point.line)
+		if !strings.HasSuffix(old, "\n") {
+			// 最後の行が include なら、その展開全体の後ろになる。
+			point.cut = src.Lines.Expanded(point.line + 1)
+		}
+	} else {
+		point.pos = len(old) - len(strings.TrimPrefix(old, "\ufeff"))
+		point.prefix = point.pos
+		// front matter の判定は描画と同じ行対応を使い、閉じた次の行へ置く。
+		for n := 1; n <= src.Lines.Expanded(len(starts)); n++ {
+			orig, reason := src.Lines.Original(n)
+			if reason != "frontmatter" {
+				break
+			}
+			point.line, point.cut, point.pos = orig, n+1, len(old)
+			point.prefix = 0
+			if orig < len(starts) {
+				point.pos = starts[orig]
+			}
+		}
+	}
+	if point.empty {
+		point.cut = 1
+	}
+	return point
+}
+
+func insertionText(old string, point insertionPoint, value string) (string, int, *Error) {
+	core := strings.Split(normalizeNewlines(value, "\n"), "\n")
 	for len(core) > 0 && strings.TrimSpace(core[0]) == "" {
 		core = core[1:]
 	}
@@ -58,31 +138,22 @@ func (s *Service) insertBlock(ctx context.Context, src session.Source, r request
 		core = core[:len(core)-1]
 	}
 	if len(core) == 0 {
-		return "", fault(422, "invalid", "追加する文を入力してください。")
+		return "", 0, fault(422, "invalid", "追加する文を入力してください。")
 	}
-	old := src.Text
-	starts := lineStarts(old)
-	if strings.Trim(old[starts[anchor.line-1]:anchor.start], " \t") != "" {
-		return "", blockFault("boundary")
-	}
-	c, _ := coordinates(anchor.actual)
-	public, _ := positionCoordinates(anchor.public)
-	line, cut := anchor.line, public[0]
-	pos := starts[line-1]
-	if r.insertSide == "after" {
-		line, _ = src.Lines.Original(c[2])
-		cut = public[2] + 1
-		// 補正した水平線や注記の閉じまでを含めて、次の行へ追加する。
-		cut += c[2] - public[2]
-		pos = len(old)
-		if line < len(starts) {
-			pos = starts[line]
+	if point.empty {
+		text := strings.Join(core, "\n") + "\n"
+		if strings.HasPrefix(old, "\ufeff") {
+			text = "\ufeff" + text
 		}
+		if len(text) > maxDocumentBytes {
+			return "", 0, fault(422, "large", "編集後の文書が 16 MiB を超えています。")
+		}
+		return text, strings.Count(text, "\n"), nil
 	}
-	ending := newlineAt(old, line)
-	left, right := old[:pos], old[pos:]
+	ending := newlineAt(old, point.line)
+	left, right := old[:point.pos], old[point.pos:]
 	added := strings.Join(core, ending)
-	if left != "" {
+	if strings.TrimPrefix(left, "\ufeff") != "" {
 		if !strings.HasSuffix(left, "\n") {
 			added = ending + ending + added
 		} else {
@@ -106,11 +177,15 @@ func (s *Service) insertBlock(ctx context.Context, src session.Source, r request
 	}
 	text := left + added + right
 	if len(text) > maxDocumentBytes {
-		return "", fault(422, "large", "編集後の文書が 16 MiB を超えています。")
+		return "", 0, fault(422, "large", "編集後の文書が 16 MiB を超えています。")
 	}
+	return text, strings.Count(added, "\n"), nil
+}
+
+func (s *Service) verifyInsertion(ctx context.Context, src session.Source, m *blockMapping, point insertionPoint, text string, delta int, documentEnd bool) *Error {
 	trial, err := s.opts.Host.Trial(ctx, src, text)
 	if err != nil {
-		return "", fault(422, "render", "編集後の文書を描画できません。")
+		return fault(422, "render", "編集後の文書を描画できません。")
 	}
 	// 試しの描画にも同じ補正を掛けて、補正後の範囲どうしを比べる。
 	next := src
@@ -118,21 +193,46 @@ func (s *Service) insertBlock(ctx context.Context, src session.Source, r request
 	next.HasSourcepos, next.SourceposInput = trial.HasSourcepos, trial.SourceposInput
 	after, e := s.buildBlocks(ctx, next)
 	if e != nil {
-		return "", e
+		return e
 	}
-	delta := strings.Count(added, "\n")
-	if !insertionPreserves(ctx, m, after, src.HTML, trial.HTML, cut, delta) ||
-		!insertionHTMLPreserves(ctx, m, after, src.HTML, trial.HTML, cut, delta, anchor) {
-		return "", fault(422, "insert", "追加した文が前後のブロックに取り込まれます。")
+	if !insertionPreserves(ctx, m, after, src.HTML, trial.HTML, point.cut, delta, point.prefix) ||
+		!insertionHTMLPreserves(ctx, m, after, src.HTML, trial.HTML, point.cut, delta, point.anchor) {
+		return fault(422, "insert", "追加した文が前後のブロックに取り込まれます。")
 	}
-	return text, nil
+	if documentEnd {
+		// 既存の要素が変わらなくても、閉じない構文に追加全体が消える場合がある。
+		marker := htmlMarker(src.Text)
+		marked, _, e := insertionText(src.Text, point, marker)
+		if e != nil {
+			return e
+		}
+		probe, err := s.opts.Host.Trial(ctx, src, marked)
+		if err != nil {
+			return fault(422, "render", "編集後の文書を描画できません。")
+		}
+		root, err := htmltree.Fragment(ctx, probe.HTML)
+		if err != nil {
+			return fault(422, "insert", "追加した文が前後のブロックに取り込まれます。")
+		}
+		found := false
+		for n := root.FirstChild; n != nil; n = n.NextSibling {
+			if n.Type == html.ElementNode && n.Data == "p" && n.FirstChild != nil && n.FirstChild == n.LastChild &&
+				n.FirstChild.Type == html.TextNode && n.FirstChild.Data == marker {
+				found = true
+			}
+		}
+		if !found {
+			return fault(422, "insert", "追加した文が前後のブロックに取り込まれます。")
+		}
+	}
+	return nil
 }
 
 // 追加の行に収まる新しい要素だけを除き、既存の要素名と位置を木の順に比べる。
 // 一覧で範囲を決められた対象は、実際の範囲で比べる。上流の公開の終端（終了列 0、入れ物の中の水平線）は、
 // 後ろに続く内容で変わるので、公開の範囲のままでは、リストの後ろへの追加などを誤って断る。
 // 利用者が書いた位置属性は行が増えても値が変わらないので、ずらさずに照合する。
-func insertionPreserves(ctx context.Context, m, after *blockMapping, oldHTML, newHTML string, cut, delta int) bool {
+func insertionPreserves(ctx context.Context, m, after *blockMapping, oldHTML, newHTML string, cut, delta, prefix int) bool {
 	type positioned struct {
 		positionAttribute
 		parents string
@@ -159,6 +259,13 @@ func insertionPreserves(ctx context.Context, m, after *blockMapping, oldHTML, ne
 				c, e := positionCoordinates(Range(p.value))
 				if e == nil {
 					if before {
+						// バッファの文字に BOM がある場合、移る元の先頭行からだけ BOM の列を除く。
+						if c[0] == 1 {
+							c[1] -= prefix
+						}
+						if c[2] == 1 {
+							c[3] -= prefix
+						}
 						if c[0] >= cut {
 							c[0] += delta
 							c[2] += delta
@@ -206,7 +313,7 @@ func insertionHTMLPreserves(ctx context.Context, m, after *blockMapping, oldHTML
 	// 追加先（位置を持つ対象）を中に持つ節点かどうか。連なりそのものが追加先のときは、どの節点も持たない。
 	holds := func(n *html.Node) bool {
 		found := false
-		if anchor.tag != "html" {
+		if anchor != nil && anchor.tag != "html" {
 			_ = htmltree.Walk(ctx, n, func(c *html.Node) error {
 				if c.Type == html.ElementNode && c.Data == anchor.tag && htmltree.Get(c, "data-sourcepos") == string(anchor.public) {
 					found = true

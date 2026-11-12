@@ -1383,7 +1383,7 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     assert.equal(await cellMenu.getAttribute('role'), 'menu');
     assert.equal(await page.locator('#gp-edit-actions > button').count(), 5);
     assert.equal(await page.locator('#gp-edit-actions [role="menu"]').count(), 0);
-    assert.equal(await page.locator('#gp-edit-layer > [role="menu"]').count(), 3);
+    assert.equal(await page.locator('#gp-edit-layer > [role="menu"]').count(), 4);
     assert.equal(await page.locator('#gp-edit-cell-rows').getAttribute('role'), 'menuitem');
     for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
@@ -3082,6 +3082,34 @@ test('Neovim の橋渡しで表の編集をバッファへ頼み、拒否の知�
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
   const original = '| 見出し |\n| --- |\n| 本文 |\n';
+  for (const side of ['start', 'end', 'empty']) await t.test('文書の' + side + 'への追加を一個の行の置き換えにする', async (t) => {
+    const bridge = await startGoStdio(t);
+    const context = await browser.newContext();
+    t.after(() => context.close());
+    const page = await context.newPage();
+    const text = side === 'empty' ? '\n' : '本文\n';
+    await page.goto(bridge.url);
+    await bridge.send({ type: 'doc', path: null, name: '追加.md', text, buf: 7, rev: 1 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 1);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    await page.locator('#gp-edit-add').click();
+    if (side !== 'empty') await page.locator('#gp-edit-document-' + side).click();
+    await page.locator('#gp-edit-input').fill('追加');
+    await page.keyboard.press('Control+Enter');
+    const edit = await bridge.waitFor('edit');
+    const replacement = side === 'start' ? { start: 0, end: 0, lines: ['追加', ''] }
+      : side === 'end' ? { start: 1, end: 1, lines: ['', '追加'] } : { start: 0, end: 1, lines: ['追加'] };
+    assert.deepEqual(edit, { type: 'edit', id: 1, path: null, buf: 7, rev: 1, edits: [replacement] });
+    const lines = text.replace(/\n$/, '').split('\n');
+    lines.splice(replacement.start, replacement.end - replacement.start, ...replacement.lines);
+    const updated = lines.join('\n') + '\n';
+    await bridge.send({ type: 'edit_result', id: edit.id, ok: true });
+    await bridge.send({ type: 'doc', path: null, name: '追加.md', text: updated, buf: 7, rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 2);
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-content > p').first().textContent(), side === 'end' ? '本文' : '追加');
+  });
   await t.test('行の複製と表をまたぐ移動は、それぞれ edit 一個と行の置き換え一個で頼む', async (t) => {
     const bridge = await startGoStdio(t);
     const context = await browser.newContext();
@@ -4543,6 +4571,106 @@ test('水平線とブロック追加を本物のファイルで確かめる', { 
       return toolbar.top >= header.bottom && (toolbar.bottom <= input.top || toolbar.top >= input.bottom);
     }), true, '操作欄は入力欄とヘッダーに重ならない');
   };
+
+  await t.test('文書への追加のボタンとメニューを編集モードとキーで操作する', async (t) => {
+    const { page, file } = await editablePage(t, browser, '本文\n');
+    const add = page.locator('#gp-edit-add'), menu = page.locator('#gp-edit-menu-document');
+    assert.equal(await add.isVisible(), true);
+    await page.locator('#gp-edit-toggle').click();
+    assert.equal(await add.isVisible(), false);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    await add.focus();
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await menu.isVisible(), true);
+    assert.equal(await page.locator('#gp-edit-document-start').evaluate((e) => e === document.activeElement), true);
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.locator('#gp-edit-document-end').evaluate((e) => e === document.activeElement), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await menu.isVisible(), false);
+    assert.equal(await add.evaluate((e) => e === document.activeElement), true);
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#gp-edit-input').getAttribute('aria-label'), 'ブロックの追加');
+    await page.locator('#gp-edit-input').fill('取り消す追加');
+    await page.keyboard.press('Escape');
+    assert.equal(readFileSync(file, 'utf8'), '本文\n');
+  });
+
+  for (const side of ['start', 'end']) for (const ending of ['\n', '\r\n'])
+    await t.test('文書の' + side + 'への追加と下書きの保持' + JSON.stringify(ending), async (t) => {
+      const original = '---\ntitle: x\n---\n\n本文\n\n後ろ\n'.replaceAll('\n', ending);
+      const { page, file } = await editablePage(t, browser, original);
+      await open(page, '#gp-content > p:first-of-type');
+      await page.locator('#gp-edit-input').fill('本文の下書き');
+      const before = await page.locator('#gp-content').innerHTML();
+      await page.locator('#gp-edit-add').click();
+      await page.locator('#gp-edit-document-' + side).click();
+      assert.equal(await page.locator('#gp-edit-source-label').textContent(), '追加');
+      assert.equal(readFileSync(file, 'utf8'), original, '切り替える前の入力は下書きに残す');
+      assert.equal(await page.locator('#gp-content').innerHTML(), before, '本文の木へ編集用の要素や属性を足さない');
+      const position = await page.evaluate(() => ({ input: document.querySelector('#gp-edit-input').getBoundingClientRect().toJSON(),
+        content: document.querySelector('#gp-content').getBoundingClientRect().toJSON() }));
+      if (side === 'start') assert.ok(position.input.top <= Math.max(position.content.top, 200));
+      else assert.ok(position.input.top >= position.content.top);
+      await page.locator('#gp-edit-input').fill('追加の下書き');
+      await page.locator('#gp-edit-add').click();
+      await page.locator('#gp-edit-document-' + side).click();
+      assert.equal(await page.locator('#gp-edit-input').inputValue(), '追加の下書き');
+      await page.locator('#gp-edit-input').fill('追加');
+      assert.equal(await commit(page), 200);
+      await editIdle(page);
+      const want = (side === 'start' ? '---\ntitle: x\n---\n\n追加\n\n本文\n\n後ろ\n' :
+        '---\ntitle: x\n---\n\n本文\n\n後ろ\n\n追加\n').replaceAll('\n', ending);
+      assert.equal(readFileSync(file, 'utf8'), want);
+      await open(page, '#gp-content > p:nth-of-type(' + (side === 'start' ? 2 : 1) + ')');
+      assert.equal(await page.locator('#gp-edit-input').inputValue(), '本文の下書き');
+    });
+
+  for (const original of ['', ' \t', '\r\n\r\n']) await t.test('空の文書の最初のブロック' + JSON.stringify(original), async (t) => {
+    const { page, file } = await editablePage(t, browser, original);
+    assert.equal(await page.locator('#gp-edit-add').textContent(), '最初のブロックを書く');
+    await page.locator('#gp-edit-add').click();
+    assert.equal(await page.locator('#gp-edit-menu-document').isVisible(), false);
+    await page.locator('#gp-edit-input').fill('最初の段落');
+    assert.equal(await commit(page), 200);
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '最初の段落\n');
+    assert.equal(await page.locator('#gp-edit-add').textContent(), '追加');
+  });
+
+  for (const side of ['start', 'end']) await t.test('文書の' + side + 'への追加の後も HTML の連なりの下書きを戻す', async (t) => {
+    const raw = '<div>原文</div>';
+    const { page, file } = await editablePage(t, browser, raw + '\n');
+    assert.equal(await page.locator('#gp-edit-add').textContent(), '追加');
+    await open(page, '#gp-content > div');
+    await page.locator('#gp-edit-input').fill('<div>下書き</div>');
+    await page.locator('#gp-edit-add').click();
+    await page.locator('#gp-edit-document-' + side).click();
+    await page.locator('#gp-edit-input').fill('追加');
+    assert.equal(await commit(page), 200);
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), side === 'start' ? '追加\n\n' + raw + '\n' : raw + '\n\n追加\n');
+    await open(page, '#gp-content > div');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '<div>下書き</div>');
+  });
+
+  await t.test('末尾の追加を拒否し、知らせの文字と入力を残す', async (t) => {
+    const original = '本文\n\n<!-- 閉じない\n';
+    const { page, file } = await editablePage(t, browser, original);
+    await page.locator('#gp-edit-add').click();
+    await page.locator('#gp-edit-document-end').click();
+    await page.locator('#gp-edit-input').fill('追加');
+    assert.equal(await commit(page), 422);
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '追加');
+    assert.match(await page.locator('#gp-edit-status').textContent(), /前後のブロックに取り込まれます/);
+    assert.equal(readFileSync(file, 'utf8'), original);
+    const malicious = '<img src=x onerror=alert(1)>';
+    await page.route('**/_/edit', (route) => route.fulfill({ status: 422, json: { error: { code: 'insert', message: malicious } } }));
+    assert.equal(await commit(page), 422);
+    await page.waitForFunction((text) => document.querySelector('#gp-edit-status').textContent === text, malicious);
+    assert.equal(await page.locator('#gp-edit-status img').count(), 0);
+  });
 
   await t.test('水平線の余白を押して編集し、本文の木と配置を保つ', async (t) => {
     const { page, file } = await editablePage(t, browser, '前\n\n---\n\n後\n');

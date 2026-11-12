@@ -151,6 +151,13 @@ func TestInsertDeniedOuterAndPrefix(t *testing.T) {
 func TestInsertRequestShapes(t *testing.T) {
 	for _, body := range []map[string]any{
 		{"render": 1, "insert": nil, "text": "a"},
+		{"render": 1, "insert": map[string]any{"document": "middle"}, "text": "a"},
+		{"render": 1, "insert": map[string]any{"document": ""}, "text": "a"},
+		{"render": 1, "insert": map[string]any{"document": true}, "text": "a"},
+		{"render": 1, "insert": map[string]any{"document": "start", "anchor": "1:1-1:3", "side": "before"}, "text": "a"},
+		{"render": 1, "insert": map[string]any{"document": "start", "anchor": "1:1-1:3"}, "text": "a"},
+		{"render": 1, "insert": map[string]any{"document": "end", "side": "after"}, "text": "a"},
+		{"render": 1, "insert": map[string]any{"document": "end", "extra": true}, "text": "a"},
 		{"render": 1, "insert": map[string]any{"anchor": "1:1-1:3"}, "text": "a"},
 		{"render": 1, "insert": map[string]any{"anchor": "1:1-1:3", "side": "after", "extra": true}, "text": "a"},
 		{"render": 1, "insert": map[string]any{"anchor": "1:1-1:3", "side": "above"}, "text": "a"},
@@ -163,6 +170,203 @@ func TestInsertRequestShapes(t *testing.T) {
 	} {
 		if _, err := parseRequest(body); err == nil || err.Status != 400 {
 			t.Fatal(body, err)
+		}
+	}
+}
+
+func TestInsertDocument(t *testing.T) {
+	e := testEngine(t)
+	for _, c := range []struct{ name, old, side, want string }{
+		{"先頭", "本文\n", "start", "追加\n\n本文\n"},
+		{"末尾", "本文\n", "end", "本文\n\n追加\n"},
+		{"末尾改行なし", "前\n\n本文", "end", "前\n\n本文\n\n追加"},
+		{"先頭改行なし", "本文", "start", "追加\n\n本文"},
+		{"末尾だけ改行なし", "本文", "end", "本文\n\n追加"},
+		{"YAMLの後ろ", "---\ntitle: x\n---\n本文\n", "start", "---\ntitle: x\n---\n\n追加\n\n本文\n"},
+		{"TOMLの後ろ", "+++\ntitle = 'x'\n+++\n\n本文\n", "start", "+++\ntitle = 'x'\n+++\n\n追加\n\n本文\n"},
+		{"frontmatterだけの先頭", "---\ntitle: x\n---\n", "start", "---\ntitle: x\n---\n\n追加\n"},
+		{"frontmatterだけの末尾", "+++\ntitle = 'x'\n+++\n", "end", "+++\ntitle = 'x'\n+++\n\n追加\n"},
+		{"frontmatterだけで改行なし", "---\ntitle: x\n---", "start", "---\ntitle: x\n---\n\n追加"},
+		{"脚注の定義の後ろ", "本文[^a]\n\n[^a]: 定義\n", "end", "本文[^a]\n\n[^a]: 定義\n\n追加\n"},
+		{"参照の定義の後ろ", "[本文][a]\n\n[a]: ./part.md\n", "end", "[本文][a]\n\n[a]: ./part.md\n\n追加\n"},
+		{"脚注だけの後ろ", "[^a]: 定義\n", "end", "[^a]: 定義\n\n追加\n"},
+		{"参照だけの後ろ", "[a]: ./part.md\n", "end", "[a]: ./part.md\n\n追加\n"},
+		{"位置のないHTMLの先頭", "<details><summary>題</summary>本文</details>\n", "start", "追加\n\n<details><summary>題</summary>本文</details>\n"},
+		{"水平線で終わるリストの先頭", "- item\n\n  ---\n\n後\n", "start", "追加\n\n- item\n\n  ---\n\n後\n"},
+		{"BOMの後ろ", "\ufeff本文\n", "start", "\ufeff追加\n\n本文\n"},
+		{"BOMを保つ末尾", "\ufeff本文\n", "end", "\ufeff本文\n\n追加\n"},
+	} {
+		for _, mode := range []Mode{File, Buffer} {
+			for _, ending := range []string{"\n", "\r\n"} {
+				t.Run(fmt.Sprintf("%s/%v/%q", c.name, mode, ending), func(t *testing.T) {
+					old := strings.ReplaceAll(c.old, "\n", ending)
+					s, h, updated := footnoteService(t, e, old, mode)
+					if _, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render,
+						"insert": map[string]any{"document": c.side}, "text": "\n追加\n"}); err != nil {
+						t.Fatalf("追加=%v\n%s", err, h.src.HTML)
+					}
+					want := strings.ReplaceAll(c.want, "\n", ending)
+					if !strings.Contains(old, "\n") {
+						want = c.want
+					}
+					if mode == Buffer && !strings.HasSuffix(want, "\n") {
+						want += "\n"
+					}
+					if got := updated(); got != want {
+						t.Fatalf("原文=%q、期待=%q", got, want)
+					}
+					if mode == File {
+						if _, err := applyJSON(t, s, h, `{"undo":true}`); err != nil || disk(t, h) != old {
+							t.Fatal("取り消し", err)
+						}
+						if _, err := applyJSON(t, s, h, `{"redo":true}`); err != nil || disk(t, h) != want {
+							t.Fatal("やり直し", err)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestInsertDocumentStartLine(t *testing.T) {
+	e := testEngine(t)
+	for _, c := range []struct {
+		old string
+		cut int
+	}{
+		{"本文\n", 1}, {"---\ntitle: x\n---\n本文\n", 4}, {"+++\ntitle = 'x'\n+++\n", 4},
+	} {
+		s, h := testService(t, e, c.old, nil)
+		if got := getTables(t, s, h).InsertStart; got != c.cut {
+			t.Fatalf("下書きの移動の先頭行=%d、期待=%d", got, c.cut)
+		}
+	}
+}
+
+func TestInsertEmptyDocument(t *testing.T) {
+	e := testEngine(t)
+	for _, old := range []string{"", " \t", "\n\n\n", " \t\r\n\r\n", "\ufeff\n\n"} {
+		for _, mode := range []Mode{File, Buffer} {
+			for _, side := range []string{"start", "end"} {
+				t.Run(fmt.Sprintf("%q/%v/%s", old, mode, side), func(t *testing.T) {
+					s, h, updated := footnoteService(t, e, old, mode)
+					if _, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render,
+						"insert": map[string]any{"document": side}, "text": " \n追加\r\n二行目\r\n\t"}); err != nil {
+						t.Fatal(err)
+					}
+					want := "追加\n二行目\n"
+					if strings.HasPrefix(old, "\ufeff") {
+						want = "\ufeff" + want
+					}
+					if got := updated(); got != want {
+						t.Fatalf("原文=%q、期待=%q", got, want)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestInsertDocumentRejects(t *testing.T) {
+	e := testEngine(t)
+	for _, mode := range []Mode{File, Buffer} {
+		for _, c := range []struct{ old, side, added, code string }{
+			{"前\n\n<!-- 閉じない\n", "end", "追加", "insert"},
+			{"前\n\n<details>\n本文\n", "end", "追加", "insert"},
+			{"前\n\n```\ncode\n", "end", "追加", "insert"},
+			{"- a\n\n  続き\n", "end", "    取り込まれる", "insert"},
+			{"本文\n", "start", "<details>", "insert"},
+			{"本文\n", "start", "<!--", "insert"},
+			{"本文\n", "start", "```", "insert"},
+			{"<div>元のHTML</div>\n", "start", "<details>", "insert"},
+			{"本文\n", "start", " \n\t", "invalid"},
+			{"", "end", "", "invalid"},
+		} {
+			t.Run(fmt.Sprint(mode, c), func(t *testing.T) {
+				s, h, _ := footnoteService(t, e, c.old, mode)
+				_, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render,
+					"insert": map[string]any{"document": c.side}, "text": c.added})
+				if err == nil || err.Status != 422 || err.Code != c.code {
+					t.Fatalf("拒否=%v", err)
+				}
+				if mode == File && disk(t, h) != c.old {
+					t.Fatal("拒否した追加を書いた")
+				}
+			})
+		}
+	}
+}
+
+func TestInsertDocumentEndProbe(t *testing.T) {
+	e := testEngine(t)
+	for _, old := range []string{"<!-- 閉じない\n", "<!-- 閉じた -->\n"} {
+		s, h := testService(t, e, old, nil)
+		_, err := applyJSON(t, s, h, `{"insert":{"document":"end"},"text":"追加"}`)
+		// コメントに文字が消える場合も既存の要素は変わらないので、印による二度目の描画で断る。
+		if h.trials != 2 {
+			t.Fatalf("試しの描画=%d、期待=2", h.trials)
+		}
+		if strings.Contains(old, "-->") {
+			if err != nil || disk(t, h) != old+"\n追加\n" {
+				t.Fatal("閉じたコメントの後ろ", err)
+			}
+		} else if err == nil || err.Code != "insert" || disk(t, h) != old {
+			t.Fatal("閉じないコメントの後ろ", err)
+		}
+	}
+}
+
+func TestInsertDocumentAfterInclude(t *testing.T) {
+	e := testEngine(t)
+	for _, mode := range []Mode{File, Buffer} {
+		for _, side := range []string{"start", "end"} {
+			for _, ending := range []string{"\n", "\r\n"} {
+				for _, finalNewline := range []bool{false, true} {
+					old := "本文\n\n::include{file=part.md}"
+					if finalNewline {
+						old += "\n"
+					}
+					old = strings.ReplaceAll(old, "\n", ending)
+					s, h := testService(t, e, old, map[string]string{"part.md": "取り込み\n\n二つ目\n"})
+					var sent []BufferEdit
+					if mode == Buffer {
+						s.opts.Mode = Buffer
+						h.src.Buf, h.src.Rev = 7, 12
+						s.opts.Send = func(_ context.Context, edit BufferEdit) *Error { sent = append(sent, edit); return nil }
+					}
+					if _, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render,
+						"insert": map[string]any{"document": side}, "text": "追加"}); err != nil {
+						t.Fatal(side, err)
+					}
+					want := "追加" + ending + ending + old
+					if side == "end" {
+						if finalNewline {
+							want = old + ending + "追加" + ending
+						} else {
+							want = old + ending + ending + "追加"
+						}
+					}
+					got := disk(t, h)
+					if mode == Buffer {
+						if len(sent) != 1 {
+							t.Fatalf("バッファへの置き換え=%+v", sent)
+						}
+						edit, lines := sent[0], bufferLines(old)
+						lines = append(append(append([]string{}, lines[:edit.Start]...), edit.Lines...), lines[edit.End:]...)
+						got = strings.Join(lines, "\n") + "\n"
+						if !strings.HasSuffix(want, "\n") {
+							want += "\n"
+						}
+						if disk(t, h) != old {
+							t.Fatal("バッファの追加でファイルへ書いた")
+						}
+					}
+					if got != want {
+						t.Fatalf("原文=%q、期待=%q", got, want)
+					}
+				}
+			}
 		}
 	}
 }

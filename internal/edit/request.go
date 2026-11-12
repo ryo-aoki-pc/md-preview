@@ -17,6 +17,7 @@ type request struct {
 	operation           operation
 	rangeValue          Range
 	insertSide          string
+	insertDocument      string
 	text                string
 	checked, undo, redo bool
 }
@@ -99,7 +100,17 @@ func parseRequest(m map[string]any) (request, *Error) {
 			return r, invalid()
 		}
 		insert, ok := m["insert"].(map[string]any)
-		if !ok || !fields(insert, "anchor", "side") {
+		if !ok {
+			return r, invalid()
+		}
+		if fields(insert, "document") {
+			r.insertDocument, ok = insert["document"].(string)
+			if !ok || r.insertDocument != "start" && r.insertDocument != "end" {
+				return r, invalid()
+			}
+			return r, nil
+		}
+		if !fields(insert, "anchor", "side") {
 			return r, invalid()
 		}
 		r.insertSide, ok = insert["side"].(string)

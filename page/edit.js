@@ -9,6 +9,7 @@
 
   const root = document.documentElement;
   const toggle = document.getElementById('gp-edit-toggle');
+  const addButton = document.getElementById('gp-edit-add');
   const layer = document.createElement('div');
   layer.id = 'gp-edit-layer';
   const make = (tag, id, parent = layer) => {
@@ -89,6 +90,8 @@
   let late = null;
   let documentEditable = false;
   let documentReason = '';
+  let documentEmpty = renderedDocumentEmpty();
+  let documentStart = 1;
   let pendingBlock = null;
   let sourceFetching = null;
   let sourceNumber = 0;
@@ -99,7 +102,8 @@
   const menus = new Map();
   const menuItems = [];
   const openMenus = [];
-  const keyOf = (point) => point.range ? (point.insert ? 'insert:' + point.insert + ':' : 'range:') + (point.html ? JSON.stringify(point.html) : point.range) : [point.table, point.row, point.col].join(':');
+  const blockPoint = (point) => Boolean(point?.range || point?.document);
+  const keyOf = (point) => point.document ? 'insert:document:' + point.document : point.range ? (point.insert ? 'insert:' + point.insert + ':' : 'range:') + (point.html ? JSON.stringify(point.html) : point.range) : [point.table, point.row, point.col].join(':');
   const samePoint = (a, b) => a && b && keyOf(a) === keyOf(b);
   const allowed = () => !preview.config.list &&
     (config.scope === 'all' || (config.scope === 'current' && preview.doc === null &&
@@ -122,7 +126,7 @@
     return live && live !== element && live.contains(element) && blockOf(live) === live ? live : null;
   }
   function moveBlock(outside) {
-    if (!editor?.point.range || editor.insert || composing || sourceFetching) return;
+    if (!blockPoint(editor?.point) || editor.insert || composing || sourceFetching) return;
     const inner = editor.inner || [];
     // 描き直しで画面から外れた内側の要素は飛ばす。
     const rest = inner.filter(findBlock);
@@ -151,6 +155,38 @@
   }
   beforeButton.addEventListener('click', () => beginInsert('before'));
   afterButton.addEventListener('click', () => beginInsert('after'));
+  function renderedDocumentEmpty() {
+    // 差分更新の部品や利用者の属性ではなく、描画済み HTML の写しで空を判定する。
+    const template = document.createElement('template');
+    template.innerHTML = preview.current()?.html || '';
+    return template.content.children.length === 0;
+  }
+  function documentInsertReason() {
+    if (!mode || !allowed()) return '編集モードで操作してください';
+    if (stopped) return 'プレビューが止まっています';
+    if (infoRender !== preview.current()?.render) return '文書の情報を読み込んでいます';
+    if (!documentEditable) return documentReason || 'この文書は編集できません';
+    if (busy || queue.length || sourceFetching) return '前の書き込みの反映を待っています';
+    if (composing) return '文字の入力を終えてから操作してください';
+    return '';
+  }
+  function beginDocumentInsert(side) {
+    const reason = documentInsertReason();
+    if (reason) { notice(reason, true); return; }
+    operationStart();
+    clearSelection();
+    const point = { document: side }, saved = drafts.get(keyOf(point));
+    drafts.delete(keyOf(point));
+    openBlock({ point, insert: { document: side }, element: document.getElementById('gp-content'),
+      startCut: documentStart,
+      render: preview.current().render, version: externalVersion, original: '',
+      value: saved?.version === externalVersion ? saved.value : '', outer: [], inner: [], previousHTML: preview.current().html });
+  }
+  addButton.addEventListener('click', () => {
+    if (documentEmpty) beginDocumentInsert('end');
+    else if (addButton.getAttribute('aria-expanded') === 'true') closeMenus();
+    else openMenu('document', addButton);
+  });
   function checkboxOf(element) {
     if (!element?.matches?.('input.task-list-item-checkbox[type="checkbox"][data-checkbox-sourcepos]:not([data-inapplicable])') ||
       !rangePattern.test(element.getAttribute('data-checkbox-sourcepos'))) return null;
@@ -354,6 +390,7 @@
         data.tables.some((table, i) => table.index !== i)) throw new Error('画面と原文の表の数が合いません');
       documentEditable = data.document.editable === true;
       documentReason = data.document.reason || '';
+      documentStart = Number.isSafeInteger(data.insertStart) && data.insertStart > 0 ? data.insertStart : 1;
       origin = typeof data.origin === 'string' && /^[0-9a-f]{32}$/i.test(data.origin) ? data.origin : '';
       byCell = new WeakMap();
       models = data.tables.map((info, i) => {
@@ -526,7 +563,7 @@
     for (; number < pieces.length; number++) pieces[number].hidden = true;
   }
   function refreshBlock() {
-    if (!editor?.point.range || editor.element.isConnected) return;
+    if (!blockPoint(editor?.point) || editor.element.isConnected) return;
     // 探し直すのは、数式・図の描き直しや配色の切り替えで置き換わったときだけ。
     // 文書が外で変わった後は、同じ位置に別の内容が来ているかもしれないので付け替えない。
     const element = editor.version === externalVersion && findBlock(editor.target);
@@ -542,7 +579,7 @@
     const cutModel = models[cutState?.table];
     cutFrame.hidden = !mode || !cutState?.active || cutModel?.table !== cutState.tableElement;
     if (!cutFrame.hidden) placeRect(cutPieces, cutModel, cutState.rect);
-    const cell = editor?.point.range ? { element: editor.element } : selectionCell();
+    const cell = blockPoint(editor?.point) ? { element: editor.element } : selectionCell();
     if (!cell || !mode) {
       if (!cutFrame.hidden) animation = requestAnimationFrame(position);
       return;
@@ -550,7 +587,7 @@
     const range = tableSelection && selectionRect();
     rangeFrame.hidden = !range || Boolean(editor);
     if (range && !editor) placeRect(rangePieces, models[tableSelection.table], range);
-    frame.hidden = Boolean(editor?.point.range);
+    frame.hidden = blockPoint(editor?.point);
     frame.dataset.pending = String([...queue, ...(busy ? [busy.item] : [])].some((item) => samePoint(item.point, selected)));
     let rect = place(frame, cell.element);
     if (editor?.target?.tag === 'html') {
@@ -575,14 +612,15 @@
         editor.width = width;
         editor.resize = false;
       }
-      let height = editor.point.range
+      let height = blockPoint(editor.point)
         ? Math.min(Math.max(64, editor.content), Math.max(64, innerHeight - rect.top - 8))
         : Math.min(Math.max(rect.height, editor.content), Math.max(rect.height, innerHeight - rect.top - 8));
-      blockBar.hidden = !editor.point.range || editor.insert || (!editor.outer?.length && !editor.inner?.length && !editor.anchor);
+      blockBar.hidden = !blockPoint(editor.point) || editor.insert || (!editor.outer?.length && !editor.inner?.length && !editor.anchor);
       if (editor.insert) {
         const header = document.getElementById('gp-header').getBoundingClientRect().bottom;
         height = Math.min(height, Math.max(64, innerHeight - header - 24));
-        const top = Math.max(header + 8, Math.min(editor.insert.side === 'before' ? rect.top - height - 6 : rect.bottom + 6,
+        const top = Math.max(header + 8, Math.min(editor.insert.document === 'start' && !documentEmpty ? rect.top :
+          editor.insert.side === 'before' ? rect.top - height - 6 : rect.bottom + 6,
           innerHeight - height - 8));
         rect = { ...rect, left: rect.left, right: rect.right, width: rect.width, top, bottom: top + height, height };
       }
@@ -643,6 +681,7 @@
     bar.hidden = frame.hidden = true;
     layer.dataset.typing = 'on';
     reveal(draft.element);
+    if (draft.point.document) draft.element.scrollIntoView({ block: draft.point.document === 'start' && !documentEmpty ? 'start' : 'end', inline: 'nearest' });
     focusInput();
     input.setSelectionRange(input.value.length, input.value.length);
     cancelAnimationFrame(animation);
@@ -769,7 +808,7 @@
     drafts.delete(keyOf(draft.point));
     const retry = failed && samePoint(failed.point, draft.point);
     if (retry) failed = null;
-    if (draft.point.range) clearSelection();
+    if (blockPoint(draft.point)) clearSelection();
     if (commit && draft.value !== draft.original) {
       if (draft.version !== externalVersion) {
         drafts.set(keyOf(draft.point), draft);
@@ -779,7 +818,7 @@
         updateButtons();
         return;
       }
-      if (draft.point.range) {
+      if (blockPoint(draft.point)) {
         enqueue({ ...draft }, retry);
         return;
       }
@@ -800,7 +839,7 @@
   }
 
   function addMask(item) {
-    if (item.value === undefined || item.point.range) return;
+    if (item.value === undefined || blockPoint(item.point)) return;
     const mask = make('div', 'gp-edit-pending-' + ++maskNumber);
     mask.className = 'gp-edit-pending';
     mask.textContent = item.value;
@@ -838,7 +877,7 @@
       discarded = true;
     }
     // まだ確定していない入力も、変わる前の座標と原文を下書きに残す。
-    if (editor && !editor.point.range) {
+    if (editor && !blockPoint(editor.point)) {
       saveDraft();
       editor = null;
       composing = false;
@@ -871,16 +910,16 @@
   // 連なりの前後に段落が増えると、その段落が新しい境になる。
   // 追加前の入力の要素で下書きを照合し、追加しなかった側の境から現在の連なりへ移す。
   function rebindHTMLDraft(item) {
-    if (item.target?.tag !== 'html') return;
+    if (item.target?.tag !== 'html' && !item.insert?.document) return;
     const candidates = new Map();
     for (const node of document.querySelector('#gp-content').children) {
       const target = preview.htmlOf(node);
       if (target) candidates.set(JSON.stringify(target), target);
     }
-    const side = item.insert.side === 'before' ? 'next' : 'prev';
+    const side = item.insert.side === 'before' || item.insert.document === 'start' ? 'next' : 'prev';
     const same = (a, b) => !a && !b || Boolean(a && b && a.tag === b.tag && a.range === b.range);
     for (const [key, draft] of [...drafts]) {
-      if (draft.target?.tag !== 'html' || draft.element !== item.element || draft.version !== item.version) continue;
+      if (draft.target?.tag !== 'html' || !item.insert.document && draft.element !== item.element || draft.version !== item.version) continue;
       const targets = [...candidates.values()].filter((target) => same(target[side], draft.target[side]));
       if (targets.length !== 1) continue;
       const target = targets[0], point = { ...draft.point, html: target };
@@ -891,7 +930,7 @@
   // 前へ追加したときは、既存の原文は同じまま行だけがずれる。追加前の下書きも、その同じ対象へ戻せるようにする。
   function shiftInsertDrafts(item) {
     if (!item.insert) return;
-    if (item.insert.side !== 'before' || typeof item.previousHTML !== 'string' || typeof preview.current()?.html !== 'string') {
+    if (item.insert.side !== 'before' && item.insert.document !== 'start' || typeof item.previousHTML !== 'string' || typeof preview.current()?.html !== 'string') {
       rebindHTMLDraft(item);
       return;
     }
@@ -905,8 +944,15 @@
     const before = positioned(item.previousHTML), after = positioned(preview.current().html);
     const coordinates = (range) => rangePattern.test(range || '') ? range.split(/[:-]/).map(Number) : null;
     const raw = item.target?.tag === 'html';
-    const cut = coordinates(item.anchor.actual)?.[0];
-    const reference = raw ? item.target.next || before.find((target) => coordinates(target.range)?.[0] >= cut) : item.anchor;
+    const cut = item.insert.document === 'start' ? item.startCut : coordinates(item.anchor.actual)?.[0];
+    const reference = item.insert.document === 'start' ? before.find((target, i) => {
+      const from = coordinates(target.range), candidate = after[i + after.length - before.length];
+      const to = coordinates(candidate?.range);
+      // 値が変わらない、利用者が書いた位置は基準にしない。
+      return from?.[0] >= cut && candidate?.tag === target.tag && to && to[0] > from[0] &&
+        to[0] - from[0] === to[2] - from[2] && from[1] === to[1] && from[3] === to[3];
+    })
+      : raw ? item.target.next || before.find((target) => coordinates(target.range)?.[0] >= cut) : item.anchor;
     const index = reference ? before.findIndex((target) => target.tag === reference.tag && target.range === reference.range) : -1;
     const anchor = index < 0 ? null : after[index + after.length - before.length];
     const from = coordinates(reference?.range), to = coordinates(anchor?.range);
@@ -925,13 +971,16 @@
       : target && { ...target, range: shift(target.range) };
     const shifted = [];
     for (const [key, draft] of drafts) {
-      if (!draft.point.range || draft.insert || draft.version !== item.version) continue;
+      if (!draft.point.range || draft.version !== item.version) continue;
       const range = shift(draft.point.range);
       if (range === draft.point.range) continue;
       drafts.delete(key);
       const target = shiftTarget(draft.target);
-      const point = { range, ...(target?.tag === 'html' ? { html: target } : {}) };
-      shifted.push({ ...draft, point, target, inner: draft.inner?.map(shiftTarget), render: preview.current().render });
+      const point = { ...draft.point, range, ...(target?.tag === 'html' ? { html: target } : {}) };
+      shifted.push({ ...draft, point, target, inner: draft.inner?.map(shiftTarget), outer: draft.outer?.map(shiftTarget),
+        anchor: draft.anchor && { ...draft.anchor, range: shift(draft.anchor.range), actual: shift(draft.anchor.actual) },
+        ...(draft.insert ? { insert: { ...draft.insert, anchor: shift(draft.insert.anchor) }, previousHTML: preview.current().html } : {}),
+        render: preview.current().render });
     }
     for (const draft of shifted) drafts.set(keyOf(draft.point), draft);
     rebindHTMLDraft(item);
@@ -940,7 +989,7 @@
     failed = item.value === undefined ? null : item;
     if (!failed) return;
     drafts.set(keyOf(item.point), { ...item });
-    if (item.point.range) {
+    if (blockPoint(item.point)) {
       if (mode && !stopped && item.element.isConnected && item.render === preview.current()?.render && item.version === externalVersion) {
         openBlock(item);
       } else failed = null;
@@ -964,8 +1013,8 @@
       return;
     }
     const item = queue.shift();
-    const target = !item.history && !item.point.range && models[item.point.table];
-    if (!item.history && !item.point.range && (!target?.editable || target.table !== item.tableElement ||
+    const target = !item.history && !blockPoint(item.point) && models[item.point.table];
+    if (!item.history && !blockPoint(item.point) && (!target?.editable || target.table !== item.tableElement ||
       !target.slots[item.point.row]?.[item.point.col])) {
       item.mask?.remove();
       discardQueue();
@@ -979,7 +1028,7 @@
       item.afterKind = /Rows(?:From)?$/.test(item.op.type) ? 'rows' : /Columns(?:From)?$/.test(item.op.type) ? 'cols' : 'cells';
     }
     checkboxElement(item);
-    if (item.point.range && (!documentEditable || (item.checkbox ? !item.checkbox.isConnected : item.render !== render))) {
+    if (blockPoint(item.point) && (!documentEditable || (item.checkbox ? !item.checkbox.isConnected : item.render !== render))) {
       if (item.value !== undefined) drafts.set(keyOf(item.point), { ...item });
       if (item.checkbox?.isConnected) item.checkbox.checked = item.originalChecked;
       discardQueue();
@@ -1186,6 +1235,7 @@
   }
   // 表示・メニュー・実行は、必ず同じ理由を使う。DOM の行の表示状態はこの時だけ読む。
   function reasonFor(action) {
+    if (action === 'document-start' || action === 'document-end') return documentInsertReason();
     if (action === 'paste') return pasteInstruction;
     const cell = selectionCell();
     if (!cell) return 'セルを選んでください';
@@ -1308,6 +1358,7 @@
   buildMenu('cell', 'セルの操作', [['copy', 'コピー（Ctrl+C）', 'cell-copy'], ['cut', '切り取り（Ctrl+X）', 'cell-cut'],
     ['paste', '貼り付け（Ctrl+V）', 'cell-paste'], null, ['rows', '行', 'cell-rows'], ['cols', '列', 'cell-cols'], null,
     ['source', '原文を編集', 'cell-source']]);
+  buildMenu('document', '文書への追加', [['document-start', '文書の先頭に追加'], ['document-end', '文書の末尾に追加']]);
 
   function closeMenus(restore = false) {
     const opener = openMenus[0]?.opener;
@@ -1342,11 +1393,16 @@
     element.style.top = Math.max(8, Math.min(top, innerHeight - size.height - 8)) + 'px';
   }
   function openMenu(name, opener, { last = false, point = null } = {}) {
+    if (name === 'document') {
+      const reason = documentInsertReason();
+      if (reason) { notice(reason, true); return; }
+    }
     cancelInsert();
-    if (editor) endEdit(true);
+    if (name === 'document') clearSelection();
+    else if (editor) endEdit(true);
     closeMenus();
     const menu = menus.get(name);
-    const placement = name === 'cell' ? 'cell' : 'toolbar';
+    const placement = name === 'cell' ? 'cell' : name === 'document' ? 'header' : 'toolbar';
     const rect = point ? { left: point.x, right: point.x, top: point.y, bottom: point.y }
       : name === 'cell' ? selectionCell().element.getBoundingClientRect() : opener.getBoundingClientRect();
     openMenus.push({ menu, opener, placement, rect: name === 'cell' ? rect : null });
@@ -1369,6 +1425,7 @@
     menu.items[0].focus({ preventScroll: true });
   }
   function runAction(action) {
+    if (action === 'document-start' || action === 'document-end') { beginDocumentInsert(action.slice('document-'.length)); return; }
     const reason = reasonFor(action);
     if (reason) {
       if (openMenus.length) {
@@ -1421,6 +1478,13 @@
   function handleMenuKey(event) {
     const key = event.key;
     if (!openMenus.length) {
+      if (document.activeElement === addButton && !addButton.disabled && !documentEmpty &&
+        ['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(key)) {
+        openMenu('document', addButton, { last: key === 'ArrowUp' });
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return true;
+      }
       const action = [...buttons].find(([, button]) => button === document.activeElement)?.[0];
       if (!['rows', 'cols'].includes(action) || buttons.get(action).disabled || !['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(key)) return false;
       openMenu(action, buttons.get(action), { last: key === 'ArrowUp' });
@@ -1461,6 +1525,12 @@
     });
   }
   function updateButtons() {
+    addButton.hidden = !mode;
+    addButton.disabled = Boolean(documentInsertReason());
+    addButton.title = documentInsertReason();
+    addButton.textContent = documentEmpty ? '最初のブロックを書く' : '追加';
+    if (documentEmpty) addButton.removeAttribute('aria-haspopup');
+    else addButton.setAttribute('aria-haspopup', 'menu');
     layer.setAttribute('aria-busy', String(Boolean(busy || queue.length)));
     layer.dataset.render = String(infoRender);
     for (const [action, button] of buttons) {
@@ -1485,6 +1555,7 @@
     updateCursors();
     updateHover(null);
     updateCheckboxes();
+    updateButtons();
     if (mode) void loadTables();
   }
   window.gpEditMode = { active: () => mode, busy: () => Boolean(editor || composing || busy || queue.length || sourceFetching), exit: () => setMode(false) };
@@ -1499,7 +1570,7 @@
   // 登録は一度だけ。全幅表示を開いたときに登録される Esc の受け手より先に動かす。
   window.addEventListener('pointerdown', (event) => {
     if (!mode) return;
-    if (openMenus.length && !event.target.closest?.('.gp-edit-menu, #gp-edit-rows, #gp-edit-cols')) closeMenus();
+    if (openMenus.length && !event.target.closest?.('.gp-edit-menu, #gp-edit-rows, #gp-edit-cols, #gp-edit-add')) closeMenus();
     down = { x: event.clientX, y: event.clientY };
     dragged = false;
   }, true);
@@ -1535,6 +1606,7 @@
     if (!mode || stopped || layer.contains(event.target)) return;
     // コメントへの切り替えは、入力を確定せず busy() の確認へ渡す。
     if (event.target.closest?.('#gp-review-toggle')) return;
+    if (event.target.closest?.('#gp-edit-add')) return;
     cancelSource();
     // 表の固定の「セルを選んで固定」の最中は、セルの中のタスクを押しても境界の選択だけに任せる。
     const checkbox = !window.__mdTableSticky?.picking && checkboxOf(event.target);
@@ -1550,7 +1622,7 @@
       return;
     }
     if (ignored(event.target)) {
-      if (editor && !window.__mdTableSticky?.picking && !(editor.point.range && event.target.closest('#gp-theme'))) endEdit(true);
+      if (editor && !window.__mdTableSticky?.picking && !(blockPoint(editor.point) && event.target.closest('#gp-theme'))) endEdit(true);
       return;
     }
     const element = event.target.closest?.('td, th');
@@ -1653,8 +1725,8 @@
       return;
     }
     if (handleMenuKey(event)) return;
-    if ((document.activeElement !== input && !(editor?.point.range && blockBar.contains(document.activeElement))) ||
-      (!selected && !editor?.point.range)) return;
+    if ((document.activeElement !== input && !(blockPoint(editor?.point) && blockBar.contains(document.activeElement))) ||
+      (!selected && !blockPoint(editor?.point))) return;
     const key = event.key;
     if (selected && ((key === 'F10' && shiftOnly(event)) || key === 'ContextMenu')) {
       event.preventDefault(); event.stopImmediatePropagation();
@@ -1662,7 +1734,7 @@
       return;
     }
     if (editor) {
-      if (editor.point.range) {
+      if (blockPoint(editor.point)) {
         if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && (key === 'ArrowUp' || key === 'ArrowDown')) {
           event.preventDefault(); event.stopImmediatePropagation();
           moveBlock(key === 'ArrowUp');
@@ -1721,7 +1793,7 @@
     }
   }, true);
   window.addEventListener('compositionstart', (event) => {
-    if (event.target !== input || !mode || (!selected && !editor?.point.range)) return;
+    if (event.target !== input || !mode || (!selected && !blockPoint(editor?.point))) return;
     if (!editor) beginEdit({ replace: true, value: input.value, composition: true });
     composing = true;
   }, true);
@@ -1729,7 +1801,7 @@
     if (event.target === input) { composing = false; saveDraft(); }
   }, true);
   window.addEventListener('input', (event) => {
-    if (event.target !== input || !mode || (!selected && !editor?.point.range)) return;
+    if (event.target !== input || !mode || (!selected && !blockPoint(editor?.point))) return;
     if (!editor) beginEdit({ replace: true, value: input.value, composition: event.isComposing });
     if (event.isComposing) composing = true;
     editor.resize = true;
@@ -1784,6 +1856,8 @@
   window.addEventListener('copy', (event) => copySelection(event, clipboardIntent?.kind || 'copy'), true);
   window.addEventListener('cut', (event) => copySelection(event, 'cut'), true);
   document.addEventListener('gp:render', () => {
+    documentEmpty = renderedDocumentEmpty();
+    updateButtons();
     const render = preview.current()?.render;
     if (render !== observedRender) {
       cancelCut();
