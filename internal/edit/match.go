@@ -33,21 +33,23 @@ type cellInfo struct {
 	CopyLocked string `json:"copyLocked"`
 }
 type tableInfo struct {
-	Index      int            `json:"index"`
-	Number     int            `json:"number"`
-	Kind       tableedit.Kind `json:"kind"`
-	Editable   bool           `json:"editable"`
-	Reason     string         `json:"reason"`
-	Rows       int            `json:"rows"`
-	Cols       int            `json:"cols"`
-	RowsLocked string         `json:"rowsLocked"`
-	ColsLocked string         `json:"colsLocked"`
-	Warnings   []string       `json:"warnings"`
-	Cells      []cellInfo     `json:"cells"`
-	Hash       string         `json:"hash"`
-	RowTags    []string       `json:"rowTags"`
-	Delimiters []string       `json:"delimiters"`
-	CopyLocked string         `json:"copyLocked"`
+	Index        int            `json:"index"`
+	Number       int            `json:"number"`
+	Kind         tableedit.Kind `json:"kind"`
+	Editable     bool           `json:"editable"`
+	Reason       string         `json:"reason"`
+	Anchor       Range          `json:"anchor"`
+	AnchorReason string         `json:"anchorReason"`
+	Rows         int            `json:"rows"`
+	Cols         int            `json:"cols"`
+	RowsLocked   string         `json:"rowsLocked"`
+	ColsLocked   string         `json:"colsLocked"`
+	Warnings     []string       `json:"warnings"`
+	Cells        []cellInfo     `json:"cells"`
+	Hash         string         `json:"hash"`
+	RowTags      []string       `json:"rowTags"`
+	Delimiters   []string       `json:"delimiters"`
+	CopyLocked   string         `json:"copyLocked"`
 }
 type tablesResponse struct {
 	// 文書の先頭へ追加したときに、下書きの位置をずらす最初の行（front matter の後ろ）。
@@ -205,6 +207,7 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 			info.Editable, info.Reason = false, positions.positionErr.Message
 		}
 		m.response.Tables[i] = info
+		m.response.Tables[i].Anchor, m.response.Tables[i].AnchorReason = tableAnchor(ctx, src, root, n, t, info)
 	}
 	if _, reason := src.Lines.Original(1); reason == "shift" {
 		m.response.Document = documentState{false, reasonText(reason)}
@@ -226,4 +229,69 @@ func marker(value, prefix string, models map[int]*tableedit.Table) (int, bool) {
 	}
 	n, e := strconv.Atoi(strings.TrimPrefix(value, prefix))
 	return n, e == nil && models[n] != nil && value == prefix+strconv.Itoa(n)
+}
+
+// セルの形まで一致した表だけを使う。対応が曖昧な表では、原文の行も追加先として信用しない。
+func tableAnchor(ctx context.Context, src session.Source, root, n *html.Node, t *tableedit.Table, info tableInfo) (Range, string) {
+	if !info.Editable || t == nil {
+		return "", info.Reason
+	}
+	children, err := tableNodes(ctx, n)
+	if err != nil || len(children) != 1 || t.Parent != 0 {
+		return "", "入れ子の表の前後には追加できません"
+	}
+	if n.Parent != root {
+		return "", "最上位の表の前後だけに追加できます"
+	}
+	starts := lineStarts(src.Text)
+	if t.StartLine < 0 || t.EndLine < t.StartLine || t.EndLine >= len(starts) {
+		return "", "表の原文の行を確かめられません"
+	}
+	end := len(src.Text)
+	if t.EndLine+1 < len(starts) {
+		end = starts[t.EndLine+1] - 1
+	}
+	if end > starts[t.EndLine] && src.Text[end-1] == '\r' {
+		end--
+	}
+	r := rangeOf([4]int{src.Lines.Expanded(t.StartLine + 1), 1, src.Lines.Expanded(t.EndLine + 1), end - starts[t.EndLine]})
+	a, b, _, e := offsetsAt(src, r, starts)
+	if e != nil || a != starts[t.StartLine] || b != end {
+		return "", "表の原文の連続した行を確かめられません"
+	}
+	if t.Kind == "html" {
+		raw := strings.TrimSpace(src.Text[a:b])
+		lower := strings.ToLower(raw)
+		if !strings.HasPrefix(lower, "<table") || !strings.HasSuffix(lower, "</table>") ||
+			t.Tag == nil || t.Tag.Start < a || t.Tag.Start > b || strings.TrimSpace(src.Text[a:t.Tag.Start]) != "" || !singleHTMLTable(raw) {
+			return "", "表の最初と最後の行に表以外の文字があります"
+		}
+	}
+	return r, ""
+}
+
+// 同じ行に別の表や節点が並んでいるときに、まとめて追加先にしない。
+func singleHTMLTable(raw string) bool {
+	z := html.NewTokenizer(strings.NewReader(raw))
+	depth, count := 0, 0
+	for {
+		kind := z.Next()
+		if kind == html.ErrorToken {
+			return depth == 0 && count == 1
+		}
+		token := z.Token()
+		if kind == html.StartTagToken && token.Data == "table" {
+			if depth == 0 {
+				count++
+			}
+			depth++
+		} else if kind == html.EndTagToken && token.Data == "table" {
+			depth--
+			if depth < 0 {
+				return false
+			}
+		} else if depth == 0 && (kind != html.TextToken || strings.TrimSpace(token.Data) != "") {
+			return false
+		}
+	}
 }

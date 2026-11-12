@@ -36,6 +36,16 @@ const rejected = (change) => {
   assert.equal(grid.parseEnvelope(JSON.stringify(value)), null);
 };
 
+test('空のパイプの表を、見出しと本文の行に分けて作る', () => {
+  assert.equal(grid.emptyPipeTable(2, 2), '| 列1 | 列2 |\n| --- | --- |\n|  |  |\n|  |  |');
+  assert.equal(grid.emptyPipeTable(1, 1), '| 列1 |\n| --- |\n|  |');
+  const largest = grid.emptyPipeTable(20, 100).split('\n');
+  assert.equal(largest.length, 102);
+  assert.match(largest[0], /\| 列20 \|$/);
+  for (const [cols, rows] of [[0, 1], [21, 1], [1, 0], [1, 101], [1.5, 1], [1, 1.5], ['2', 1], [1, NaN], [Infinity, 1]])
+    assert.throws(() => grid.emptyPipeTable(cols, rows), { name: 'RangeError' });
+});
+
 test('外部への定義は凍結した gpEditGrid だけ', () => {
   assert.deepEqual(Object.keys(context), ['window']);
   assert.deepEqual(Object.keys(context.window), ['gpEditGrid']);

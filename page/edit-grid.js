@@ -11,6 +11,13 @@
   const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
   const strings = (values) => Array.isArray(values) && values.every((value) => typeof value === 'string');
 
+  function emptyPipeTable(cols, rows) {
+    if (!integer(cols, 1, 20) || !integer(rows, 1, 100)) throw new RangeError('列は 1〜20、本文の行は 1〜100 で指定してください');
+    const line = (cells) => '| ' + cells.join(' | ') + ' |';
+    return [line(Array.from({ length: cols }, (_, i) => '列' + (i + 1))),
+      line(Array(cols).fill('---')), ...Array(rows).fill(line(Array(cols).fill('')))].join('\n');
+  }
+
   function dimensions(model) {
     return {
       rows: Array.isArray(model.rows) ? model.rows.length : model.rows ?? model.slots?.length ?? 0,
@@ -235,5 +242,5 @@
     return fragment.cells.some((cell) => [cell.text, cell.tag, cell.source].some((text) => /\]\(|\]\[|\[\^|\b(?:href|src)\s*=/i.test(text)));
   }
 
-  window.gpEditGrid = Object.freeze({ TYPE, LIMITS, slotsOf, rectOf, crossing, cellsIn, step, axisRect, matrix, toTSV, parseTSV, toHTML, fragment, valuesFragment, envelope, parseEnvelope, placed, foreignHints });
+  window.gpEditGrid = Object.freeze({ TYPE, LIMITS, emptyPipeTable, slotsOf, rectOf, crossing, cellsIn, step, axisRect, matrix, toTSV, parseTSV, toHTML, fragment, valuesFragment, envelope, parseEnvelope, placed, foreignHints });
 })();

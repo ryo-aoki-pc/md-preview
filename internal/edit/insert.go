@@ -73,7 +73,26 @@ func (s *Service) insertionPoint(ctx context.Context, src session.Source, m *blo
 		}
 	}
 	if anchor == nil {
-		var e *Error
+		tables, e := s.tables(ctx, src)
+		if e != nil {
+			return insertionPoint{}, e
+		}
+		for _, table := range tables.response.Tables {
+			if table.Anchor == "" || table.Anchor != r.rangeValue {
+				continue
+			}
+			c, _ := coordinates(table.Anchor)
+			line, _ := src.Lines.Original(c[0])
+			point := insertionPoint{line: line, cut: c[0], pos: starts[line-1]}
+			if r.insertSide == "after" {
+				point.line, _ = src.Lines.Original(c[2])
+				point.cut, point.pos = c[2]+1, len(old)
+				if point.line < len(starts) {
+					point.pos = starts[point.line]
+				}
+			}
+			return point, nil
+		}
 		anchor, e = s.htmlWritable(ctx, src, m, r.rangeValue)
 		if e != nil {
 			return insertionPoint{}, e

@@ -473,7 +473,8 @@ body {
   z-index: 4;
 }
 #gp-edit-actions button,
-#gp-edit-block-actions button {
+#gp-edit-block-actions button,
+#gp-edit-table-picker button {
   border: 1px solid var(--gp-border);
   border-radius: 3px;
   padding: 3px 7px;
@@ -484,6 +485,27 @@ body {
 }
 #gp-edit-block-actions button {
   font-size: 12px;
+}
+#gp-edit-table-picker {
+  position: fixed;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  max-width: calc(100vw - 32px);
+  padding: 8px;
+  border: 1px solid var(--gp-border);
+  color: var(--gp-fg);
+  background: var(--gp-bg);
+  pointer-events: auto;
+  z-index: 8;
+}
+#gp-edit-table-picker input {
+  width: 4em;
+  color: inherit;
+  background: inherit;
+  font: inherit;
 }
 #gp-edit-actions button:disabled {
   opacity: 0.5;

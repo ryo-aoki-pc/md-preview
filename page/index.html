@@ -46,5 +46,13 @@
   <main id="gp-content" class="file-content js-markup-content md">読み込み中…</main>
 </div>
 </div>
+<template id="gp-edit-table-template">
+  <form id="gp-edit-table-picker" role="dialog" aria-label="入れる表の大きさ" hidden>
+    <label>列 <input id="gp-edit-table-cols" type="number" min="1" max="20" step="1" value="2" required></label>
+    <label>本文の行 <input id="gp-edit-table-rows" type="number" min="1" max="100" step="1" value="2" required></label>
+    <button type="submit">入れる</button>
+    <button id="gp-edit-table-cancel" type="button">閉じる</button>
+  </form>
+</template>
 </body>
 </html>
