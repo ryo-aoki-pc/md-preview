@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/ryo-aoki-pc/md-tools/internal/htmltree"
 	"github.com/ryo-aoki-pc/md-tools/internal/session"
@@ -119,9 +120,32 @@ func blockKind(tag string) string {
 
 func excludedBlock(n *html.Node) bool {
 	return n.Type == html.ElementNode && (n.Data == "table" ||
-		n.Data == "section" && htmltree.Has(n, "data-footnotes") ||
 		htmltree.Has(n, "data-diagram") || htmltree.HasClass(n, "section-nav") ||
 		htmltree.HasClass(n, "js-render-math"))
+}
+
+func footnoteSection(n *html.Node) bool {
+	return n.Type == html.ElementNode && n.Data == "section" && htmltree.Has(n, "data-footnotes")
+}
+
+func footnoteDefinition(n *html.Node) bool {
+	return n.Type == html.ElementNode && n.Data == "li" && n.Parent != nil && n.Parent.Data == "ol" &&
+		n.Parent.Parent != nil && footnoteSection(n.Parent.Parent)
+}
+
+func footnoteLabel(text string) string {
+	if !strings.HasPrefix(text, "[^") {
+		return ""
+	}
+	end := strings.IndexByte(text[2:], ']')
+	if end < 1 || !strings.HasPrefix(text[2+end:], "]:") {
+		return ""
+	}
+	label := text[2 : 2+end]
+	if strings.ContainsFunc(label, unicode.IsSpace) {
+		return ""
+	}
+	return label
 }
 
 func excludedCheckbox(n *html.Node) bool {
@@ -158,8 +182,12 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 		if n.Data == "div" && htmltree.HasClass(n, "markdown-alert") {
 			kind = "alert"
 		}
+		if footnoteDefinition(n) {
+			kind = "footnote"
+		}
 		r := Range(htmltree.Get(n, "data-sourcepos"))
-		if kind == "" || !rangePattern.MatchString(string(r)) || excludedBlock(n) || htmltree.Ancestor(n, excludedBlock) {
+		if kind == "" || !rangePattern.MatchString(string(r)) || excludedBlock(n) || htmltree.Ancestor(n, excludedBlock) ||
+			htmltree.Ancestor(n, footnoteSection) && kind != "footnote" {
 			return nil
 		}
 		if n.Data == "pre" {
@@ -172,7 +200,7 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 			}
 		}
 		b := block{tag: n.Data, kind: kind, public: r, outer: -1}
-		for parent := n.Parent; parent != nil; parent = parent.Parent {
+		for parent := n.Parent; kind != "footnote" && parent != nil; parent = parent.Parent {
 			if i, ok := indices[parent]; ok {
 				b.outer = i
 				break
@@ -193,6 +221,9 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 		}
 		if b.reason == nil {
 			b.start, b.end, b.line, b.reason = offsetsAt(src, b.actual, starts)
+		}
+		if b.reason == nil && b.kind == "footnote" && footnoteLabel(src.Text[b.start:b.end]) == "" {
+			b.reason = blockFault("boundary")
 		}
 		indices[n] = len(m.blocks)
 		nodes = append(nodes, n)

@@ -7,8 +7,167 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ryo-aoki-pc/md-tools/engine"
 	"github.com/ryo-aoki-pc/md-tools/internal/session"
 )
+
+func footnoteService(t *testing.T, e *engine.Engine, text string, mode Mode) (*Service, *testHost, func() string) {
+	t.Helper()
+	if mode == File {
+		s, h := testService(t, e, text, nil)
+		return s, h, func() string { return disk(t, h) }
+	}
+	s, h, sent := bufferService(t, e, text)
+	return s, h, func() string {
+		t.Helper()
+		if len(*sent) != 1 {
+			t.Fatalf("バッファへの置き換え=%+v", *sent)
+		}
+		r := (*sent)[0]
+		if r.Path != h.src.DocPath || r.Buf != h.src.Buf || r.Rev != h.src.Rev {
+			t.Fatalf("バッファの対応=%+v", r)
+		}
+		lines := bufferLines(text)
+		lines = append(append(append([]string{}, lines[:r.Start]...), r.Lines...), lines[r.End:]...)
+		return strings.Join(lines, "\n") + "\n"
+	}
+}
+
+func TestFootnoteRangesAndWrites(t *testing.T) {
+	e := testEngine(t)
+	const multiple = "本文[^a] と[^b]\n\n[^a]: 一つ目\n    続き\n\n[^b]: 二つ目\n\n    段落\n\n次\n"
+	for _, c := range []struct{ name, text, public, paragraph, source, replacement string }{
+		{"一行", "本文[^1]\n\n[^1]: 脚注の定義\n", "3:1-3:21", "3:7-3:21", "[^1]: 脚注の定義", "[^1]: 変更した定義"},
+		{"続きの行", multiple, "3:1-4:10", "3:7-4:10", "[^a]: 一つ目\n    続き", "[^a]: 一つ目の変更\n    続きの変更"},
+		{"二つの段落", multiple, "6:1-8:10", "8:5-8:10", "[^b]: 二つ目\n\n    段落", "[^b]: 二つ目の変更\n\n    段落の変更"},
+		{"参照の前の定義", "[^a]: 定義\n\n本文[^a]\n", "1:1-1:12", "1:7-1:12", "[^a]: 定義", "[^a]: 定義の変更"},
+		{"空行なしで続く定義", "本文[^1] と[^2]\n\n[^1]: 一つ目\n[^2]: 二つ目\n", "4:1-4:15", "4:7-4:15", "[^2]: 二つ目", "[^2]: 二つ目の変更"},
+		{"日本語のラベル", "本文[^注1] と[^note-1]\n\n[^注1]: 日本語のラベル\n\n[^note-1]: ハイフンのラベル\n", "3:1-3:30", "3:10-3:30", "[^注1]: 日本語のラベル", "[^注1]: 変更"},
+		{"ハイフンのラベル", "本文[^注1] と[^note-1]\n\n[^注1]: 日本語のラベル\n\n[^note-1]: ハイフンのラベル\n", "5:1-5:35", "5:12-5:35", "[^note-1]: ハイフンのラベル", "[^note-1]: 変更"},
+		{"字下げした定義", "本文[^1]\n\n  [^1]: 字下げした定義\n", "3:3-3:29", "3:9-3:29", "[^1]: 字下げした定義", "[^1]: 変更"},
+	} {
+		for _, mode := range []Mode{File, Buffer} {
+			for _, ending := range []string{"\n", "\r\n"} {
+				t.Run(fmt.Sprintf("%s/%v/%q", c.name, mode, ending), func(t *testing.T) {
+					text := strings.ReplaceAll(c.text, "\n", ending)
+					s, h, updated := footnoteService(t, e, text, mode)
+					originalHTML := h.src.HTML
+					value, err := s.Text(context.Background(), nil, h.src.Render, "li", Range(c.public))
+					if err != nil {
+						t.Fatalf("取得=%v\n%s", err, h.src.HTML)
+					}
+					got := value.(map[string]any)
+					if got["kind"] != "footnote" || got["range"] != Range(c.public) || got["text"] != c.source || !reflect.DeepEqual(got["outer"], []OuterBlock{}) {
+						t.Fatalf("定義の取得=%+v", got)
+					}
+					if _, err := s.Text(context.Background(), nil, h.src.Render, "p", Range(c.paragraph)); err == nil || err.Code != "target" {
+						t.Fatalf("脚注の中の段落=%v", err)
+					}
+					if h.src.HTML != originalHTML || !strings.Contains(h.src.HTML, `data-sourcepos="`+c.public+`"`) {
+						t.Fatal("公開の HTML と位置が変わった")
+					}
+					result, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render, "range": string(got["range"].(Range)), "text": c.replacement})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !reflect.DeepEqual(result.(map[string]any)["warnings"], []string{}) {
+						t.Fatalf("ラベルを変えない編集の注意=%+v", result)
+					}
+					want := strings.Replace(text, strings.ReplaceAll(c.source, "\n", ending), strings.ReplaceAll(c.replacement, "\n", ending), 1)
+					if got := updated(); got != want {
+						t.Fatalf("前後のバイトを含む原文=%q、期待=%q", got, want)
+					}
+					if h.trials != 1 {
+						t.Fatalf("試しの描画=%d", h.trials)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestFootnoteLabelWarnings(t *testing.T) {
+	e := testEngine(t)
+	for _, mode := range []Mode{File, Buffer} {
+		for _, replacement := range []string{"[^a]: 変更", "[^b]: 変更", "定義ではない段落", "", "\n[^a]: 変更", "[^]: 変更", "[^a b]: 変更", "[^a\u3000b]: 変更", "[^a]x: 変更"} {
+			t.Run(fmt.Sprintf("%v/%q", mode, replacement), func(t *testing.T) {
+				const text = "本文[^a]\n\n[^a]: 定義\n\n後\n"
+				s, h, updated := footnoteService(t, e, text, mode)
+				result, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render, "range": "3:1-3:12", "text": replacement})
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := []string{}
+				if replacement != "[^a]: 変更" {
+					want = append(want, "脚注のラベルが変わりました。本文の参照を確かめてください。")
+				}
+				if !reflect.DeepEqual(result.(map[string]any)["warnings"], want) {
+					t.Fatalf("注意=%+v、期待=%q", result, want)
+				}
+				if got, want := updated(), "本文[^a]\n\n"+replacement+"\n\n後\n"; got != want {
+					t.Fatalf("原文=%q、期待=%q", got, want)
+				}
+			})
+		}
+	}
+}
+
+func TestFootnoteBoundariesAndExclusions(t *testing.T) {
+	e := testEngine(t)
+	for _, mode := range []Mode{File, Buffer} {
+		t.Run(fmt.Sprintf("%v/信用しない位置", mode), func(t *testing.T) {
+			text := "plain\n\n<section data-footnotes><ol><li data-sourcepos=\"1:1-1:4\">偽の定義</li></ol></section>\n"
+			s, h, _ := footnoteService(t, e, text, mode)
+			if _, err := s.Text(context.Background(), nil, h.src.Render, "li", "1:1-1:4"); err == nil || err.Code != "untrusted" {
+				t.Fatalf("信用しない位置の取得=%v\n%s", err, h.src.HTML)
+			}
+			if _, err := applyJSON(t, s, h, `{"range":"1:1-1:4","text":"[^a]: 変更"}`); err == nil || err.Code != "untrusted" {
+				t.Fatalf("信用しない位置の確定=%v", err)
+			}
+		})
+		for _, text := range []string{"定義ではない", "[^]: 空", "[^a b]: 空白", "[^a\tb]: タブ", "[^a\u3000b]: 空白", "[^a]x: コロンなし"} {
+			t.Run(fmt.Sprintf("%v/%q", mode, text), func(t *testing.T) {
+				s, h, _ := footnoteService(t, e, text+"\n", mode)
+				r := Range(fmt.Sprintf("1:1-1:%d", len(text)))
+				h.src.HTML = `<section data-footnotes><ol><li data-sourcepos="` + string(r) + `">定義</li></ol></section>`
+				if _, err := s.Text(context.Background(), nil, h.src.Render, "li", r); err == nil || err.Code != "boundary" || !reflect.DeepEqual(err.Outer, []OuterBlock{}) {
+					t.Fatalf("定義の形でない範囲=%v", err)
+				}
+				if _, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render, "range": string(r), "text": "[^a]: 変更"}); err == nil || err.Code != "target" {
+					t.Fatalf("断った範囲の確定=%v", err)
+				}
+			})
+		}
+		t.Run(fmt.Sprintf("%v/終了列0と内側の対象", mode), func(t *testing.T) {
+			s, h, updated := footnoteService(t, e, "本文[^a]\n\n[^a]: 定義\n\n次\n", mode)
+			h.src.HTML = `<blockquote data-sourcepos="1:1-5:3"><section data-footnotes><ol data-sourcepos="3:1-4:0"><li data-sourcepos="3:1-4:0"><p data-sourcepos="3:7-3:12">定義</p><ul data-sourcepos="3:1-3:12"><li data-sourcepos="3:1-3:12">内側</li></ul><input class="task-list-item-checkbox" data-checkbox-sourcepos="3:4-3:4"></li></ol></section></blockquote>`
+			value, err := s.Text(context.Background(), nil, h.src.Render, "li", "3:1-4:0")
+			if err != nil || value.(map[string]any)["range"] != Range("3:1-3:12") || value.(map[string]any)["text"] != "[^a]: 定義" || !reflect.DeepEqual(value.(map[string]any)["outer"], []OuterBlock{}) {
+				t.Fatal(value, err)
+			}
+			for _, c := range []struct {
+				tag string
+				r   Range
+			}{{"p", "3:7-3:12"}, {"ul", "3:1-3:12"}, {"li", "3:1-3:12"}, {"ol", "3:1-4:0"}} {
+				if _, err := s.Text(context.Background(), nil, h.src.Render, c.tag, c.r); err == nil || err.Code != "target" {
+					t.Fatalf("内側の対象=%+v、結果=%v", c, err)
+				}
+			}
+			if _, err := applyJSON(t, s, h, `{"checkbox":"3:4-3:4","checked":true}`); err == nil || err.Code != "target" {
+				t.Fatalf("脚注のチェックボックス=%v", err)
+			}
+			if _, err := applyJSON(t, s, h, `{"range":"3:1-4:0","text":"[^a]: 変更"}`); err == nil || err.Code != "target" {
+				t.Fatalf("公開の終了列0の確定=%v", err)
+			}
+			if _, err := applyJSON(t, s, h, `{"range":"3:1-3:12","text":"[^a]: 変更"}`); err != nil {
+				t.Fatal(err)
+			}
+			if got := updated(); got != "本文[^a]\n\n[^a]: 変更\n\n次\n" {
+				t.Fatalf("終了列0の確定後=%q", got)
+			}
+		})
+	}
+}
 
 func TestBlockRangesAndWrites(t *testing.T) {
 	e := testEngine(t)
