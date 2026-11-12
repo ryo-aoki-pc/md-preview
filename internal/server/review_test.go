@@ -113,10 +113,12 @@ func TestReviewGuards(t *testing.T) {
 		})
 	}
 	for _, chunked := range []bool{false, true} {
-		extra, body := "Content-Length: 262145\r\n", ""
+		// 本文の上限（2 MiB）を 1 バイト超える。
+		const size = 2*1024*1024 + 1
+		extra, body := fmt.Sprintf("Content-Length: %d\r\n", size), ""
 		if chunked {
 			extra = "Transfer-Encoding: chunked\r\n"
-			body = fmt.Sprintf("%x\r\n%s\r\n0\r\n\r\n", 262145, strings.Repeat(" ", 262145))
+			body = fmt.Sprintf("%x\r\n%s\r\n0\r\n\r\n", size, strings.Repeat(" ", size))
 		}
 		r := raw(t, s, fmt.Sprintf("POST /%s/_/review/prepare HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nOrigin: http://127.0.0.1:%d\r\nContent-Type: application/json\r\n%s\r\n%s", s.Token, s.Port, s.Port, extra, body), "POST")
 		if r.status != 413 || !strings.Contains(r.body, `"code":"large"`) {
@@ -148,6 +150,12 @@ func TestReviewRoutes(t *testing.T) {
 			t.Fatal(route, r)
 		}
 	}
+	// 編集と共有する形の検査でも、コメントの経路ではコメントの文で返す。
+	for _, route := range []string{"_/review/source?render=1&tag=html&prevTag=p", "_/review/source?render=1&tag=bad!&range=1:1-1:1"} {
+		if r := request(t, s, "GET", route, "", nil); r.status != 400 || !strings.Contains(r.body, "コメントの要求の形が正しくありません。") || strings.Contains(r.body, "編集の") {
+			t.Fatal(route, r)
+		}
+	}
 	for _, route := range []string{"_/edit", "_/edit/tables?render=1", "_/edit/source?render=1&tag=p&range=1:1-1:1"} {
 		if r := request(t, s, "GET", route, "", nil); r.status != 404 || strings.Contains(r.body, "error") {
 			t.Fatal("コメントだけで編集の経路を配った", route, r)
@@ -166,8 +174,11 @@ func TestReviewRoutes(t *testing.T) {
 			t.Fatal(r)
 		}
 	}
-	if r := request(t, s, "GET", "_/review/unknown", "", nil); r.status != 404 || !strings.Contains(r.body, "コメントの経路がありません。") {
-		t.Fatal(r)
+	// コメントの口は 3 つだけ。似た名前のほかの経路は、ふつうの 404 にする。
+	for _, route := range []string{"_/review/unknown", "docs/_/review/prepare.md"} {
+		if r := request(t, s, "GET", route, "", nil); r.status != 404 || strings.Contains(r.body, "error") {
+			t.Fatal(route, r)
+		}
 	}
 	none, _, _ := fixture(t, nil)
 	for _, route := range []string{"_/review/prepare", "_/review/tables?render=1", "_/review/source?render=1&tag=p&range=1:1-1:1"} {

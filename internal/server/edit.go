@@ -38,6 +38,12 @@ func editJSON(conn net.Conn, r *http.Request, status int, value any) {
 	send(conn, r, status, content("application/json; charset=utf-8", "no-store"), b)
 }
 func editError(conn net.Conn, r *http.Request, e *edit.Error) {
+	// 原文の読み取りと境の検査は編集と共有するので、コメントの経路では形の誤りの文だけをコメントの文に替える。
+	if e.Code == "invalid" && e.Message == "編集の要求の形が正しくありません。" && isReviewPath(r) {
+		copy := *e
+		copy.Message = reviewInvalid().Message
+		e = &copy
+	}
 	value := map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}}
 	if e.Outer != nil {
 		value["outer"] = e.Outer

@@ -182,3 +182,17 @@ func TestReviewDocumentGuards(t *testing.T) {
 		}
 	}
 }
+
+// include の行は展開後に 3 行へ増えるが、表のセルの行は原文のファイルの行で返す。
+func TestReviewCellLinesAfterInclude(t *testing.T) {
+	e := testEngine(t)
+	for _, ending := range []string{"\n", "\r\n"} {
+		text := strings.ReplaceAll("::include{file=part.md}\n\n| 列 |\n| --- |\n| 値 |\n", "\n", ending)
+		s, h := testService(t, e, text, map[string]string{"part.md": "一\n\n二\n\n三"})
+		_, items, err := s.Review(context.Background(), nil, h.src.Render, []ReviewTarget{{Kind: "cell", Table: 0, Row: 1, Col: 0}})
+		want := []ReviewItem{{Kind: "表のセル", StartLine: 3, EndLine: 5, Excerpt: "値", Table: 1, Row: 2, Col: 1}}
+		if err != nil || !reflect.DeepEqual(items, want) {
+			t.Fatalf("項目=%+v、誤り=%v、期待=%+v\n%s", items, err, want, h.src.HTML)
+		}
+	}
+}

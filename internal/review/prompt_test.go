@@ -15,7 +15,7 @@ func TestPromptShape(t *testing.T) {
 	want := "/plan\n" +
 		"次のレビューのコメントに沿って、`docs/文書.md` を直す計画を立ててください。\n" +
 		"まず計画だけを示し、承認されるまでファイルを変えないでください。\n\n" +
-		"対象のファイル: docs/文書.md\n" +
+		"対象のファイル: `docs/文書.md`\n" +
 		"行の番号は 1 から数え、終わりの行も含みます。位置は、コメントを書いたときの原文のものです。\n\n" +
 		"## コメント 1: 段落（3〜4 行）\n原文:\n```markdown\n元の文\n続き\n```\n\n" +
 		"選んだ文字:\n```text\n元の文\n```\n\nコメント:\n短くしてください。\n\n" +
@@ -98,6 +98,23 @@ func TestPromptRelativePath(t *testing.T) {
 	for _, relPath := range []string{"", "/private/main.md", "C:/private/main.md", "../main.md", "docs/../main.md", "https://example.invalid/main.md", "docs\\main.md", "docs/main\n.md"} {
 		if _, e := BuildPrompt(relPath, nil); e == nil || e == ErrTooLarge {
 			t.Fatal("相対パスでない値を受けた", relPath, e)
+		}
+	}
+}
+
+func TestPromptQuotesFileNamesWithBackticks(t *testing.T) {
+	for name, want := range map[string]string{
+		"a`b.md":     "``a`b.md``",
+		"`a.md":      "`` `a.md ``",
+		"a``b`.md":   "```a``b`.md```",
+		"docs/#x.md": "`docs/#x.md`",
+	} {
+		got, e := BuildPrompt(name, []Comment{{Item: Item{Kind: "段落", StartLine: 1, EndLine: 1, Excerpt: "x"}, Text: "y"}})
+		if e != nil {
+			t.Fatal(name, e)
+		}
+		if strings.Count(got, want) != 2 || !strings.Contains(got, "対象のファイル: "+want+"\n") {
+			t.Fatalf("%s: ファイル名の囲みが違う:\n%s", name, got)
 		}
 	}
 }

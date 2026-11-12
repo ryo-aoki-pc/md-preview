@@ -23,8 +23,15 @@ type Reviewer interface {
 	Review(context.Context, *string, uint64, []edit.ReviewTarget) (edit.ReviewDocument, []edit.ReviewItem, *edit.Error)
 }
 
+// isReviewPath はコメントの口だけを見分ける。ほかのファイルの経路（docs/_/review/a.md など）には当てない。
 func isReviewPath(r *http.Request) bool {
-	return strings.Contains(pathOf(r), "/_/review/")
+	p := pathOf(r)
+	for _, route := range []string{"/_/review/prepare", "/_/review/tables", "/_/review/source"} {
+		if strings.HasSuffix(p, route) {
+			return true
+		}
+	}
+	return false
 }
 
 func reviewInvalid() *edit.Error {
@@ -158,7 +165,8 @@ func (s *Server) prepareReview(conn net.Conn, r *http.Request) {
 		s.reject(conn, r, 403)
 		return
 	}
-	body, e := postJSON(conn, r, 256*1024)
+	// コメント 50 個・本文と選んだ文字の各 2,000 文字（UTF-8 で 1 文字 4 バイトまで）が入る大きさにする。
+	body, e := postJSON(conn, r, 2*1024*1024)
 	if e != nil {
 		editError(conn, r, e)
 		return

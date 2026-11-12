@@ -34,7 +34,8 @@ func BuildPrompt(relPath string, comments []Comment) (string, error) {
 		return "", errors.New("対象の相対パスが正しくありません。")
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "/plan\n次のレビューのコメントに沿って、`%s` を直す計画を立ててください。\nまず計画だけを示し、承認されるまでファイルを変えないでください。\n\n対象のファイル: %s\n行の番号は 1 から数え、終わりの行も含みます。位置は、コメントを書いたときの原文のものです。\n", relPath, relPath)
+	file := inlineCode(relPath)
+	fmt.Fprintf(&b, "/plan\n次のレビューのコメントに沿って、%s を直す計画を立ててください。\nまず計画だけを示し、承認されるまでファイルを変えないでください。\n\n対象のファイル: %s\n行の番号は 1 から数え、終わりの行も含みます。位置は、コメントを書いたときの原文のものです。\n", file, file)
 	for n, comment := range comments {
 		item := comment.Item
 		lines := fmt.Sprintf("%d 行", item.StartLine)
@@ -63,6 +64,25 @@ func BuildPrompt(relPath string, comments []Comment) (string, error) {
 		return "", ErrTooLarge
 	}
 	return b.String(), nil
+}
+
+// inlineCode は、中身のいちばん長いバッククォートの連続より長い囲みで、行内のコードにする。
+// 中身の端がバッククォートなら、CommonMark の決まりどおり空白を 1 個ずつ挟む。
+func inlineCode(text string) string {
+	longest, run := 0, 0
+	for _, c := range text {
+		if c == '`' {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	fence := strings.Repeat("`", longest+1)
+	if strings.HasPrefix(text, "`") || strings.HasSuffix(text, "`") {
+		return fence + " " + text + " " + fence
+	}
+	return fence + text + fence
 }
 
 func normalizeLF(s string) string {

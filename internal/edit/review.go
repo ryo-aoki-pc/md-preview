@@ -138,12 +138,14 @@ func reviewBlock(src session.Source, b *block) (ReviewItem, *Error) {
 	if reason != "" {
 		return ReviewItem{}, fault(422, reason, reasonText(reason))
 	}
-	last, reason := src.Lines.Original(c[2])
+	// 終了列 0 は前の行の終わりを指す。展開後の行で 1 行戻してから原文の行へ戻す（間に include があってもずれない）。
+	end := c[2]
+	if c[3] == 0 && end > c[0] {
+		end--
+	}
+	last, reason := src.Lines.Original(end)
 	if reason != "" {
 		return ReviewItem{}, fault(422, reason, reasonText(reason))
-	}
-	if c[3] == 0 {
-		last--
 	}
 	kind := map[string]string{
 		"paragraph": "段落", "heading": "見出し", "item": "リストの項目", "list": "リスト",
