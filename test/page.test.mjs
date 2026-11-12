@@ -3765,21 +3765,86 @@ test('数式と図の原文を編集し、描き直しと編集の枠を確か�
     await page.keyboard.press('Escape');
   });
 
-  await t.test('位置を持たない要素（details の題など）は、中の段落へ読み替えない', async (t) => {
-    const original = '前\n\n<details>\n<summary>題</summary>\n\n中の段落\n\n</details>\n\n後\n';
+  await t.test('位置を持たない題は HTML 全体を開き、内側の下書きへ戻れる', async (t) => {
+    const raw = '<details>\n<summary>題</summary>\n\n中の段落\n\n</details>';
+    const original = '前\n\n' + raw + '\n\n後\n';
     const { page, file } = await editablePage(t, browser, original);
-    const sources = [];
-    page.on('request', (r) => { if (r.url().includes('/_/edit/source?')) sources.push(r.url()); });
-    await page.locator('#gp-content summary').hover();
-    assert.equal(await page.locator('#gp-edit-hover').textContent(), '', '題には枠を出さない');
-    await page.locator('#gp-content summary').dblclick();
-    await page.waitForTimeout(300);
-    assert.deepEqual(sources, [], '題のダブルクリックで原文を取りに行かない');
-    assert.equal(await page.locator('#gp-edit-input').isVisible(), false);
-    await page.evaluate(() => { document.querySelector('#gp-content details').open = true; });
-    await hover(page, '#gp-content details p', '#gp-content details p');
-    await open(page, '#gp-content details p', '中の段落', 'p');
+    const before = await page.locator('#gp-content').innerHTML();
+    await hover(page, '#gp-content summary', '#gp-content details');
+    await open(page, '#gp-content summary', raw, 'html');
     await page.keyboard.press('Escape');
+    await page.evaluate(() => { document.querySelector('#gp-content details').open = true; });
+    await open(page, '#gp-content details p', '中の段落', 'p');
+    await page.locator('#gp-edit-input').fill('内側の下書き');
+    assert.equal(await page.locator('#gp-edit-outer').textContent(), 'HTML のブロック全体を編集');
+    await page.locator('#gp-edit-outer').click();
+    await page.waitForFunction((raw) => document.querySelector('#gp-edit-input').value === raw, raw);
+    await page.locator('#gp-edit-input').fill(raw.replace('題', '外側の下書き'));
+    await page.locator('#gp-edit-inner').click();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value === '内側の下書き');
+    await page.keyboard.press('Alt+ArrowUp');
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value.includes('外側の下書き'));
+    await page.keyboard.press('Escape');
+    // details の開閉だけは利用者の操作で変わっている。
+    await page.evaluate(() => { document.querySelector('#gp-content details').open = false; });
+    assert.equal(await page.locator('#gp-content').innerHTML(), before);
+    // Esc は入力と一緒に下書きも捨てるので、開き直すと原文に戻る。
+    await open(page, '#gp-content summary', raw, 'html');
+    await commit(page, raw.replace('題', '直した題'));
+    assert.equal(readFileSync(file, 'utf8'), original.replace('題', '直した題'));
+  });
+
+  await t.test('連なりの全部に枠を出し、表の固定後も開いて後ろへ追加する', async (t) => {
+    const raw = '<div>a</div>\n\n<div>b</div>';
+    const original = '| 列 |\n| --- |\n| 値 |\n\n' + raw + '\n\n後\n';
+    const { page, file } = await editablePage(t, browser, original);
+    // 表の固定で、表は画面の DOM の中で包みへ移る。連なりは本文の写しの並びで決めるので変わらない。
+    await page.locator('#gp-sticky-toggle').click();
+    await page.waitForFunction(() => document.querySelector('#gp-content table').parentElement.id !== 'gp-content');
+    const target = await page.locator('#gp-content > div').last().evaluate((node) => window.gpPreview.htmlOf(node));
+    assert.equal(target.prev.tag, 'table');
+    await page.locator('#gp-content > div').last().hover();
+    assert.equal(await page.evaluate(() => {
+      const rule = document.querySelector('#gp-edit-hover').sheet.cssRules[0];
+      return rule && rule.selectorText.split(',').length === 2 && document.querySelectorAll(rule.selectorText).length === 2 &&
+        [...document.querySelectorAll(rule.selectorText)].every((node) => node.localName === 'div');
+    }), true);
+    await open(page, '#gp-content > div:last-of-type', raw, 'html');
+    await page.locator('#gp-edit-after').click();
+    await page.locator('#gp-edit-input').fill('追加した段落');
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.keyboard.press('Control+Enter');
+    assert.equal((await response).status(), 200);
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original.replace(raw, raw + '\n\n追加した段落'));
+  });
+
+  for (const side of ['before', 'after']) await t.test('連なりの ' + side + ' に追加しても原文の下書きを戻す', async (t) => {
+    const raw = '<div>原文</div>';
+    const { page, file } = await editablePage(t, browser, '前\n\n' + raw + '\n\n後\n');
+    await open(page, '#gp-content > div', raw, 'html');
+    await page.locator('#gp-edit-input').fill('<div>下書き</div>');
+    await page.locator('#gp-edit-' + side).click();
+    await page.locator('#gp-edit-input').fill('追加');
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.keyboard.press('Control+Enter');
+    assert.equal((await response).status(), 200);
+    await editIdle(page);
+    await open(page, '#gp-content > div', '<div>下書き</div>', 'html');
+    await page.keyboard.press('Escape');
+    assert.equal(readFileSync(file, 'utf8'), side === 'before' ? '前\n\n追加\n\n' + raw + '\n\n後\n' : '前\n\n' + raw + '\n\n追加\n\n後\n');
+  });
+
+  await t.test('連なりの範囲を断られたら理由を知らせて開かない', async (t) => {
+    // 続きの行のある脚注の定義は、定義だけの段と見分けられず候補に残るので、試しの描画で脚注が消えて断られる。
+    const original = '本文[^1]\n\n[^1]: 注\n    続き\n\n<details><summary>題</summary>本文</details>\n';
+    const { page, file } = await editablePage(t, browser, original);
+    const response = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/_/edit/source'));
+    await page.locator('#gp-content summary').dblclick();
+    assert.equal((await response).status(), 422);
+    await page.waitForFunction(() => document.querySelector('#gp-edit-status').dataset.kind === 'error');
+    assert.match(await page.locator('#gp-edit-status').textContent(), /範囲を確かめられません/);
+    assert.equal(await page.locator('#gp-edit-input').isVisible(), false);
     assert.equal(readFileSync(file, 'utf8'), original);
   });
 

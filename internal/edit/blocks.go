@@ -36,6 +36,9 @@ type positionAttribute struct {
 }
 
 type blockMapping struct {
+	html        []*htmlRun
+	htmlReady   bool
+	corrected   map[positionAttribute]Range
 	render      uint64
 	blocks      []block
 	checkboxes  map[Range]*Error
@@ -320,6 +323,10 @@ func (s *Service) buildBlocks(ctx context.Context, src session.Source) (*blockMa
 // 断った対象と、同じ要素名と範囲が複数ある対象は入れない（target と同じ規則）。
 // 上流の公開の終端（終了列 0、入れ物の中の水平線）は、後ろに続く内容で変わるので、描画どうしを比べるときに使う。
 func (m *blockMapping) correctedRanges() map[positionAttribute]Range {
+	// 一覧は作った後に変わらないので、表は 1 回だけ作る（連なりごと・境ごとに引く）。
+	if m.corrected != nil {
+		return m.corrected
+	}
 	count := map[positionAttribute]int{}
 	out := map[positionAttribute]Range{}
 	for i := range m.blocks {
@@ -332,6 +339,7 @@ func (m *blockMapping) correctedRanges() map[positionAttribute]Range {
 		}
 		out[k] = b.actual
 	}
+	m.corrected = out
 	return out
 }
 

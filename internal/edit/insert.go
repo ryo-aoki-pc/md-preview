@@ -45,7 +45,10 @@ func (s *Service) insertBlock(ctx context.Context, src session.Source, r request
 		}
 	}
 	if anchor == nil {
-		return "", blockFault("target")
+		anchor, e = s.htmlWritable(ctx, src, m, r.rangeValue)
+		if e != nil {
+			return "", e
+		}
 	}
 	core := strings.Split(normalizeNewlines(r.text, "\n"), "\n")
 	for len(core) > 0 && strings.TrimSpace(core[0]) == "" {
@@ -118,7 +121,8 @@ func (s *Service) insertBlock(ctx context.Context, src session.Source, r request
 		return "", e
 	}
 	delta := strings.Count(added, "\n")
-	if !insertionPreserves(ctx, m, after, src.HTML, trial.HTML, cut, delta) {
+	if !insertionPreserves(ctx, m, after, src.HTML, trial.HTML, cut, delta) ||
+		!insertionHTMLPreserves(ctx, m, after, src.HTML, trial.HTML, cut, delta, anchor) {
 		return "", fault(422, "insert", "追加した文が前後のブロックに取り込まれます。")
 	}
 	return text, nil
@@ -186,4 +190,90 @@ func insertionPreserves(ctx context.Context, m, after *blockMapping, oldHTML, ne
 	}
 	next, err := positions(newHTML, false)
 	return err == nil && slices.Equal(old, next)
+}
+
+// 位置のない節点も、追加点の外では最上位の並びと形（要素名・入れ子・文字）を保つ。
+// 追加点のある並びへ節点が増える場合は、既存の節点が同じ形のまま残れば受ける。
+// 要素名だけで比べると、文書の最後の連なりの前に閉じない要素を足して、既存の節点を中へ取り込む形を見逃す。
+// 追加先が生の HTML の中にあるときは、追加先を中に持つ節点だけ、中身が増えるので要素名で比べる。
+// 同じ並びにいるほかの節点は、形で比べる（追加した文が、隣の節点を取り込む形を断る）。
+func insertionHTMLPreserves(ctx context.Context, m, after *blockMapping, oldHTML, newHTML string, cut, delta int, anchor *block) bool {
+	bucket := 0
+	type shape struct {
+		tag, signature string
+		holds          bool
+	}
+	// 追加先（位置を持つ対象）を中に持つ節点かどうか。連なりそのものが追加先のときは、どの節点も持たない。
+	holds := func(n *html.Node) bool {
+		found := false
+		if anchor.tag != "html" {
+			_ = htmltree.Walk(ctx, n, func(c *html.Node) error {
+				if c.Type == html.ElementNode && c.Data == anchor.tag && htmltree.Get(c, "data-sourcepos") == string(anchor.public) {
+					found = true
+				}
+				return nil
+			})
+		}
+		return found
+	}
+	collect := func(markup string, mapping *blockMapping, before bool) ([][]shape, error) {
+		root, err := htmltree.Fragment(ctx, markup)
+		if err != nil {
+			return nil, err
+		}
+		groups := [][]shape{{}}
+		for n := root.FirstChild; n != nil; n = n.NextSibling {
+			if footnoteSection(n) {
+				continue
+			}
+			if b := mapping.htmlBoundary(n); b != nil {
+				r, e := mapping.boundaryRange(b)
+				if e != nil {
+					r = b.Range
+				}
+				c, e := positionCoordinates(r)
+				if e != nil {
+					return nil, e
+				}
+				if !before && c[0] >= cut && c[0] < cut+delta && c[2] < cut+delta {
+					continue
+				}
+				groups = append(groups, []shape{})
+				if before && (c[2] < cut || c[2] == cut && c[3] == 0) {
+					bucket = len(groups) - 1
+				}
+			} else if n.Type == html.ElementNode {
+				groups[len(groups)-1] = append(groups[len(groups)-1], shape{n.Data, mapping.htmlSignature(n), before && holds(n)})
+			} else if n.Type == html.TextNode && strings.TrimSpace(n.Data) != "" {
+				groups[len(groups)-1] = append(groups[len(groups)-1], shape{"text", mapping.htmlSignature(n), false})
+			}
+		}
+		return groups, nil
+	}
+	old, e := collect(oldHTML, m, true)
+	if e != nil {
+		return false
+	}
+	next, e := collect(newHTML, after, false)
+	if e != nil || len(old) != len(next) {
+		return false
+	}
+	for i, group := range old {
+		if i != bucket {
+			if !slices.Equal(group, next[i]) {
+				return false
+			}
+			continue
+		}
+		index := 0
+		for _, candidate := range next[i] {
+			if index < len(group) && candidate.tag == group[index].tag && (group[index].holds || candidate.signature == group[index].signature) {
+				index++
+			}
+		}
+		if index != len(group) {
+			return false
+		}
+	}
+	return true
 }

@@ -788,8 +788,57 @@
     return null;
   }
 
+  // 本文の写しで連なりを決める。表の固定で画面の並びが動いても境は変わらない。
+  const htmlPosition = /^[1-9][0-9]*:[1-9][0-9]*-[1-9][0-9]*:[0-9]+$/;
+  function htmlBoundary(node) {
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    const source = node.matches('div.markdown-code-block') ? node.querySelector(':scope > pre') : node;
+    const range = source?.getAttribute('data-sourcepos');
+    return htmlPosition.test(range || '') ? { tag: source.localName, range } : null;
+  }
+  const sameHTMLBoundary = (a, b) => (!a && !b) || Boolean(a && b && a.tag === b.tag && a.range === b.range);
+  let htmlRunShadow = null, htmlRunIndex = [];
+  function htmlRuns() {
+    if (htmlRunShadow === shadow) return htmlRunIndex;
+    const runs = [];
+    let prev = null, nodes = [];
+    const flush = (next) => {
+      if (nodes.some((n) => n.nodeType === Node.ELEMENT_NODE) &&
+        !nodes.some((n) => n.nodeType === Node.ELEMENT_NODE && n.matches('ul.section-nav')))
+        runs.push({ prev, next, nodes });
+      nodes = [];
+    };
+    for (const node of shadow?.childNodes || []) {
+      if (node.nodeType === Node.ELEMENT_NODE && node.matches('section[data-footnotes]')) continue;
+      const boundary = htmlBoundary(node);
+      if (boundary) { flush(boundary); prev = boundary; }
+      else if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE && node.textContent.trim()) nodes.push(node);
+    }
+    flush(null);
+    htmlRunShadow = shadow;
+    htmlRunIndex = runs;
+    return runs;
+  }
+  function htmlOf(element) {
+    for (let live = element; live && live !== content; live = live.parentElement) {
+      const source = shadowOf.get(live);
+      if (!source) continue;
+      let top = source;
+      while (top.parentNode && top.parentNode !== shadow) top = top.parentNode;
+      const run = htmlRuns().find((r) => r.nodes.includes(top));
+      if (!run) return null;
+      return Object.freeze({ tag: 'html', prev: run.prev && Object.freeze({ ...run.prev }), next: run.next && Object.freeze({ ...run.next }) });
+    }
+    return null;
+  }
+  function findHTML(target) {
+    if (target?.tag !== 'html') return [];
+    const run = htmlRuns().find((r) => sameHTMLBoundary(r.prev, target.prev) && sameHTMLBoundary(r.next, target.next));
+    return run ? run.nodes.filter((n) => n.nodeType === Node.ELEMENT_NODE).map((n) => liveOf.get(n)).filter((n) => n?.isConnected) : [];
+  }
+
   window.gpPreview = {
-    config: CONFIG, base: BASE, doc: query.get('doc'), current: () => last, tables, sourceOf, findSource,
+    config: CONFIG, base: BASE, doc: query.get('doc'), current: () => last, tables, sourceOf, findSource, htmlOf, findHTML,
     holdScroll: (hold) => { scrollHeld = Boolean(hold); },
     setEditing: (active) => { editing = Boolean(active); },
     rememberAppearance, appearance: savedAppearance,
