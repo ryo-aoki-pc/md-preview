@@ -101,7 +101,7 @@ func TestForgedSourceposDoesNotCrossTables(t *testing.T) {
 	forged := strings.Replace(htmlTable, "<table>", `<table data-sourcepos="1:1-3:16">`, 1)
 	s, h := testService(t, e, pipeTable+"\n"+forged, nil)
 	r := getTables(t, s, h)
-	if len(r.Tables) != 2 || !r.Tables[0].Editable || r.Tables[0].Kind != "pipe" || !r.Tables[1].Editable || r.Tables[1].Kind != "html" {
+	if len(r.Tables) != 2 || r.Tables[0].Editable || r.Tables[0].Kind != "" || !r.Tables[1].Editable || r.Tables[1].Kind != "html" {
 		t.Fatalf("偽の位置属性で対応が変わった: %+v", r.Tables)
 	}
 	if _, err := applyJSON(t, s, h, `{"table":1,"op":{"type":"set","cells":[{"row":0,"col":1,"text":"変更"}]}}`); err != nil {
@@ -111,7 +111,7 @@ func TestForgedSourceposDoesNotCrossTables(t *testing.T) {
 		t.Fatalf("HTML の表への編集が別の場所に書かれた: %s", got)
 	}
 	// 対象外の HTML の表（tfoot が tbody の前）には印が付かない。偽の位置属性がパイプの表を指すと、
-	// 2 つの表が同じ原文を指すので、どちらも編集させない。
+	// 本物も同じ位置属性なので、どちらも編集させない。
 	excluded := `<table data-sourcepos="1:1-3:16"><tfoot><tr><td>F</td><td>G</td></tr></tfoot><tbody><tr><td>C</td><td>D</td></tr></tbody></table>` + "\n"
 	s, h = testService(t, e, pipeTable+"\n"+excluded, nil)
 	r = getTables(t, s, h)

@@ -12,6 +12,8 @@ type Source struct {
 	Render                uint64 // render のイベントと同じ描画の番号
 	Rev, Buf              any
 	DocPath               string // SetDocument に渡されたままのパス。無名なら空
+	HasSourcepos          bool   // include 展開後のエンジンの入力に位置属性の文字があるか
+	SourceposInput        string // HasSourcepos が真のときの、エンジンの入力の SHA-256
 	Text, HTML            string
 	Lines                 pipeline.SourceMap
 	Root, Path, File, Dir string
@@ -52,7 +54,16 @@ func (s *Session) Source(doc *string) (Source, bool) {
 }
 
 // Trial は状態を変えずに、src と同じ条件で本文を試しに描く。
-func (s *Session) Trial(ctx context.Context, src Source, text string) (result pipeline.Result, err error) {
+func (s *Session) Trial(ctx context.Context, src Source, text string) (pipeline.Result, error) {
+	return s.trial(ctx, src, text, false)
+}
+
+// Unpositioned は状態を変えずに、元の本文をエンジンの位置属性なしで描く。
+func (s *Session) Unpositioned(ctx context.Context, src Source) (pipeline.Result, error) {
+	return s.trial(ctx, src, src.Text, true)
+}
+
+func (s *Session) trial(ctx context.Context, src Source, text string, noSourcepos bool) (result pipeline.Result, err error) {
 	ctx, cancel := context.WithTimeout(ctx, s.opts.RenderTimeout)
 	defer cancel()
 	defer func() {
@@ -64,7 +75,9 @@ func (s *Session) Trial(ctx context.Context, src Source, text string) (result pi
 			result, err = pipeline.Result{}, ctx.Err()
 		}
 	}()
-	return s.opts.Renderer.Render(ctx, text, FileContext(src.Root, src.File, src.Dir, s.opts.Plantuml))
+	c := FileContext(src.Root, src.File, src.Dir, s.opts.Plantuml)
+	c.NoSourcepos = noSourcepos
+	return s.opts.Renderer.Render(ctx, text, c)
 }
 
 // Reload は購読されたファイル文書をすぐ読み直す。編集中の文書には何もしない。

@@ -28,6 +28,7 @@ func bufferService(t *testing.T, engine *engine.Engine, text string) (*Service, 
 		t.Fatal(err)
 	}
 	h.src.HTML, h.src.Lines = result.HTML, result.Source
+	h.src.HasSourcepos, h.src.SourceposInput = result.HasSourcepos, result.SourceposInput
 	sent := []BufferEdit{}
 	s := New(Options{Host: h, Mode: Buffer, Send: func(_ context.Context, e BufferEdit) *Error {
 		sent = append(sent, e)

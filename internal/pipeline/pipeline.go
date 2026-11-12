@@ -20,6 +20,8 @@ package pipeline
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"regexp"
 	"strings"
@@ -98,7 +100,12 @@ func (r *Renderer) render(ctx context.Context, text string, c Context) (result R
 	if err != nil {
 		return Result{}, err
 	}
-	raw, err := r.engine.Render(ctx, strings.ReplaceAll(expansion.Text, "\r", ""), map[string]any{"gemojis": true, "placeholder_detection": false})
+	engineText := strings.ReplaceAll(expansion.Text, "\r", "")
+	opts := map[string]any{"gemojis": true, "placeholder_detection": false}
+	if c.NoSourcepos {
+		opts["sourcepos"] = false
+	}
+	raw, err := r.engine.Render(ctx, engineText, opts)
 	if err != nil {
 		return Result{}, err
 	}
@@ -121,7 +128,11 @@ func (r *Renderer) render(ctx context.Context, text string, c Context) (result R
 	if err = filters.After(ctx, tree, state); err != nil {
 		return Result{}, err
 	}
-	result = Result{Source: sourceMap(text, original, converted, frontEnd, expansion), Headings: []Heading{}, Includes: []Include{}, Notices: []Notice{}, Diagrams: []Diagram{}}
+	result = Result{HasSourcepos: strings.Contains(strings.ToLower(engineText), "sourcepos"), Source: sourceMap(text, original, converted, frontEnd, expansion), Headings: []Heading{}, Includes: []Include{}, Notices: []Notice{}, Diagrams: []Diagram{}}
+	if result.HasSourcepos {
+		sum := sha256.Sum256([]byte(engineText))
+		result.SourceposInput = hex.EncodeToString(sum[:])
+	}
 	headings, err := t.Elements(ctx, tree, func(n *html.Node) bool {
 		return len(n.Data) == 2 && n.Data[0] == 'h' && n.Data[1] >= '1' && n.Data[1] <= '6'
 	})

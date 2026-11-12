@@ -70,6 +70,10 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 	if m := s.cache[key]; m != nil && m.response.Render == src.Render {
 		return m, nil
 	}
+	positions, e := s.blocks(ctx, src)
+	if e != nil {
+		return nil, e
+	}
 	root, err := htmltree.Fragment(ctx, src.HTML)
 	if err != nil {
 		return nil, fault(422, "render", "描画した表を読み取れません。")
@@ -91,6 +95,9 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 		}
 	}
 	for i, n := range nodes {
+		if positions.positionReason(n, "data-sourcepos") != nil {
+			continue
+		}
 		pos, e := coordinates(Range(htmltree.Get(n, "data-sourcepos")))
 		if e != nil {
 			continue
@@ -100,7 +107,7 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 			m.models[i] = pipes[line-1]
 		}
 	}
-	if len(htmlModels) > 0 {
+	if len(htmlModels) > 0 && positions.positionErr == nil {
 		var nonce [16]byte
 		if _, err = rand.Read(nonce[:]); err != nil {
 			return nil, fault(500, "internal", "表の対応を確かめる印を作れません。")
@@ -185,6 +192,9 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 			if _, reason := src.Lines.Original(pos[0]); reason == "include" {
 				info.Reason = "取り込んだファイルの表"
 			}
+		}
+		if positions.positionErr != nil {
+			info.Editable, info.Reason = false, positions.positionErr.Message
 		}
 		m.response.Tables[i] = info
 	}

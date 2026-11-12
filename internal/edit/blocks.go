@@ -2,6 +2,7 @@ package edit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -20,14 +21,62 @@ type block struct {
 	reason           *Error
 }
 
+type positionAttribute struct {
+	tag, name, value string
+}
+
 type blockMapping struct {
-	render     uint64
-	blocks     []block
-	checkboxes map[Range]bool
+	render      uint64
+	blocks      []block
+	checkboxes  map[Range]*Error
+	untrusted   map[positionAttribute]bool
+	positionErr *Error
+}
+
+func (m *blockMapping) positionReason(n *html.Node, name string) *Error {
+	if m.positionErr != nil {
+		return m.positionErr
+	}
+	if m.untrusted[positionAttribute{n.Data, name, htmltree.Get(n, name)}] {
+		return blockFault("untrusted")
+	}
+	return nil
+}
+
+// エンジンの位置付けを止めても残る属性は、利用者が書いたものとして区別する。
+func (s *Service) untrustedPositions(ctx context.Context, src session.Source, m *blockMapping) {
+	if !src.HasSourcepos {
+		return
+	}
+	result, err := s.opts.Host.Unpositioned(ctx, src)
+	if err == nil && result.SourceposInput != src.SourceposInput {
+		// 取り込んだファイルが描画の後に変わると、もとの描画と違う入力を描くことになる。
+		err = errors.New("位置なしの描画の入力が、もとの描画と違う")
+	}
+	if err == nil {
+		var root *html.Node
+		root, err = htmltree.Fragment(ctx, result.HTML)
+		if err == nil {
+			err = htmltree.Walk(ctx, root, func(n *html.Node) error {
+				if n.Type == html.ElementNode {
+					for _, a := range n.Attr {
+						if a.Namespace == "" && (a.Key == "data-sourcepos" || a.Key == "data-checkbox-sourcepos") {
+							m.untrusted[positionAttribute{n.Data, a.Key, a.Val}] = true
+						}
+					}
+				}
+				return nil
+			})
+		}
+	}
+	if err != nil {
+		m.positionErr = fault(422, "untrusted", "原文の位置を確かめられません。")
+	}
 }
 
 func blockFault(code string) *Error {
 	message := map[string]string{
+		"untrusted": "この位置は、文書に書かれた属性と区別できないので、編集できません。",
 		"target":    "この範囲は、画面のブロックと対応していません。もう一度操作してください。",
 		"boundary":  "このブロックは、原文の範囲を確かめられません。",
 		"term":      "この用語は、原文の範囲を決められません。",
@@ -72,7 +121,8 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 	if err != nil {
 		return nil, fault(422, "render", "描画したブロックを読み取れません。")
 	}
-	m := &blockMapping{render: src.Render, checkboxes: map[Range]bool{}}
+	m := &blockMapping{render: src.Render, checkboxes: map[Range]*Error{}, untrusted: map[positionAttribute]bool{}}
+	s.untrustedPositions(ctx, src, m)
 	lines := strings.Split(src.Text, "\n")
 	starts := lineStarts(src.Text)
 	err = htmltree.Walk(ctx, root, func(n *html.Node) error {
@@ -82,7 +132,7 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 		if n.Data == "input" && htmltree.HasClass(n, "task-list-item-checkbox") {
 			r := Range(htmltree.Get(n, "data-checkbox-sourcepos"))
 			if rangePattern.MatchString(string(r)) {
-				m.checkboxes[r] = true
+				m.checkboxes[r] = m.positionReason(n, "data-checkbox-sourcepos")
 			}
 		}
 		kind := blockKind(n.Data)
@@ -101,6 +151,18 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 		}
 		b := block{tag: n.Data, kind: kind, public: r}
 		b.actual, b.reason = blockRange(src, lines, starts, n, r)
+		if reason := m.positionReason(n, "data-sourcepos"); reason != nil {
+			b.reason = reason
+		}
+		if b.reason == nil && n.Data == "dt" {
+			// 用語の終端を決めるために読む定義の位置も、利用者の属性なら信用しない。
+			for dd := n.NextSibling; dd != nil; dd = dd.NextSibling {
+				if dd.Type == html.ElementNode {
+					b.reason = m.positionReason(dd, "data-sourcepos")
+					break
+				}
+			}
+		}
 		if b.reason == nil {
 			b.start, b.end, b.line, b.reason = offsetsAt(src, b.actual, starts)
 		}
@@ -251,11 +313,21 @@ func (m *blockMapping) target(tag string, r Range) (*block, *Error) {
 }
 
 func (m *blockMapping) writable(r Range) (*block, *Error) {
+	if m.positionErr != nil {
+		return nil, m.positionErr
+	}
+	var denied *Error
 	for i := range m.blocks {
 		b := &m.blocks[i]
 		if b.reason == nil && b.actual == r {
 			return b, nil
 		}
+		if b.reason != nil && b.reason.Code == "untrusted" && (b.actual == r || b.public == r) {
+			denied = b.reason
+		}
+	}
+	if denied != nil {
+		return nil, denied
 	}
 	return nil, blockFault("target")
 }
