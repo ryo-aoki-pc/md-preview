@@ -230,6 +230,9 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 					return nil, err
 				}
 				start, end, line = b.start, b.end, b.line
+				if b.kind == "footnote" && footnoteLabel(old[start:end]) != footnoteLabel(r.text) {
+					warnings = append(warnings, "脚注のラベルが変わりました。本文の参照を確かめてください。")
+				}
 			} else {
 				if reason, ok := m.checkboxes[r.rangeValue]; !ok {
 					return nil, blockFault("target")

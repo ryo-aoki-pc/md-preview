@@ -1416,6 +1416,117 @@ test('外側のブロックへ移り、下書きと操作欄の位置を保っ�
   }
 });
 
+test('脚注の定義を画面で編集し、ラベルの注意とリンクの操作を確かめる', { skip, timeout: 120000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const definitionSelector = '#gp-content section[data-footnotes] > ol > li[data-sourcepos]';
+  const open = async (page, target, source) => {
+    await target.dblclick();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), source);
+    assert.equal(await page.locator('#gp-edit-status').textContent(), 'ラベルを変えると、本文の参照と対応しなくなります');
+    assert.equal(await page.locator('#gp-edit-status').getAttribute('data-kind'), 'info');
+    assert.equal(await page.locator('#gp-edit-outer').isVisible(), false);
+  };
+
+  for (const [name, source] of [
+    ['一行', '[^a]: 脚注の定義'],
+    ['続きの行', '[^a]: 脚注の定義\n    続きの行'],
+    ['二つの段落', '[^a]: 脚注の定義\n\n    次の段落'],
+  ]) {
+    for (const ending of ['\n', '\r\n']) {
+      await t.test(name + '/' + JSON.stringify(ending), async (t) => {
+        const original = ('本文[^a]\n\n' + source + '\n\n後の段落\n').replaceAll('\n', ending);
+        const { page, file } = await editablePage(t, browser, original);
+        const definition = page.locator(definitionSelector);
+        const requests = [];
+        page.on('request', (request) => {
+          if (request.url().includes('/_/edit/source?')) requests.push(new URL(request.url()));
+        });
+        await definition.locator('p').last().hover();
+        assert.equal(await definition.evaluate((element) => getComputedStyle(element).outlineStyle), 'dashed');
+        assert.equal(await definition.locator('p').last().evaluate((element) => getComputedStyle(element).outlineStyle), 'none');
+        await open(page, definition.locator('p').last(), source);
+        assert.equal(requests.at(-1).searchParams.get('tag'), 'li');
+        assert.equal(requests.at(-1).searchParams.get('range'), await definition.getAttribute('data-sourcepos'));
+        const changed = source.replace('脚注の定義', '変更した定義');
+        await page.locator('#gp-edit-input').fill(changed);
+        const responsePromise = page.waitForResponse((response) => response.request().method() === 'POST' &&
+          new URL(response.url()).pathname.endsWith('/_/edit'));
+        await page.keyboard.press('Control+Enter');
+        assert.deepEqual((await (await responsePromise).json()).warnings, []);
+        await editIdle(page);
+        assert.equal(readFileSync(file, 'utf8'), original.replace('脚注の定義', '変更した定義'));
+        assert.equal(await page.locator('#gp-edit-input').isVisible(), false);
+      });
+    }
+  }
+
+  await t.test('ラベルを変えても確定し、範囲の編集の応答から注意を表示する', async (t) => {
+    const original = '本文[^a]\n\n[^a]: 脚注の定義\n\n後\n';
+    const { page, file } = await editablePage(t, browser, original);
+    await open(page, page.locator(definitionSelector).locator('p'), '[^a]: 脚注の定義');
+    await page.locator('#gp-edit-input').fill('[^b]: ラベルの変更');
+    await page.keyboard.press('Control+Enter');
+    await page.waitForFunction(() => document.querySelector('#gp-edit-status').textContent ===
+      '脚注のラベルが変わりました。本文の参照を確かめてください。');
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-edit-status').getAttribute('data-kind'), 'info');
+    assert.equal(readFileSync(file, 'utf8'), '本文[^a]\n\n[^b]: ラベルの変更\n\n後\n');
+  });
+
+  await t.test('編集モードの脚注のリンクは一回のクリックで移動せず、モードの外では戻りのリンクで移動する', async (t) => {
+    const original = '本文[^a]\n\n[^a]: [定義のリンク](#末尾)\n\n## 末尾\n';
+    const { page, file } = await editablePage(t, browser, original);
+    const definition = page.locator(definitionSelector);
+    const before = page.url();
+    await page.evaluate(() => {
+      window.footnoteScrolls = [];
+      const scroll = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function (options) {
+        window.footnoteScrolls.push(this.id);
+        return scroll.call(this, options);
+      };
+    });
+    await definition.locator('a').first().click();
+    assert.equal(page.url(), before);
+    const backref = definition.locator('a.footnote-backref');
+    await backref.click();
+    assert.equal(page.url(), before);
+    assert.deepEqual(await page.evaluate(() => window.footnoteScrolls), []);
+    assert.equal(await page.locator('#gp-edit-input').isVisible(), false);
+    await open(page, backref, '[^a]: [定義のリンク](#末尾)');
+    await page.keyboard.press('Escape');
+    await page.locator('#gp-edit-toggle').click();
+    const target = await backref.evaluate((anchor) => {
+      const id = decodeURIComponent(anchor.getAttribute('href').slice(1));
+      return (document.getElementById('user-content-' + id) || document.getElementById(id)).id;
+    });
+    await page.evaluate(() => { window.footnoteScrolls = []; });
+    await backref.click();
+    assert.deepEqual(await page.evaluate(() => window.footnoteScrolls), [target]);
+    assert.equal(readFileSync(file, 'utf8'), original);
+  });
+
+  await t.test('脚注の内側の項目でも定義全体を開き、タスクのチェックボックスを切り替えない', async (t) => {
+    const source = '[^a]: 定義\n\n    - [ ] 脚注のタスク';
+    const original = '本文[^a]\n\n' + source + '\n';
+    const { page, file } = await editablePage(t, browser, original);
+    const definition = page.locator(definitionSelector);
+    const checkbox = definition.locator('input.task-list-item-checkbox');
+    assert.equal(await checkbox.isDisabled(), true);
+    await checkbox.dispatchEvent('click');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original);
+    const item = definition.locator('li');
+    await item.hover();
+    assert.equal(await definition.evaluate((element) => getComputedStyle(element).outlineStyle), 'dashed');
+    assert.equal(await item.evaluate((element) => getComputedStyle(element).outlineStyle), 'none');
+    await open(page, item, source);
+    await page.keyboard.press('Escape');
+  });
+});
+
 test('ブロックの原文とタスクを画面で編集し、ファイルの内容まで確かめる', { skip, timeout: 120000 }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
@@ -1623,7 +1734,7 @@ test('ブロックの原文とタスクを画面で編集し、ファイルの�
     await page.keyboard.press('Escape');
   });
 
-  await t.test('include と front matter は原文取得の理由を知らせ、脚注・目次・数式と図は開かない', async (t) => {
+  await t.test('include と front matter は原文取得の理由を知らせ、目次・数式と図は開かない', async (t) => {
     const original = '---\na: b\n---\n\n[TOC]\n\n> [TOC]\n\n# 題\n\n本文[^a]\n\n[^a]: 脚注\n\n$`x`$\n\n```mermaid\ngraph TD; A-->B\n```\n\n::include{file=part.md}\n';
     const fixture = await fixturePage(t, browser, undefined, (root) => {
       writeFileSync(join(root, 'README.md'), original);
@@ -1645,7 +1756,7 @@ test('ブロックの原文とタスクを画面で編集し、ファイルの�
     }
     const sources = [];
     page.on('request', (r) => { if (r.url().includes('/_/edit/source?')) sources.push(r.url()); });
-    for (const selector of ['section[data-footnotes] p', '.gp-math-inline', '.gp-mermaid', 'ul.section-nav', 'blockquote ul.section-nav a']) {
+    for (const selector of ['.gp-math-inline', '.gp-mermaid', 'ul.section-nav', 'blockquote ul.section-nav a']) {
       const block = page.locator('#gp-content ' + selector).first();
       if (await block.count()) await block.dispatchEvent('dblclick');
     }

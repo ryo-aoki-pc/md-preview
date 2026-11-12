@@ -107,9 +107,14 @@
   const messageOf = (data) => (typeof data?.error?.message === 'string' ? data.error.message : '');
   const rangePattern = /^[1-9][0-9]*:[1-9][0-9]*-[1-9][0-9]*:[0-9]+$/;
   const blockSelector = 'p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, ul, ol, dl, div.markdown-alert';
-  const excludedBlock = 'table, section[data-footnotes], .section-nav, .gp-math-display, .gp-math-inline, .gp-mermaid, .gp-plantuml-error, [data-diagram], .js-render-math, .js-render-mermaid';
+  const excludedBlock = 'table, .section-nav, .gp-math-display, .gp-math-inline, .gp-mermaid, .gp-plantuml-error, [data-diagram], .js-render-math, .js-render-mermaid';
   function blockOf(element) {
-    if (!element?.closest || !element.closest('#gp-content') || element.closest(excludedBlock)) return null;
+    if (!element?.closest || !element.closest('#gp-content') || element.closest('table')) return null;
+    if (element.closest('section[data-footnotes]')) {
+      const definition = element.closest('section[data-footnotes] > ol > li[data-sourcepos]');
+      return definition && rangePattern.test(definition.getAttribute('data-sourcepos') || '') ? definition : null;
+    }
+    if (element.closest(excludedBlock)) return null;
     for (let node = element; node && node.id !== 'gp-content'; node = node.parentElement) {
       if (node.matches(blockSelector) && rangePattern.test(node.getAttribute('data-sourcepos') || '')) return node;
     }
@@ -641,6 +646,7 @@
     input.setSelectionRange(input.value.length, input.value.length);
     cancelAnimationFrame(animation);
     position();
+    if (draft.kind === 'footnote') notice('ラベルを変えると、本文の参照と対応しなくなります');
   }
   async function loadBlock() {
     const pending = pendingBlock, element = pending?.element;
