@@ -14,6 +14,7 @@ import (
 )
 
 var tagPattern = regexp.MustCompile(`^[a-z0-9]+$`)
+var diagramFencePattern = regexp.MustCompile("^(?:`{3,}|~{3,})")
 
 type block struct {
 	tag, kind        string
@@ -120,8 +121,8 @@ func blockKind(tag string) string {
 
 func excludedBlock(n *html.Node) bool {
 	return n.Type == html.ElementNode && (n.Data == "table" ||
-		htmltree.Has(n, "data-diagram") || htmltree.HasClass(n, "section-nav") ||
-		htmltree.HasClass(n, "js-render-math"))
+		htmltree.Has(n, "data-diagram") && htmltree.Get(n, "data-diagram") != "plantuml" || htmltree.HasClass(n, "section-nav") ||
+		htmltree.HasClass(n, "js-render-math") && !(n.Data == "pre" && htmltree.Get(n, "data-math-style") == "display"))
 }
 
 func footnoteSection(n *html.Node) bool {
@@ -179,6 +180,10 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 			}
 		}
 		kind := blockKind(n.Data)
+		if n.Data == "img" && (htmltree.Get(n, "data-diagram") == "plantuml" ||
+			n.Parent != nil && n.Parent.Data == "a" && htmltree.Get(n.Parent, "data-diagram") == "plantuml") {
+			kind = "plantuml"
+		}
 		if n.Data == "div" && htmltree.HasClass(n, "markdown-alert") {
 			kind = "alert"
 		}
@@ -191,12 +196,17 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 			return nil
 		}
 		if n.Data == "pre" {
-			mermaid, e := htmltree.Elements(ctx, n, func(c *html.Node) bool { return htmltree.HasClass(c, "js-render-mermaid") })
+			if htmltree.HasClass(n, "js-render-math") && htmltree.Get(n, "data-math-style") == "display" {
+				kind = "math"
+			}
+			mermaid, e := htmltree.Elements(ctx, n, func(c *html.Node) bool {
+				return c.Data == "code" && htmltree.HasClass(c, "js-render-mermaid")
+			})
 			if e != nil {
 				return e
 			}
 			if len(mermaid) > 0 {
-				return nil
+				kind = "mermaid"
 			}
 		}
 		b := block{tag: n.Data, kind: kind, public: r, outer: -1}
@@ -223,6 +233,9 @@ func (s *Service) blocks(ctx context.Context, src session.Source) (*blockMapping
 			b.start, b.end, b.line, b.reason = offsetsAt(src, b.actual, starts)
 		}
 		if b.reason == nil && b.kind == "footnote" && footnoteLabel(src.Text[b.start:b.end]) == "" {
+			b.reason = blockFault("boundary")
+		}
+		if b.reason == nil && b.kind == "plantuml" && !diagramFencePattern.MatchString(src.Text[b.start:b.end]) {
 			b.reason = blockFault("boundary")
 		}
 		indices[n] = len(m.blocks)

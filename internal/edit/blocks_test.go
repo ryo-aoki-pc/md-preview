@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/ryo-aoki-pc/md-tools/engine"
+	"github.com/ryo-aoki-pc/md-tools/internal/htmltree"
 	"github.com/ryo-aoki-pc/md-tools/internal/session"
+	"golang.org/x/net/html"
 )
 
 func footnoteService(t *testing.T, e *engine.Engine, text string, mode Mode) (*Service, *testHost, func() string) {
@@ -403,8 +406,8 @@ func TestBlockExclusionsAndKinds(t *testing.T) {
 	}
 	h.src.Render++
 	h.src.HTML = `<pre data-sourcepos="1:1-1:5"><code class="js-render-mermaid">Apple</code></pre>`
-	if _, err := s.Text(context.Background(), nil, h.src.Render, "pre", "1:1-1:5"); err == nil || err.Code != "target" {
-		t.Fatal(err)
+	if value, err := s.Text(context.Background(), nil, h.src.Render, "pre", "1:1-1:5"); err != nil || value.(map[string]any)["kind"] != "mermaid" {
+		t.Fatal(value, err)
 	}
 }
 
@@ -567,5 +570,160 @@ func TestBlockEmptyBoundary(t *testing.T) {
 	_, err := blockRange(session.Source{Text: " \n"}, []string{" ", ""}, []int{0, 2}, nil, "1:1-2:0")
 	if err == nil || err.Code != "boundary" {
 		t.Fatal(err)
+	}
+}
+
+func TestDiagramRangesAndWrites(t *testing.T) {
+	e := testEngine(t)
+	for _, c := range []struct{ name, source, replacement, tag, kind, public string }{
+		{"数式の囲み", "```math\nb^2\n```", "```math\nc^3\n```", "pre", "math", "3:1-5:3"},
+		{"ドルの数式", "$$\na^2\n$$", "$$\na^3\n$$", "p", "paragraph", "3:1-5:2"},
+		{"mermaid", "```mermaid\ngraph TD; A-->B\n```", "```mermaid\ngraph TD; A-->C\n```", "pre", "mermaid", "3:1-5:3"},
+		{"PlantUML", "```plantuml\nA -> B\n```", "```plantuml\nA -> C\n```", "img", "plantuml", "3:1-5:3"},
+		{"チルダのPlantUML", "~~~~plantuml\nA -> B\n~~~~", "~~~~plantuml\nA -> C\n~~~~", "img", "plantuml", "3:1-5:4"},
+	} {
+		for _, mode := range []Mode{File, Buffer} {
+			for _, ending := range []string{"\n", "\r\n"} {
+				for _, zero := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/%v/%q/終了列0=%v", c.name, mode, ending, zero), func(t *testing.T) {
+						text := strings.ReplaceAll("前\n\n"+c.source+"\n\n後\n", "\n", ending)
+						s, h, updated := footnoteService(t, e, text, mode)
+						if c.kind == "plantuml" {
+							result, err := h.renderer.Render(context.Background(), text, session.FileContext(h.src.Root, h.src.File, h.src.Dir, true))
+							if err != nil {
+								t.Fatal(err)
+							}
+							h.src.HTML = result.HTML
+						}
+						public := c.public
+						if zero {
+							public = "3:1-6:0"
+							h.src.HTML = strings.ReplaceAll(h.src.HTML, c.public, public)
+						}
+						originalHTML := h.src.HTML
+						value, err := s.Text(context.Background(), nil, h.src.Render, c.tag, Range(public))
+						if err != nil {
+							t.Fatalf("取得=%v\n%s", err, h.src.HTML)
+						}
+						got := value.(map[string]any)
+						if got["kind"] != c.kind || got["range"] != Range(c.public) || got["text"] != c.source {
+							t.Fatalf("原文の取得=%+v", got)
+						}
+						if h.src.HTML != originalHTML {
+							t.Fatal("公開の HTML が変わった")
+						}
+						if _, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render, "range": c.public, "text": c.replacement}); err != nil {
+							t.Fatal(err)
+						}
+						want := strings.Replace(text, strings.ReplaceAll(c.source, "\n", ending), strings.ReplaceAll(c.replacement, "\n", ending), 1)
+						if got := updated(); got != want {
+							t.Fatalf("前後のバイトを含む原文=%q、期待=%q", got, want)
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestDiagramBoundariesAndOuter(t *testing.T) {
+	e := testEngine(t)
+	for _, mode := range []Mode{File, Buffer} {
+		t.Run(fmt.Sprint(mode), func(t *testing.T) {
+			s, h, _ := footnoteService(t, e, "- item\n\n  ```mermaid\n  graph TD; A-->B\n  ```\n- next\n", mode)
+			value, err := s.Text(context.Background(), nil, h.src.Render, "pre", "3:3-5:5")
+			want := []OuterBlock{{"li", "1:1-5:5", "item"}, {"ul", "1:1-6:6", "list"}}
+			if err != nil || !reflect.DeepEqual(value.(map[string]any)["outer"], want) {
+				t.Fatalf("図の外側=%+v、誤り=%v\n%s", value, err, h.src.HTML)
+			}
+			s, h, _ = footnoteService(t, e, "本文 $x$ の続き\n", mode)
+			m, err := s.blocks(context.Background(), h.src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, b := range m.blocks {
+				if b.tag == "span" {
+					t.Fatal("行の中の数式が対象になった", b)
+				}
+			}
+			root, parseErr := htmltree.Fragment(context.Background(), h.src.HTML)
+			if parseErr != nil {
+				t.Fatal(parseErr)
+			}
+			spans, parseErr := htmltree.Elements(context.Background(), root, func(n *html.Node) bool { return n.Data == "span" && htmltree.HasClass(n, "js-render-math") })
+			if parseErr != nil || len(spans) != 1 {
+				t.Fatal("行の中の数式の描画", parseErr, h.src.HTML)
+			}
+			if _, err := s.Text(context.Background(), nil, h.src.Render, "span", Range(htmltree.Get(spans[0], "data-sourcepos"))); err == nil || err.Code != "target" {
+				t.Fatal("行の中の数式", err)
+			}
+			for _, markup := range []string{
+				`<a data-diagram="plantuml"><img data-sourcepos="1:1-1:5"></a>`,
+				`<img data-diagram="plantuml" data-sourcepos="1:1-1:5">`,
+			} {
+				s, h, _ = footnoteService(t, e, "plain\n", mode)
+				h.src.HTML = markup
+				if _, err := s.Text(context.Background(), nil, h.src.Render, "img", "1:1-1:5"); err == nil || err.Code != "boundary" {
+					t.Fatal("囲みで始まらない図", err)
+				}
+			}
+			s, h, _ = footnoteService(t, e, "plain\n\n<img data-diagram=\"plantuml\" data-sourcepos=\"1:2-1:5\">\n", mode)
+			if _, err := s.Text(context.Background(), nil, h.src.Render, "img", "1:2-1:5"); err == nil || err.Code != "untrusted" {
+				t.Fatalf("信用しない図の位置=%v\n%s", err, h.src.HTML)
+			}
+			if _, err := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render, "range": "1:2-1:5", "text": "changed"}); err == nil || err.Code != "untrusted" {
+				t.Fatal("信用しない位置の確定", err)
+			}
+		})
+	}
+}
+
+func TestDiagramsInContainers(t *testing.T) {
+	e := testEngine(t)
+	// 字下げ・リスト・引用の中の PlantUML も、位置は囲みの開始から始まる。
+	for _, c := range []struct{ name, text, source string }{
+		{"字下げ", "前\n\n  ```plantuml\n  A -> B\n  ```\n", "```plantuml\n  A -> B\n  ```"},
+		{"リストの中", "- item\n\n  ```plantuml\n  A -> B\n  ```\n", "```plantuml\n  A -> B\n  ```"},
+		{"引用の中", "> ```plantuml\n> A -> B\n> ```\n", "```plantuml\n> A -> B\n> ```"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, h := testService(t, e, c.text, nil)
+			result, err := h.renderer.Render(context.Background(), c.text, session.FileContext(h.src.Root, h.src.File, h.src.Dir, true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.src.HTML = result.HTML
+			public := regexp.MustCompile(`<img[^>]*data-sourcepos="([^"]+)"`).FindStringSubmatch(h.src.HTML)
+			if public == nil {
+				t.Fatal(h.src.HTML)
+			}
+			value, failure := s.Text(context.Background(), nil, h.src.Render, "img", Range(public[1]))
+			if failure != nil {
+				t.Fatalf("取得=%v\n%s", failure, h.src.HTML)
+			}
+			if got := value.(map[string]any); got["kind"] != "plantuml" || got["text"] != c.source {
+				t.Fatalf("原文の取得=%+v", got)
+			}
+		})
+	}
+	// 表と脚注の中の数式・図は、単独の対象にしない。
+	for _, text := range []string{
+		"<table><tr><td>\n\n```math\na^2\n```\n\n</td></tr></table>\n",
+		"<table><tr><td>\n\n```mermaid\ngraph TD; A-->B\n```\n\n</td></tr></table>\n",
+		"本文[^1]\n\n[^1]: 脚注\n\n    ```math\n    a^2\n    ```\n",
+	} {
+		s, h := testService(t, e, text, nil)
+		if !strings.Contains(h.src.HTML, "js-render-") {
+			t.Fatalf("数式・図として描かれていない\n%s", h.src.HTML)
+		}
+		m, err := s.blocks(context.Background(), h.src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, b := range m.blocks {
+			if b.kind == "math" || b.kind == "mermaid" || b.kind == "plantuml" {
+				t.Fatalf("表か脚注の中の %s が対象になった: %+v\n%s", b.kind, b, h.src.HTML)
+			}
+		}
 	}
 }

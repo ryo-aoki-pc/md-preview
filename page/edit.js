@@ -18,6 +18,7 @@
     return element;
   };
   const cursorStyle = make('style', 'gp-edit-cursor');
+  const hoverStyle = make('style', 'gp-edit-hover');
   const frame = make('div', 'gp-edit-selection');
   const rangeFrame = make('div', 'gp-edit-range');
   const rangePieces = Array.from({ length: 4 }, (_, i) => {
@@ -106,8 +107,8 @@
   // 誤りの応答は {"error": {"code", "message"}}。文は利用者の文字を含みうるので、textContent だけに入れる。
   const messageOf = (data) => (typeof data?.error?.message === 'string' ? data.error.message : '');
   const rangePattern = /^[1-9][0-9]*:[1-9][0-9]*-[1-9][0-9]*:[0-9]+$/;
-  const blockSelector = 'p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, ul, ol, dl, div.markdown-alert';
-  const excludedBlock = 'table, .section-nav, .gp-math-display, .gp-math-inline, .gp-mermaid, .gp-plantuml-error, [data-diagram], .js-render-math, .js-render-mermaid';
+  const blockTags = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'dt', 'dd', 'blockquote', 'pre', 'ul', 'ol', 'dl']);
+  const excludedBlock = 'table, .section-nav';
   function blockOf(element) {
     if (!element?.closest || !element.closest('#gp-content') || element.closest('table')) return null;
     if (element.closest('section[data-footnotes]')) {
@@ -116,7 +117,12 @@
     }
     if (element.closest(excludedBlock)) return null;
     for (let node = element; node && node.id !== 'gp-content'; node = node.parentElement) {
-      if (node.matches(blockSelector) && rangePattern.test(node.getAttribute('data-sourcepos') || '')) return node;
+      const target = preview.sourceOf(node);
+      if (!target || !rangePattern.test(target.range || '')) continue;
+      const live = preview.findSource(target.tag, target.range);
+      if (live && (blockTags.has(target.tag) ||
+        (target.tag === 'img' && live.matches('a[data-diagram="plantuml"] > img, img[data-diagram="plantuml"], .gp-plantuml-error')) ||
+        (target.tag === 'div' && live.matches('div.markdown-alert')))) return live;
     }
     return null;
   }
@@ -124,22 +130,21 @@
     alert: '注記全体を編集', item: '項目全体を編集', description: '説明全体を編集' };
   function outerElement(element, target) {
     if (!target || typeof target.tag !== 'string' || !rangePattern.test(target.range || '')) return null;
-    for (let node = element.parentElement; node && node.id !== 'gp-content'; node = node.parentElement) {
-      if (node.localName === target.tag && node.getAttribute('data-sourcepos') === target.range && blockOf(node) === node) return node;
-    }
-    return null;
+    const live = preview.findSource(target.tag, target.range);
+    return live && live !== element && live.contains(element) && blockOf(live) === live ? live : null;
   }
   function moveBlock(outside) {
     if (!editor?.point.range || composing || sourceFetching) return;
     const inner = editor.inner || [];
     // 描き直しで画面から外れた内側の要素は飛ばす。
-    const rest = inner.filter((item) => item.isConnected);
-    const element = outside ? outerElement(editor.element, editor.outer?.[0]) : rest.pop();
+    const rest = inner.filter((item) => preview.findSource(item.tag, item.range));
+    const target = outside ? null : rest.pop();
+    const element = outside ? outerElement(editor.element, editor.outer?.[0]) : target && preview.findSource(target.tag, target.range);
     if (!element?.isConnected) {
       if (!outside) { editor.inner = []; innerButton.hidden = true; }
       return;
     }
-    beginBlock(element, { preserve: true, inner: outside ? [...rest, editor.element] : rest });
+    beginBlock(element, { preserve: true, inner: outside ? [...rest, editor.target] : rest });
   }
   outerButton.addEventListener('click', () => moveBlock(true));
   innerButton.addEventListener('click', () => moveBlock(false));
@@ -405,11 +410,7 @@
       }
       checkRange();
       checkInsert();
-      // 編集中のブロックが描き直しで別の要素になったら、見えない入力欄を残さない。文字は下書きに残す。
-      if (editor?.point.range && !editor.element.isConnected) {
-        clearSelection();
-        notice('文書が変わったので、もう一度操作してください', true);
-      }
+      refreshBlock();
       updateCursors();
       updateCheckboxes();
       updateButtons();
@@ -555,7 +556,19 @@
     }
     for (; number < pieces.length; number++) pieces[number].hidden = true;
   }
+  function refreshBlock() {
+    if (!editor?.point.range || editor.element.isConnected) return;
+    // 探し直すのは、数式・図の描き直しや配色の切り替えで置き換わったときだけ。
+    // 文書が外で変わった後は、同じ位置に別の内容が来ているかもしれないので付け替えない。
+    const element = editor.version === externalVersion && preview.findSource(editor.target.tag, editor.target.range);
+    if (element) editor.element = element;
+    else {
+      clearSelection();
+      notice('文書が変わったので、もう一度操作してください', true);
+    }
+  }
   function position() {
+    refreshBlock();
     animation = 0;
     const cutModel = models[cutState?.table];
     cutFrame.hidden = !mode || !cutState?.active || cutModel?.table !== cutState.tableElement;
@@ -649,26 +662,28 @@
     if (draft.kind === 'footnote') notice('ラベルを変えると、本文の参照と対応しなくなります');
   }
   async function loadBlock() {
-    const pending = pendingBlock, element = pending?.element;
+    const pending = pendingBlock;
+    let element = pending && preview.findSource(pending.target.tag, pending.target.range);
     if (!element || sourceFetching || busy || queue.length || failed || stopped || !mode ||
       infoRender !== preview.current()?.render) return;
     pendingBlock = null;
     if (!documentEditable) { notice(documentReason || 'この文書は編集できません', true); return; }
     if (!element.isConnected || blockOf(element) !== element) return;
-    const range = element.getAttribute('data-sourcepos');
+    const source = pending.target;
     const render = preview.current().render, version = externalVersion, number = ++sourceNumber;
     const controller = new AbortController();
     sourceFetching = controller;
     const target = url('/source');
     target.searchParams.set('render', render);
-    target.searchParams.set('range', range);
-    target.searchParams.set('tag', element.localName);
+    target.searchParams.set('range', source.range);
+    target.searchParams.set('tag', source.tag);
     try {
       const response = await fetch(target, { signal: controller.signal });
       if (number !== sourceNumber || response.status === 409) return;
       const data = await response.json();
+      element = preview.findSource(source.tag, source.range);
       if (!mode || stopped || number !== sourceNumber || render !== preview.current()?.render ||
-        version !== externalVersion || !element.isConnected) return;
+        version !== externalVersion || !element) return;
       if (!response.ok) {
         const outer = response.status === 422 && Array.isArray(data.outer) && data.outer[0];
         const next = outerElement(element, outer);
@@ -686,7 +701,7 @@
       const point = { range: data.range }, saved = drafts.get(keyOf(point));
       const value = saved?.original === data.text ? saved.value : data.text;
       drafts.delete(keyOf(point));
-      openBlock({ point, kind: data.kind, element, render, version, original: data.text, value,
+      openBlock({ point, kind: data.kind, element, target: source, render, version, original: data.text, value,
         outer: Array.isArray(data.outer) ? data.outer : [], inner: pending.inner });
       if (pending.fallbackNotice) notice(pending.fallbackNotice);
     } catch (error) {
@@ -696,10 +711,12 @@
     }
   }
   function beginBlock(element, { preserve = false, inner = [], fallbackNotice = '' } = {}) {
+    const target = preview.sourceOf(element);
+    if (!target) return;
     cancelSource();
     if (editor && !preserve) endEdit(true);
     clearSelection();
-    pendingBlock = { element, inner, fallbackNotice };
+    pendingBlock = { target, inner, fallbackNotice };
     operationStart();
     void loadBlock();
   }
@@ -1400,6 +1417,7 @@
     preview.setEditing(mode);
     preview.rememberAppearance('edit', mode);
     updateCursors();
+    updateHover(null);
     updateCheckboxes();
     if (mode) void loadTables();
   }
@@ -1461,7 +1479,7 @@
       return;
     }
     if (ignored(event.target)) {
-      if (editor && !window.__mdTableSticky?.picking) endEdit(true);
+      if (editor && !window.__mdTableSticky?.picking && !(editor.point.range && event.target.closest('#gp-theme'))) endEdit(true);
       return;
     }
     const element = event.target.closest?.('td, th');
@@ -1506,6 +1524,7 @@
     beginEdit();
   }, true);
   window.addEventListener('pointerover', (event) => {
+    updateHover(event.target);
     if (!mode) return;
     updateCursors();
     if (ignored(event.target)) return;
@@ -1514,6 +1533,42 @@
     // 載せただけの知らせは数秒で消し、出ている誤りの知らせは上書きしない。
     if (model && !model.editable && (status.hidden || status.dataset.kind !== 'error')) notice(model.reason);
   }, true);
+  // 載せた位置とダブルクリックの対象を同じ関数で決め、本文には印を足さない。
+  function updateHover(element) {
+    let target = mode && !stopped && !ignored(element) && blockOf(element);
+    const path = [];
+    while (target && target.id !== 'gp-content') {
+      path.unshift(':nth-child(' + (Array.prototype.indexOf.call(target.parentElement.children, target) + 1) + ')');
+      target = target.parentElement;
+    }
+    const css = target && path.length ? '#gp-content > ' + path.join(' > ') +
+      ' { outline: 1px dashed var(--gp-border); outline-offset: 2px; }' : '';
+    if (hoverStyle.textContent !== css) hoverStyle.textContent = css;
+  }
+  let hoverPoint = null;
+  window.addEventListener('pointermove', (event) => {
+    hoverPoint = { x: event.clientX, y: event.clientY };
+    updateHover(event.target);
+  }, true);
+  window.addEventListener('pointerout', (event) => {
+    if (!event.relatedTarget) hoverPoint = null;
+    updateHover(event.relatedTarget);
+  }, true);
+  window.addEventListener('blur', () => { hoverPoint = null; updateHover(null); });
+  // 本文の変更やスクロールの後の枠の当て直しは、編集モードの間だけ、1 フレームに 1 回にまとめる
+  // （elementFromPoint はレイアウトを強制するので、描画のたびに呼ばない）。
+  let hoverFrame = 0;
+  const refreshHover = () => {
+    if (!mode || !hoverPoint) { updateHover(null); return; }
+    if (hoverFrame) return;
+    hoverFrame = requestAnimationFrame(() => {
+      hoverFrame = 0;
+      updateHover(mode && hoverPoint ? document.elementFromPoint(hoverPoint.x, hoverPoint.y) : null);
+    });
+  };
+  window.addEventListener('scroll', refreshHover, true);
+  window.addEventListener('resize', refreshHover);
+  new MutationObserver(refreshHover).observe(document.getElementById('gp-content'), { childList: true, subtree: true });
   window.addEventListener('keydown', (event) => {
     if (!mode || stopped) return;
     if (event.isComposing || event.keyCode === 229 || composing) {
@@ -1672,6 +1727,7 @@
   });
   document.addEventListener('gp:stop', () => {
     stopped = true;
+    updateHover(null);
     cancelCut();
     cancelInsert();
     cancelSource();
