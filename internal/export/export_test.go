@@ -126,7 +126,7 @@ func TestPlainThemesAndStyles(t *testing.T) {
 		}
 		mustContain(t, p.csp, "script-src 'none'", "default-src 'none'", "style-src 'unsafe-inline'", "font-src data:", "base-uri 'none'", "form-action 'none'", "img-src * data: blob:", "media-src * data:")
 		mustContain(t, r.HTML, `data-width="fixed"`, `data-theme="`+theme+`"`, `name="referrer" content="no-referrer"`, "本文", ":root{--gp-toolbar-height:0px}", "#gp-page.file-holder {")
-		mustNotContain(t, r.HTML, "<header", "<aside", `id="gp-notices"`, "#gp-controls", "#gp-outline", "#gp-notices", "本文のスタイル: ここから", "127.0.0.1", "/_/assets/", "?token=", o.Root, filepath.ToSlash(o.Root), "\ufeff")
+		mustNotContain(t, r.HTML, "<header", "<aside", `id="gp-notices"`, "#gp-controls", "#gp-outline", "gp-outline-resizer", "#gp-notices", "本文のスタイル: ここから", "127.0.0.1", "/_/assets/", "?token=", o.Root, filepath.ToSlash(o.Root), "\ufeff")
 		if theme == "system" {
 			mustContain(t, r.HTML, "@media screen and (prefers-color-scheme:dark){")
 			mustNotContain(t, r.HTML, "@media(prefers-color-scheme:dark)")

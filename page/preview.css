@@ -177,7 +177,7 @@ body {
 
 /* 見出しの欄は本文と別にスクロールし、本文の幅だけを狭める。 */
 :root {
-  --gp-outline-width: 260px;
+  --gp-outline-width: clamp(180px, var(--gp-outline-user, 260px), min(480px, 100vw - 320px));
 }
 #gp-layout {
   margin-inline-start: 0;
@@ -201,6 +201,29 @@ body {
 }
 #gp-outline[hidden] {
   display: none;
+}
+#gp-outline-resizer {
+  position: fixed;
+  inset-block: var(--gp-toolbar-height) 0;
+  inset-inline-start: calc(var(--gp-outline-width) - 2px);
+  inline-size: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 8;
+}
+#gp-outline-resizer[hidden] {
+  display: none;
+}
+#gp-outline-resizer:focus-visible {
+  outline: 2px solid var(--gp-fg);
+  outline-offset: -2px;
+}
+:root[data-outline-resizing] #gp-outline-resizer {
+  background: var(--gp-border);
+}
+:root[data-outline-resizing],
+:root[data-outline-resizing] * {
+  user-select: none;
 }
 #gp-outline ul {
   list-style: none;
@@ -249,11 +272,15 @@ body {
   :root {
     --gp-outline-width: 42vw;
   }
+  #gp-outline-resizer {
+    display: none;
+  }
 }
 @media print {
   #gp-header,
   #gp-banner,
-  #gp-outline {
+  #gp-outline,
+  #gp-outline-resizer {
     display: none !important;
   }
   #gp-layout {
