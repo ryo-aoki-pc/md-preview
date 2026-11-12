@@ -28,3 +28,34 @@ func TestApplyEditsMultipleRegions(t *testing.T) {
 		t.Fatal("警告が重複するか、元の文書が変わった")
 	}
 }
+
+// 明示した種類は、行・列の編集の検査があっても差し替え先へ引き継ぐ。
+func TestApplyEditsTargetKind(t *testing.T) {
+	for _, target := range []string{"html", "pipe"} {
+		t.Run(target, func(t *testing.T) {
+			input := "前\n\n| h |\n| --- |\n| a |\n\n後\n"
+			if target == "pipe" {
+				input = "前\n\n<table><tr><th>h</th></tr><tr><td>a</td></tr></table>\n\n後\n"
+			}
+			d := Parse(input)
+			r := d.regions[0]
+			var lines, warnings []string
+			var err error
+			if target == "html" {
+				lines, err = table.RenderFromPipe(r, r.Model(), &warnings)
+			} else {
+				lines, err = table.RenderNewPipe(r, r.Model(), &warnings)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := d.applyEdits([]regionEdit{{region: r, lines: lines, kind: target, expected: r.Model(), shape: true}}, warnings)
+			if err != nil {
+				t.Fatalf("表の種類の差し替え: %v", err)
+			}
+			if !result.Changed || len(result.Document.regions) != 1 || result.Document.regions[0].Kind != target || d.Text() != input {
+				t.Fatalf("種類が変わらないか、元の文書が変わった: %+v", result)
+			}
+		})
+	}
+}
