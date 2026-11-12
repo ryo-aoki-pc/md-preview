@@ -1478,7 +1478,7 @@
 
   // ページと md-table-sticky の操作欄、本文の入力の部品は触らない。表のセルの中の入力（表の中のタスクのチェックボックス）は、セルの操作として扱う。
   const ignored = (element) => !element || window.__mdTableSticky?.picking ||
-    element.closest('#gp-controls, #gp-header, #gp-notices, #gp-outline, [data-md-table-sticky-bar], [data-md-table-sticky-search], [data-md-table-sticky-columns]') ||
+    element.closest('#gp-controls, #gp-header, #gp-notices, #gp-outline, #gp-outline-resizer, [data-md-table-sticky-bar], [data-md-table-sticky-search], [data-md-table-sticky-columns]') ||
     (!element.closest('td, th') && element.closest('input, textarea, select, button, [contenteditable]'));
   let down = null;
   let dragged = false;
@@ -1517,6 +1517,7 @@
     if (down && event.buttons && Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) dragged = true;
   }, true);
   window.addEventListener('click', (event) => {
+    if (event.target.closest?.('#gp-outline-resizer')) return;
     if (!mode || stopped || layer.contains(event.target)) return;
     // コメントへの切り替えは、入力を確定せず busy() の確認へ渡す。
     if (event.target.closest?.('#gp-review-toggle')) return;

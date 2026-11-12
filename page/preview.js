@@ -35,6 +35,13 @@
 
   function rememberAppearance(key, value) {
     savedAppearance[key] = value;
+    storeAppearance();
+  }
+  function forgetAppearance(key) {
+    delete savedAppearance[key];
+    storeAppearance();
+  }
+  function storeAppearance() {
     try {
       sessionStorage.setItem(appearanceKey, JSON.stringify(savedAppearance));
     } catch {
@@ -194,9 +201,128 @@
   const outline = document.getElementById('gp-outline');
   const outlineList = document.getElementById('gp-outline-list');
   const outlineToggle = document.getElementById('gp-outline-toggle');
+  const outlineResizer = document.getElementById('gp-outline-resizer');
   const wide = window.matchMedia('(min-width: 1100px)');
+  const narrow = window.matchMedia('(max-width: 700px)');
+  const outlineMin = 180;
+  const outlineMax = 480;
+  const outlineDefault = 260;
+  const outlineBodyMin = 320;
   let outlineWanted = typeof savedAppearance.outline === 'boolean' ? savedAppearance.outline : wide.matches;
   let outlineLinks = [];
+  const savedOutlineWidth = savedAppearance.outlineWidth;
+  let outlineWidth = typeof savedOutlineWidth === 'number' && Number.isFinite(savedOutlineWidth) &&
+    savedOutlineWidth >= outlineMin && savedOutlineWidth <= outlineMax ? Math.round(savedOutlineWidth) : outlineDefault;
+  let outlineDrag = null;
+
+  // preview.css の #gp-review-panel の幅。コメント欄を開いている間は、その幅も本文に残す。
+  const reviewPanelWidth = 360;
+  function outlineLimit() {
+    const reserved = outlineBodyMin + (root.dataset.review === 'on' ? reviewPanelWidth : 0);
+    return Math.max(outlineMin, Math.min(outlineMax, window.innerWidth - reserved));
+  }
+  function clampOutlineWidth(value) {
+    return Math.min(Math.max(outlineMin, Math.round(value)), outlineLimit());
+  }
+  function canResizeOutline() {
+    return !CONFIG.list && !outline.hidden && !narrow.matches;
+  }
+  function applyOutlineWidth() {
+    outlineResizer.hidden = !canResizeOutline();
+    if (outlineResizer.hidden) {
+      if (outlineDrag) finishOutlineResize(false);
+      return;
+    }
+    const width = clampOutlineWidth(outlineDrag ? outlineDrag.value : outlineWidth);
+    const value = width + 'px';
+    if (root.style.getPropertyValue('--gp-outline-user') !== value) root.style.setProperty('--gp-outline-user', value);
+    outlineResizer.setAttribute('aria-valuenow', String(width));
+    outlineResizer.setAttribute('aria-valuemin', String(outlineMin));
+    outlineResizer.setAttribute('aria-valuemax', String(outlineLimit()));
+    outlineResizer.setAttribute('aria-valuetext', width + ' ピクセル');
+  }
+  function finishOutlineResize(save) {
+    const drag = outlineDrag;
+    if (!drag) return;
+    outlineDrag = null;
+    delete root.dataset.outlineResizing;
+    const width = clampOutlineWidth(drag.value);
+    outlineWidth = save && width !== drag.startWidth ? width : drag.startUserWidth;
+    applyOutlineWidth();
+    if (outlineResizer.hasPointerCapture(drag.id)) outlineResizer.releasePointerCapture(drag.id);
+    if (save && width !== drag.startWidth) rememberAppearance('outlineWidth', width);
+    queueLayout();
+  }
+  function resetOutlineWidth() {
+    outlineWidth = outlineDefault;
+    forgetAppearance('outlineWidth');
+    applyOutlineWidth();
+    queueLayout();
+  }
+  outlineResizer.addEventListener('pointerdown', (event) => {
+    if (!canResizeOutline() || outlineDrag || event.button !== 0 || !event.isPrimary) return;
+    const width = clampOutlineWidth(outlineWidth);
+    outlineResizer.setPointerCapture(event.pointerId);
+    outlineDrag = { id: event.pointerId, startX: event.clientX, startWidth: width,
+      startUserWidth: outlineWidth, value: width };
+    root.dataset.outlineResizing = '';
+  });
+  outlineResizer.addEventListener('mousedown', (event) => {
+    if (canResizeOutline() && event.button === 0) event.preventDefault();
+  });
+  outlineResizer.addEventListener('pointermove', (event) => {
+    if (!outlineDrag || event.pointerId !== outlineDrag.id) return;
+    outlineDrag.value = clampOutlineWidth(outlineDrag.startWidth + event.clientX - outlineDrag.startX);
+    queueLayout();
+  });
+  outlineResizer.addEventListener('pointerup', (event) => {
+    if (!outlineDrag || event.pointerId !== outlineDrag.id) return;
+    outlineDrag.value = clampOutlineWidth(outlineDrag.startWidth + event.clientX - outlineDrag.startX);
+    finishOutlineResize(canResizeOutline());
+  });
+  for (const name of ['pointercancel', 'lostpointercapture']) outlineResizer.addEventListener(name, (event) => {
+    if (outlineDrag?.id === event.pointerId) finishOutlineResize(false);
+  });
+  // 編集・コメントの Esc より先に受け、ドラッグだけを取り消す。
+  window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !outlineDrag) return;
+    finishOutlineResize(false);
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
+  outlineResizer.addEventListener('keydown', (event) => {
+    // Alt+← の「戻る」や Ctrl+Home などのブラウザの操作は止めない。Shift だけを幅の刻みに使う。
+    if (!canResizeOutline() || outlineDrag || event.ctrlKey || event.altKey || event.metaKey) return;
+    const width = clampOutlineWidth(outlineWidth);
+    let next;
+    switch (event.key) {
+      case 'ArrowLeft': next = width - (event.shiftKey ? 50 : 10); break;
+      case 'ArrowRight': next = width + (event.shiftKey ? 50 : 10); break;
+      case 'Home': next = outlineMin; break;
+      case 'End': next = outlineLimit(); break;
+      case 'Enter':
+        event.preventDefault();
+        resetOutlineWidth();
+        return;
+      default: return;
+    }
+    event.preventDefault();
+    const value = clampOutlineWidth(next);
+    // 画面の幅の上限に張り付いて見た目が変わらないときは、広い画面のための保存値を残す。
+    if (value === width) return;
+    outlineWidth = value;
+    rememberAppearance('outlineWidth', outlineWidth);
+    applyOutlineWidth();
+    queueLayout();
+  });
+  outlineResizer.addEventListener('dblclick', () => {
+    if (canResizeOutline() && !outlineDrag) resetOutlineWidth();
+  });
+  // コメント欄の開閉で上限が変わる。表示の幅と aria の値を合わせ直す。
+  new MutationObserver(() => {
+    applyOutlineWidth();
+    queueLayout();
+  }).observe(root, { attributes: true, attributeFilter: ['data-review'] });
 
   function applyOutline() {
     const visible = !CONFIG.list && outlineWanted && outlineLinks.length > 0;
@@ -204,6 +330,7 @@
     root.dataset.outline = visible ? 'open' : 'closed';
     outlineToggle.disabled = !outlineLinks.length;
     outlineToggle.setAttribute('aria-expanded', String(visible));
+    applyOutlineWidth();
     queueLayout();
   }
   function buildOutline(headings) {
@@ -1222,6 +1349,7 @@
       root.style.setProperty('--gp-header-height', height + 'px');
       root.style.setProperty('--gp-banner-top', height + (noticesPanel.hidden ? 0 : noticesPanel.offsetHeight) + 'px');
       root.style.setProperty('--gp-toolbar-height', toolbarHeight() + 'px');
+      applyOutlineWidth();
       buildMap();
       syncScroll();
       markHeading();
