@@ -191,28 +191,62 @@ func TestExecutableDependencies(t *testing.T) {
 		pkg     string
 		targets [][2]string
 		blocked []string
+		// inside が空でなければ、このモジュールの中で頼ってよいのは inside の下と allowed だけ。
+		inside  string
 		allowed string
 	}{
-		{"./cmd/mdpreview", mdpreviewTargets, []string{"github.com/xuri/", module + "mdtable/internal/workbook", module + "mdtable/internal/sync", module + "mdtable/internal/cli"}, ""},
-		{"./mdtable/cmd/mdtable", [][2]string{{"windows", "amd64"}}, []string{module + "engine", module + "page", module + "assets", module + "internal", module + "sticky"}, module + "internal/version"},
+		{"./cmd/mdpreview", mdpreviewTargets, []string{"github.com/xuri/", module + "mdtable/internal/workbook", module + "mdtable/internal/sync", module + "mdtable/internal/cli"}, "", ""},
+		{"./mdtable/cmd/mdtable", [][2]string{{"windows", "amd64"}}, nil, module + "mdtable", module + "internal/version"},
 	} {
 		t.Run(test.pkg, func(t *testing.T) {
 			for _, target := range test.targets {
 				t.Run(target[0]+"/"+target[1], func(t *testing.T) {
 					for _, dependency := range goDependencies(t, test.pkg, target, "{{.ImportPath}}") {
 						dependency = strings.TrimSpace(dependency)
-						if dependency == test.allowed {
-							continue
-						}
 						for _, blocked := range test.blocked {
 							if dependency == blocked || strings.HasPrefix(dependency, strings.TrimSuffix(blocked, "/")+"/") {
 								t.Errorf("%s に不要な依存があります: %s", test.pkg, dependency)
 							}
 						}
+						// ルートのパッケージそのものと、これから足すパッケージも拾うため、許す場所のほうを決める。
+						inModule := dependency == strings.TrimSuffix(module, "/") || strings.HasPrefix(dependency, module)
+						if test.inside == "" || !inModule || dependency == test.allowed {
+							continue
+						}
+						if dependency != test.inside && !strings.HasPrefix(dependency, test.inside+"/") {
+							t.Errorf("%s に、%s の外の依存があります: %s", test.pkg, test.inside, dependency)
+						}
 					}
 				})
 			}
 		})
+	}
+}
+
+// 版は internal/version の 1 か所で決める。npm の固定情報の版も同じ値にする。
+func TestPackageVersion(t *testing.T) {
+	for _, name := range []string{"package.json", "package-lock.json"} {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var pkg struct {
+			Version  string `json:"version"`
+			Packages map[string]struct {
+				Version string `json:"version"`
+			} `json:"packages"`
+		}
+		if err := json.Unmarshal(data, &pkg); err != nil {
+			t.Fatal(err)
+		}
+		if pkg.Version != version.Version {
+			t.Errorf("%s の版が違います: %s internal/version=%s", name, pkg.Version, version.Version)
+		}
+		if name == "package-lock.json" {
+			if root, ok := pkg.Packages[""]; !ok || root.Version != version.Version {
+				t.Errorf("%s のルートの項の版が違います: %s internal/version=%s", name, root.Version, version.Version)
+			}
+		}
 	}
 }
 

@@ -50,7 +50,9 @@ jobs:
       - name: 試験
         run: go test ./...
       - name: 競合の検査
-        run: go test -race -timeout 20m ./mdtable/...
+        run: go test -race -timeout 20m ./...
+      - name: 表の範囲と写しを検証
+        run: node --test test/edit-grid.test.mjs
       - name: sticky の格子と組み立てを検証
         run: node --test sticky/test/grid.test.mjs sticky/test/build.test.mjs
       - name: ブックマークレットの生成物を確認

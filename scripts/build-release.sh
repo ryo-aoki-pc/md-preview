@@ -45,7 +45,7 @@ if [ "$host_os" = windows ]; then
   host_exe='.exe'
 fi
 temporary_dir=$(mktemp -d "$output_dir/.build-release.XXXXXX")
-trap 'rm -f -- "$temporary_dir/mdpreview$host_exe" "$temporary_dir/mdtable$host_exe"; rmdir -- "$temporary_dir"' EXIT
+trap 'rm -rf -- "$temporary_dir"' EXIT
 for tool in mdpreview mdtable; do
   package="./cmd/$tool"
   expected_version="$version"

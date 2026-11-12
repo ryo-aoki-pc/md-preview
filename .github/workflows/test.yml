@@ -55,7 +55,7 @@ jobs:
           packages=$(go list ./... | grep -v '^github.com/ryo-aoki-pc/md-tools/mdtable\(/\|$\)')
           go test -race $packages
       - name: 配布物をビルド
-        if: runner.os == 'Linux'
+        shell: bash
         run: |
           bash scripts/build-release.sh '0.0.0-ci' .tests/dist
           ( cd .tests/dist && sha256sum -c SHA256SUMS )
