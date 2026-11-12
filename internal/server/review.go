@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/ryo-aoki-pc/md-tools/internal/edit"
 	"github.com/ryo-aoki-pc/md-tools/internal/review"
+	"github.com/ryo-aoki-pc/md-tools/internal/vscode"
 )
 
 type Reviewer interface {
@@ -26,7 +28,7 @@ type Reviewer interface {
 // isReviewPath はコメントの口だけを見分ける。ほかのファイルの経路（docs/_/review/a.md など）には当てない。
 func isReviewPath(r *http.Request) bool {
 	p := pathOf(r)
-	for _, route := range []string{"/_/review/prepare", "/_/review/tables", "/_/review/source"} {
+	for _, route := range []string{"/_/review/prepare", "/_/review/tables", "/_/review/source", "/_/review/launch"} {
 		if strings.HasSuffix(p, route) {
 			return true
 		}
@@ -216,6 +218,96 @@ type preparedReview struct {
 	PromptHash string
 	Created    time.Time
 	Launched   bool
+	Launching  bool
+}
+
+var reviewID = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+
+func (s *Server) launchReview(conn net.Conn, r *http.Request) {
+	site := strings.Join(r.Header.Values("Sec-Fetch-Site"), ", ")
+	origin := strings.Join(r.Header.Values("Origin"), ", ")
+	if (site != "" && site != "same-origin") || origin != "http://"+r.Host {
+		s.reject(conn, r, 403)
+		return
+	}
+	body, e := postJSON(conn, r, 1024)
+	if e != nil {
+		editError(conn, r, e)
+		return
+	}
+	id, valid := body["id"].(string)
+	if len(body) != 1 || !onlyKeys(body, "id") || !valid || !reviewID.MatchString(id) {
+		editError(conn, r, reviewInvalid())
+		return
+	}
+	id = strings.ToLower(id)
+	entry, owner, e := s.reviews.beginLaunch(id, requestDocument(r), time.Now())
+	if e != nil {
+		editError(conn, r, e)
+		return
+	}
+	if owner {
+		// タブを閉じても起動の途中で止めない。期限は要求の取り消しから切り離す。
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 40*time.Second)
+		defer cancel()
+		err := s.opts.Launch(ctx, entry.Document.Root)
+		s.reviews.finishLaunch(id, err)
+		if err != nil {
+			code := "launch"
+			if errors.Is(err, vscode.ErrNotFound) {
+				code = "notfound"
+			}
+			editError(conn, r, &edit.Error{Status: 503, Code: code, Message: vscode.Message(err)})
+			return
+		}
+	}
+	result := map[string]any{"launched": true}
+	if !owner {
+		result["again"] = true
+	}
+	editJSON(conn, r, 200, result)
+}
+
+func (p *reviewPreparations) beginLaunch(id string, doc *string, now time.Time) (preparedReview, bool, *edit.Error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.expire(now)
+	entry, ok := p.entries[id]
+	if !ok {
+		return entry, false, &edit.Error{Status: 404, Code: "expired", Message: "依頼文の期限が切れました。もう一度「依頼文を作る」を押してください。"}
+	}
+	key := reviewKey(doc)
+	if entry.Doc != key {
+		return entry, false, &edit.Error{Status: 409, Code: "changed", Message: "依頼文の文書が違います。もう一度「依頼文を作る」を押してください。"}
+	}
+	if entry.Launched {
+		return entry, false, nil
+	}
+	// 先の起動がまだ終わっていない。終わる前に「開いた」とは返さない。
+	if entry.Launching {
+		return entry, false, &edit.Error{Status: 409, Code: "launching", Message: "Agents Window を開いています。少し待ってから、もう一度押してください。"}
+	}
+	entry.Launching = true
+	p.entries[id] = entry
+	return entry, true, nil
+}
+
+func (p *reviewPreparations) finishLaunch(id string, err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if entry, ok := p.entries[id]; ok {
+		entry.Launched = err == nil
+		entry.Launching = false
+		p.entries[id] = entry
+	}
+}
+
+func reviewKey(doc *string) reviewDocumentKey {
+	key := reviewDocumentKey{Current: doc == nil}
+	if doc != nil {
+		key.Path = *doc
+	}
+	return key
 }
 
 type reviewPreparations struct {
@@ -247,10 +339,7 @@ func (p *reviewPreparations) add(doc *string, document edit.ReviewDocument, prom
 		}
 		delete(p.entries, oldest)
 	}
-	key := reviewDocumentKey{Current: doc == nil}
-	if doc != nil {
-		key.Path = *doc
-	}
+	key := reviewKey(doc)
 	sum := sha256.Sum256([]byte(prompt))
 	for {
 		var bytes [16]byte

@@ -51,7 +51,8 @@
   promptInput.setAttribute('aria-label', '依頼文');
   promptInput.readOnly = true;
   promptInput.rows = 10;
-  const copy = button('gp-review-copy', output, 'コピー', copyPrompt);
+  const launch = button('gp-review-launch', output, 'コピーして Agents Window を開く', () => copyPrompt(true));
+  const copy = button('gp-review-copy', output, 'コピー', () => copyPrompt());
   const bytes = make('span', 'gp-review-bytes', output);
   const status = make('div', 'gp-review-status', document.body);
   status.setAttribute('role', 'status');
@@ -177,7 +178,7 @@
     add.title = reason;
     prepare.disabled = locked() || !preview.current()?.render || !comments.some((item) => item.state === 'pending');
     clearCopied.disabled = locked() || !comments.some((item) => item.state === 'copied');
-    copy.disabled = locked() || !prepared;
+    copy.disabled = launch.disabled = locked() || !prepared;
     output.hidden = !prepared;
     cards.replaceChildren();
     for (const item of comments) {
@@ -486,9 +487,10 @@
         save();
         throw new Error(message);
       }
-      if (typeof data.prompt !== 'string' || !integer(data.bytes)) throw new Error('依頼文の応答の形が正しくありません');
+      if (typeof data.prompt !== 'string' || !integer(data.bytes) || typeof data.id !== 'string' || !/^[0-9a-f]{32}$/.test(data.id))
+        throw new Error('依頼文の応答の形が正しくありません');
       for (const item of sent) { item.stale = false; item.error = ''; }
-      prepared = { prompt: data.prompt, render, sent: sent.map((item) => ({ id: item.id, signature: signature(item) })) };
+      prepared = { id: data.id, prompt: data.prompt, render, sent: sent.map((item) => ({ id: item.id, signature: signature(item) })) };
       promptInput.value = data.prompt;
       bytes.textContent = data.bytes.toLocaleString('ja-JP') + ' バイト';
       save();
@@ -499,11 +501,13 @@
       if (number === prepareNumber) { preparing = null; draw(); }
     }
   }
-  async function copyPrompt() {
+  async function copyPrompt(openAgents = false) {
     if (locked() || !prepared) return;
     const snapshot = prepared;
     copying = true;
     draw();
+    let copied = false;
+    let launchFailure = 'Agents Window を開けませんでした。';
     try {
       // 利用者のクリックの中で直接呼ぶ。許可を別の操作へ持ち越さない。
       await navigator.clipboard.writeText(snapshot.prompt);
@@ -513,9 +517,35 @@
         if (item) item.state = 'copied';
       }
       save();
+      copied = true;
+      draw();
+      if (openAgents) {
+        notice('依頼文をコピーしました。Agents Window を開いています。');
+        const response = await fetch(url('launch'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: snapshot.id }) });
+        const data = await response.json();
+        // 起動を待つ間に描き直されて依頼文の欄が閉じても、コピーと起動の結果は知らせる。
+        if (stopped) return;
+        if (!response.ok) {
+          launchFailure = messageOf(data) || launchFailure;
+          throw new Error(launchFailure);
+        }
+        if (data.launched !== true) {
+          launchFailure = '起動の応答の形が正しくありません。';
+          throw new Error(launchFailure);
+        }
+        notice(data.again ? 'Agents Window はもう開いています。貼り付けて送ってください。' :
+          '依頼文をコピーし、Agents Window を開きました。Copilot か Claude のセッションで作業場所を Branch にし、貼り付けて送ってください。');
+        return;
+      }
       notice('依頼文をコピーしました。');
     } catch {
-      if (prepared !== snapshot || stopped) return;
+      if (stopped) return;
+      if (copied) {
+        notice(launchFailure + ' 依頼文はコピーしました。');
+        return;
+      }
+      if (prepared !== snapshot) return;
       promptInput.focus();
       promptInput.select();
       notice('コピーできませんでした。依頼文を選んだので、Ctrl+C でコピーしてください。');

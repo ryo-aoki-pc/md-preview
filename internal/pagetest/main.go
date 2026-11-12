@@ -21,6 +21,7 @@ import (
 	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
 	"github.com/ryo-aoki-pc/md-tools/internal/server"
 	"github.com/ryo-aoki-pc/md-tools/internal/session"
+	"github.com/ryo-aoki-pc/md-tools/internal/vscode"
 )
 
 type request struct {
@@ -30,6 +31,7 @@ type request struct {
 	Live       bool             `json:"live"`
 	Edit       string           `json:"edit"`
 	Review     bool             `json:"review"`
+	LaunchFail bool             `json:"launchFail"`
 	Jump       bool             `json:"jump"`
 	Directory  bool             `json:"directory"`
 	Plantuml   bool             `json:"plantuml"`
@@ -43,7 +45,7 @@ type request struct {
 	Reason     string           `json:"reason"`
 }
 
-// ジャンプは HTTP の goroutine からも届くので、JSON の行が混ざらないようにする。
+// ジャンプと偽の起動は HTTP の goroutine からも届くので、JSON の行が混ざらないようにする。
 type output struct {
 	mu      sync.Mutex
 	encoder *json.Encoder
@@ -191,6 +193,15 @@ func (a *application) start(r request, out *output) error {
 	}
 	if r.Review {
 		opts.Review = edit.New(edit.Options{Host: a.live, Mode: edit.File})
+		opts.Launch = func(_ context.Context, root string) error {
+			if err := out.send(map[string]any{"type": "launch", "root": root}); err != nil {
+				return err
+			}
+			if r.LaunchFail {
+				return vscode.ErrNotFound
+			}
+			return nil
+		}
 	}
 	if r.Jump {
 		opts.OnJump = func(line int64) { _ = out.send(map[string]any{"type": "jump", "line": line}) }
@@ -271,7 +282,7 @@ func run(input io.Reader, stdout io.Writer) error {
 			}
 			err = app.server.Broadcast(r.Name, r.Data)
 		case r.Op == "sync":
-			// この行より前に標準出力へ出たジャンプも、応答までに試験側で受け取れる。
+			// この行より前に標準出力へ出たジャンプと偽の起動も、応答までに試験側で受け取れる。
 		case r.Op == "close":
 			app.close(r.Reason)
 			if err := out.send(response); err != nil {

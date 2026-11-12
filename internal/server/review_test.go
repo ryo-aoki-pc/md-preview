@@ -1,20 +1,29 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"os"
 	"reflect"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ryo-aoki-pc/md-tools/internal/edit"
+	"github.com/ryo-aoki-pc/md-tools/internal/vscode"
 )
 
 type testReviewer struct {
@@ -179,7 +188,7 @@ func TestReviewRoutes(t *testing.T) {
 			t.Fatal(r)
 		}
 	}
-	// コメントの口は 3 つだけ。似た名前のほかの経路は、ふつうの 404 にする。
+	// 似た名前のほかの経路は、ふつうの 404 にする。
 	for _, route := range []string{"_/review/unknown", "docs/_/review/prepare.md"} {
 		if r := request(t, s, "GET", route, "", nil); r.status != 404 || strings.Contains(r.body, "error") {
 			t.Fatal(route, r)
@@ -374,5 +383,299 @@ func TestReviewPreparationRetention(t *testing.T) {
 	wg.Wait()
 	if len(p.entries) != 32 {
 		t.Fatal("並行の保存で上限が変わった", len(p.entries))
+	}
+}
+
+func prepareLaunch(t *testing.T, s *Server, query string) string {
+	t.Helper()
+	r := request(t, s, "POST", "_/review/prepare"+query, reviewBody, reviewHeaders(s))
+	var value struct{ ID string }
+	if r.status != 200 || json.Unmarshal([]byte(r.body), &value) != nil || value.ID == "" {
+		t.Fatal("起動の試験用の依頼文を作れません", r)
+	}
+	return value.ID
+}
+
+func TestReviewLaunch(t *testing.T) {
+	var calls atomic.Int32
+	s, _, _ := fixture(t, func(o *Options) {
+		o.Review = &testReviewer{}
+		o.Launch = func(ctx context.Context, root string) error {
+			calls.Add(1)
+			if root != "/private-root" {
+				t.Errorf("prepare のルートと違います: %q", root)
+			}
+			deadline, ok := ctx.Deadline()
+			if !ok || time.Until(deadline) > 40*time.Second || time.Until(deadline) < 39*time.Second {
+				t.Errorf("起動の期限が40秒ではありません: %v", deadline)
+			}
+			return nil
+		}
+	})
+	id := prepareLaunch(t, s, "?doc=docs/main.md")
+	body := fmt.Sprintf(`{"id":%q}`, id)
+	for i := 0; i < 2; i++ {
+		headers := reviewHeaders(s)
+		if i == 0 {
+			headers["Sec-Fetch-Site"] = "same-origin"
+			body = fmt.Sprintf(`{"id":%q}`, strings.ToUpper(id))
+		} else {
+			body = fmt.Sprintf(`{"id":%q}`, id)
+		}
+		r := request(t, s, "POST", "_/review/launch?doc=docs/main.md", body, headers)
+		want := `{"launched":true}`
+		if i == 1 {
+			want = `{"again":true,"launched":true}`
+		}
+		if r.status != 200 || r.body != want || calls.Load() != 1 {
+			t.Fatal(r, calls.Load())
+		}
+		protected(t, r)
+		if r.header.Get("Cache-Control") != "no-store" {
+			t.Fatal(r.header)
+		}
+	}
+	entry, ok := s.reviews.get(id, time.Now())
+	if !ok || !entry.Launched || entry.Launching {
+		t.Fatal(entry, ok)
+	}
+	for _, method := range []string{"GET", "HEAD", "PUT"} {
+		r := request(t, s, method, "_/review/launch", "", nil)
+		want := 404
+		if method == "PUT" {
+			want = 405
+			if r.header.Get("Allow") != "GET, HEAD, POST" {
+				t.Fatal(r)
+			}
+		}
+		if r.status != want || calls.Load() != 1 {
+			t.Fatal(r, calls.Load())
+		}
+	}
+}
+
+func TestReviewLaunchConcurrent(t *testing.T) {
+	var calls atomic.Int32
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	s, _, _ := fixture(t, func(o *Options) {
+		o.Review = &testReviewer{}
+		o.Launch = func(context.Context, string) error {
+			if calls.Add(1) == 1 {
+				close(started)
+			}
+			<-release
+			return nil
+		}
+	})
+	id := prepareLaunch(t, s, "")
+	results := make(chan response, 2)
+	launch := func() {
+		results <- request(t, s, "POST", "_/review/launch", fmt.Sprintf(`{"id":%q}`, id), reviewHeaders(s))
+	}
+	go launch()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("起動の要求が届きません")
+	}
+	entry, ok := s.reviews.get(id, time.Now())
+	if !ok || !entry.Launching || entry.Launched {
+		t.Fatal("起動中の印がありません", entry)
+	}
+	go launch()
+	// 起動中の2回目は、先の起動を待たずに「開いています」として返し、開いたことにはしない。
+	select {
+	case r := <-results:
+		if r.status != 409 || !strings.Contains(r.body, `"code":"launching"`) || calls.Load() != 1 {
+			t.Fatal(r, calls.Load())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("起動中の2回目の要求が返りません")
+	}
+	once.Do(func() { close(release) })
+	select {
+	case r := <-results:
+		if r.status != 200 || r.body != `{"launched":true}` || calls.Load() != 1 {
+			t.Fatal(r, calls.Load())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("最初の起動要求が終わりません")
+	}
+	// 起動が済んだ後の要求は、起こし直さずに「もう開いている」と返す。
+	if r := request(t, s, "POST", "_/review/launch", fmt.Sprintf(`{"id":%q}`, id), reviewHeaders(s)); r.status != 200 || r.body != `{"again":true,"launched":true}` || calls.Load() != 1 {
+		t.Fatal(r, calls.Load())
+	}
+}
+
+func TestReviewLaunchInputAndGuards(t *testing.T) {
+	var calls atomic.Int32
+	s, _, _ := fixture(t, func(o *Options) {
+		o.Review = &testReviewer{}
+		o.Launch = func(context.Context, string) error { calls.Add(1); return nil }
+	})
+	id := prepareLaunch(t, s, "")
+	valid := fmt.Sprintf(`{"id":%q}`, id)
+	for _, tc := range []struct {
+		name, body, query, code string
+		headers                 map[string]string
+		status                  int
+	}{
+		{name: "知らない ID", body: `{"id":"ffffffffffffffffffffffffffffffff"}`, code: "expired", status: 404},
+		{name: "空の ID", body: `{"id":""}`, code: "invalid", status: 400},
+		{name: "ID が無い", body: `{}`, code: "invalid", status: 400},
+		{name: "短い ID", body: `{"id":"abc"}`, code: "invalid", status: 400},
+		{name: "16進以外", body: `{"id":"gggggggggggggggggggggggggggggggg"}`, code: "invalid", status: 400},
+		{name: "ID の型", body: `{"id":1}`, code: "invalid", status: 400},
+		{name: "null の ID", body: `{"id":null}`, code: "invalid", status: 400},
+		{name: "JSON の型", body: `[]`, code: "invalid", status: 400},
+		{name: "余分な項目", body: valid[:len(valid)-1] + `,"root":"/other"}`, code: "invalid", status: 400},
+		{name: "余分な JSON", body: valid + `{}`, code: "invalid", status: 400},
+		{name: "空の文書と編集中は別", body: valid, query: "?doc=", code: "changed", status: 409},
+		{name: "別の文書", body: valid, query: "?doc=other.md", code: "changed", status: 409},
+		{name: "Origin なし", body: valid, headers: map[string]string{"Origin": ""}, code: "forbidden", status: 403},
+		{name: "別の Origin", body: valid, headers: map[string]string{"Origin": "http://example.invalid"}, code: "forbidden", status: 403},
+		{name: "同じサイト", body: valid, headers: map[string]string{"Sec-Fetch-Site": "same-site"}, code: "forbidden", status: 403},
+		{name: "別のサイト", body: valid, headers: map[string]string{"Sec-Fetch-Site": "cross-site"}, code: "forbidden", status: 403},
+		{name: "直接の要求", body: valid, headers: map[string]string{"Sec-Fetch-Site": "none"}, code: "forbidden", status: 403},
+		{name: "別の Host", body: valid, headers: map[string]string{"Host": "example.invalid"}, code: "forbidden", status: 403},
+		{name: "JSON 以外", body: valid, headers: map[string]string{"Content-Type": "text/plain"}, code: "media", status: 415},
+		{name: "本文の上限", body: strings.Repeat(" ", 1025), code: "large", status: 413},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := reviewHeaders(s)
+			for key, value := range tc.headers {
+				headers[key] = value
+			}
+			r := request(t, s, "POST", "_/review/launch"+tc.query, tc.body, headers)
+			if r.status != tc.status || !strings.Contains(r.body, `"code":"`+tc.code+`"`) || calls.Load() != 0 {
+				t.Fatal(r, calls.Load())
+			}
+		})
+	}
+	// ファイル文書で作った ID は、編集中の文書にも別のファイルにも使えない。
+	fileID := prepareLaunch(t, s, "?doc=docs/main.md")
+	for _, query := range []string{"", "?doc=", "?doc=other.md"} {
+		if r := request(t, s, "POST", "_/review/launch"+query, fmt.Sprintf(`{"id":%q}`, fileID), reviewHeaders(s)); r.status != 409 {
+			t.Fatal(r)
+		}
+	}
+	wrong := strings.Repeat("f", 32)
+	if wrong == s.Token {
+		wrong = strings.Repeat("e", 32)
+	}
+	body := fmt.Sprintf(`{"id":%q}`, fileID)
+	r := raw(t, s, fmt.Sprintf("POST /%s/_/review/launch?doc=docs/main.md HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nOrigin: http://127.0.0.1:%d\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s", wrong, s.Port, s.Port, len(body), body), "POST")
+	if r.status != 405 || calls.Load() != 0 {
+		t.Fatal("token の違う要求で起動しました", r, calls.Load())
+	}
+	s.reviews.mu.Lock()
+	entry := s.reviews.entries[id]
+	entry.Created = time.Now().Add(-10 * time.Minute)
+	s.reviews.entries[id] = entry
+	s.reviews.mu.Unlock()
+	r = request(t, s, "POST", "_/review/launch", valid, reviewHeaders(s))
+	if r.status != 404 || !strings.Contains(r.body, `"code":"expired"`) || !strings.Contains(r.body, "もう一度「依頼文を作る」を押してください。") || calls.Load() != 0 {
+		t.Fatal(r, calls.Load())
+	}
+	for _, chunked := range []bool{false, true} {
+		extra, body := "Content-Length: 1025\r\n", ""
+		if chunked {
+			extra, body = "Transfer-Encoding: chunked\r\n", "401\r\n"+strings.Repeat(" ", 1025)+"\r\n0\r\n\r\n"
+		}
+		r := raw(t, s, fmt.Sprintf("POST /%s/_/review/launch HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nOrigin: http://127.0.0.1:%d\r\nContent-Type: application/json\r\n%s\r\n%s", s.Token, s.Port, s.Port, extra, body), "POST")
+		if r.status != 413 {
+			t.Fatal(r)
+		}
+	}
+}
+
+func TestReviewLaunchUnavailable(t *testing.T) {
+	for _, review := range []bool{false, true} {
+		s, _, _ := fixture(t, func(o *Options) {
+			if review {
+				o.Review = &testReviewer{}
+			} else {
+				o.Launch = func(context.Context, string) error { t.Error("コメントなしで起動しました"); return nil }
+			}
+		})
+		for _, method := range []string{"GET", "HEAD", "POST", "PUT"} {
+			r := request(t, s, method, "_/review/launch", `{}`, reviewHeaders(s))
+			want := 404
+			if method == "POST" || method == "PUT" {
+				want = 405
+				if r.header.Get("Allow") != "GET, HEAD" {
+					t.Fatal(r)
+				}
+			}
+			if r.status != want {
+				t.Fatal(r)
+			}
+		}
+	}
+}
+
+func TestReviewLaunchRetryAndPrivateErrors(t *testing.T) {
+	for _, failure := range []error{vscode.ErrNotFound, errors.New("試験用の失敗 /private-root"), &os.PathError{Op: "open", Path: `C:\private\Code.exe`, Err: os.ErrPermission}} {
+		var calls atomic.Int32
+		s, _, _ := fixture(t, func(o *Options) {
+			o.Review = &testReviewer{}
+			o.Launch = func(context.Context, string) error {
+				if calls.Add(1) == 1 {
+					return failure
+				}
+				return nil
+			}
+		})
+		id := prepareLaunch(t, s, "")
+		body := fmt.Sprintf(`{"id":%q}`, id)
+		r := request(t, s, "POST", "_/review/launch", body, reviewHeaders(s))
+		code := "launch"
+		if errors.Is(failure, vscode.ErrNotFound) {
+			code = "notfound"
+		}
+		if r.status != 503 || !strings.Contains(r.body, `"code":"`+code+`"`) || !strings.Contains(r.body, vscode.Message(failure)) || strings.Contains(r.body, "/private-root") || strings.Contains(r.body, "private") || strings.Contains(r.body, s.Token) {
+			t.Fatal(r)
+		}
+		entry, ok := s.reviews.get(id, time.Now())
+		if !ok || entry.Launched || entry.Launching {
+			t.Fatal("失敗後も起動中の印が残りました", entry)
+		}
+		if r = request(t, s, "POST", "_/review/launch", body, reviewHeaders(s)); r.status != 200 || r.body != `{"launched":true}` || calls.Load() != 2 {
+			t.Fatal("同じ ID で再試行できません", r, calls.Load())
+		}
+	}
+}
+
+func TestReviewLaunchDetachedContext(t *testing.T) {
+	type key struct{}
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), key{}, "要求の値"))
+	cancel()
+	s, _, _ := fixture(t, func(o *Options) {
+		o.Review = &testReviewer{}
+		o.Launch = func(ctx context.Context, _ string) error {
+			if ctx.Err() != nil || ctx.Value(key{}) != "要求の値" {
+				t.Error("起動が要求の取り消しから切り離されていません", ctx.Err())
+			}
+			return nil
+		}
+	})
+	id := prepareLaunch(t, s, "")
+	r := httptest.NewRequest("POST", s.URL+"_/review/launch", strings.NewReader(fmt.Sprintf(`{"id":%q}`, id))).WithContext(ctx)
+	r.Header.Set("Origin", "http://"+r.Host)
+	r.Header.Set("Content-Type", "application/json")
+	client, conn := net.Pipe()
+	defer client.Close()
+	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
+	go func() { defer conn.Close(); s.launchReview(conn, r) }()
+	response, err := http.ReadResponse(bufio.NewReader(client), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || response.StatusCode != 200 || string(body) != `{"launched":true}` {
+		t.Fatal(response.StatusCode, string(body), err)
 	}
 }
