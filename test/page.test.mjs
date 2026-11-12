@@ -204,12 +204,12 @@ async function fixturePage(
   browser,
   render = payload('<h1>見出し</h1><p>本文</p>'),
   prepareRoot = () => {},
-  { jump = false, live = false, directory = false, edit = '' } = {},
+  { jump = false, live = false, directory = false, edit = '', plantuml = false, beforeNavigate, waitUntil = 'load' } = {},
 ) {
   const root = temp(t);
   prepareRoot(root);
   const jumpRequests = [];
-  const server = await startGoPageServer(t, { root, live, jump, directory, edit, render });
+  const server = await startGoPageServer(t, { root, live, jump, directory, edit, plantuml, render });
   const jumps = server.jumps;
   if (live && !directory)
     await server.setDocument({
@@ -258,7 +258,8 @@ async function fixturePage(
     assert.deepEqual(blocked, [], 'CSP 違反もない');
     assert.deepEqual(blockedAcrossPages, [], '文書を移動する前の CSP 違反もない');
   });
-  await page.goto(server.url);
+  if (beforeNavigate) await beforeNavigate(page);
+  await page.goto(server.url, { waitUntil });
   await page.waitForFunction(() => document.querySelector('#gp-content').textContent !== '読み込み中…');
   await page.waitForSelector('#gp-fallback-style', { state: 'attached' });
   return {
@@ -1734,7 +1735,7 @@ test('ブロックの原文とタスクを画面で編集し、ファイルの�
     await page.keyboard.press('Escape');
   });
 
-  await t.test('include と front matter は原文取得の理由を知らせ、目次・数式と図は開かない', async (t) => {
+  await t.test('include と front matter は原文取得の理由を知らせ、目次は開かない', async (t) => {
     const original = '---\na: b\n---\n\n[TOC]\n\n> [TOC]\n\n# 題\n\n本文[^a]\n\n[^a]: 脚注\n\n$`x`$\n\n```mermaid\ngraph TD; A-->B\n```\n\n::include{file=part.md}\n';
     const fixture = await fixturePage(t, browser, undefined, (root) => {
       writeFileSync(join(root, 'README.md'), original);
@@ -1756,7 +1757,7 @@ test('ブロックの原文とタスクを画面で編集し、ファイルの�
     }
     const sources = [];
     page.on('request', (r) => { if (r.url().includes('/_/edit/source?')) sources.push(r.url()); });
-    for (const selector of ['.gp-math-inline', '.gp-mermaid', 'ul.section-nav', 'blockquote ul.section-nav a']) {
+    for (const selector of ['ul.section-nav', 'blockquote ul.section-nav a']) {
       const block = page.locator('#gp-content ' + selector).first();
       if (await block.count()) await block.dispatchEvent('dblclick');
     }
@@ -3537,5 +3538,214 @@ test('ローカルのプレビューページ', { skip, timeout: 90000 }, async 
     await page.waitForFunction(() =>
       document.querySelector('#gp-content').textContent.includes('保存し直した取り込み'),
     );
+  });
+});
+
+
+test('数式と図の原文を編集し、描き直しと編集の枠を確かめる', { skip }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const open = async (page, selector, source, tag) => {
+    const response = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/_/edit/source'));
+    await page.locator(selector).dblclick();
+    const result = await response;
+    assert.equal(result.status(), 200);
+    const target = new URL(result.url()).searchParams;
+    assert.equal(target.get('tag'), tag);
+    await page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), source);
+    return { tag, range: target.get('range') };
+  };
+  const commit = async (page, source) => {
+    await page.locator('#gp-edit-input').fill(source);
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.keyboard.press('Control+Enter');
+    assert.equal((await response).status(), 200);
+    await editIdle(page);
+  };
+  const hover = async (page, selector, expected) => {
+    await page.locator(selector).hover();
+    assert.equal(await page.evaluate((expected) => {
+      const style = document.querySelector('#gp-edit-hover');
+      const rule = style.sheet.cssRules[0];
+      return style.sheet.cssRules.length === 1 && /^#gp-content(?: > :nth-child\([1-9][0-9]*\))+$/.test(rule.selectorText) &&
+        document.querySelector(rule.selectorText) === document.querySelector(expected) &&
+        getComputedStyle(document.querySelector(expected)).outlineStyle === 'dashed';
+    }, expected), true, '載せた位置から開く対象にだけ枠を出す');
+  };
+
+  for (const c of [
+    { name: '囲みの数式', source: '```math\nb^2\n```', changed: '```math\nc^3\n```', selector: '.gp-math-display', tag: 'pre', math: 'c^3' },
+    { name: 'ドルの数式', source: '$$\na^2\n$$', changed: '$$\nc^3\n$$', selector: '.gp-math-display', tag: 'p', math: 'c^3' },
+    { name: 'mermaid', source: '```mermaid\ngraph TD; A-->B\n```', changed: '```mermaid\ngraph TD; A-->C\n```', selector: '.gp-mermaid', tag: 'pre' },
+  ]) {
+    for (const ending of ['\n', '\r\n']) await t.test(c.name + JSON.stringify(ending), async (t) => {
+      const original = ('前\n\n' + c.source + '\n\n後\n').replaceAll('\n', ending);
+      const { page, file, jumps } = await editablePage(t, browser, original, { jump: true });
+      await page.waitForSelector(c.math ? '.gp-math-display .katex' : '.gp-mermaid svg');
+      const before = await page.locator('#gp-content').innerHTML();
+      await hover(page, c.selector, c.tag === 'p' ? '#gp-content > p:nth-child(2)' : c.selector);
+      const target = await open(page, c.selector, c.source, c.tag);
+      assert.deepEqual(target, { tag: c.tag, range: c.math && c.tag === 'p' ? '3:1-5:2' : '3:1-5:3' });
+      assert.deepEqual(await page.evaluate((target) => {
+        const live = window.gpPreview.findSource(target.tag, target.range);
+        const source = window.gpPreview.sourceOf(live);
+        source.tag = '書き換えても写しに届かない';
+        return window.gpPreview.sourceOf(live);
+      }, target), target);
+      await page.keyboard.press('Escape');
+      assert.equal(await page.locator('#gp-content').innerHTML(), before, '本文の DOM に編集用の属性やクラスを足さない');
+      await open(page, c.selector, c.source, c.tag);
+      await commit(page, c.changed);
+      // 置き換える文字に $$ があるので、関数で渡す（文字列のままだと $$ が $ 1 個になる）。
+      assert.equal(readFileSync(file, 'utf8'), original.replace(c.source.replaceAll('\n', ending), () => c.changed.replaceAll('\n', ending)));
+      if (c.math) await page.waitForFunction((math) => document.querySelector('.gp-math-display annotation')?.textContent.trim() === math, c.math);
+      else await page.waitForFunction(() => document.querySelector('.gp-mermaid svg')?.textContent.includes('C'));
+      await page.locator('#gp-edit-toggle').click();
+      assert.equal(await page.locator('#gp-edit-hover').textContent(), '');
+      assert.deepEqual(jumps, [], '編集モードから Neovim の行へ移らない');
+    });
+  }
+
+  await t.test('ライブラリを読む前の数式と図も囲みから編集し、読み込み後も入力欄を保つ', async (t) => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    t.after(() => release());
+    const sources = ['```math\nb^2\n```', '$$\na^2\n$$', '```mermaid\ngraph TD; A-->B\n```'];
+    const original = sources.join('\n\n') + '\n';
+    const { page, file } = await editablePage(t, browser, original, {
+      waitUntil: 'domcontentloaded',
+      beforeNavigate: (page) => page.route(/\/_\/lib\/(?:katex|mermaid)\/.*\.js$/, async (route) => { await held; await route.continue(); }),
+    });
+    assert.equal(await page.locator('.gp-math-display, .gp-mermaid').count(), 0);
+    for (const [i, selector, tag] of [[0, 'pre.js-render-math', 'pre'], [1, 'p:has(.js-render-math)', 'p'], [2, 'pre[data-canonical-lang="mermaid"]', 'pre']]) {
+      await open(page, '#gp-content ' + selector, sources[i], tag);
+      if (i < 2) await page.keyboard.press('Escape');
+    }
+    const changed = sources[2].replace('B', 'C');
+    await page.locator('#gp-edit-input').fill(changed);
+    release();
+    await page.waitForSelector('.gp-math-display .katex');
+    await page.waitForSelector('.gp-mermaid svg');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), changed);
+    await commit(page, changed);
+    assert.equal(readFileSync(file, 'utf8'), original.replace(sources[2], changed));
+  });
+
+  await t.test('行の中の数式は段落を開く', async (t) => {
+    const original = '前 $x$ と $`y`$ の続き\n';
+    const { page } = await editablePage(t, browser, original);
+    await page.waitForSelector('.gp-math-inline .katex');
+    await hover(page, '.gp-math-inline >> nth=0', '#gp-content > p');
+    await open(page, '.gp-math-inline >> nth=0', original.trimEnd(), 'p');
+    await page.keyboard.press('Escape');
+  });
+
+  await t.test('位置を持たない要素（details の題など）は、中の段落へ読み替えない', async (t) => {
+    const original = '前\n\n<details>\n<summary>題</summary>\n\n中の段落\n\n</details>\n\n後\n';
+    const { page, file } = await editablePage(t, browser, original);
+    const sources = [];
+    page.on('request', (r) => { if (r.url().includes('/_/edit/source?')) sources.push(r.url()); });
+    await page.locator('#gp-content summary').hover();
+    assert.equal(await page.locator('#gp-edit-hover').textContent(), '', '題には枠を出さない');
+    await page.locator('#gp-content summary').dblclick();
+    await page.waitForTimeout(300);
+    assert.deepEqual(sources, [], '題のダブルクリックで原文を取りに行かない');
+    assert.equal(await page.locator('#gp-edit-input').isVisible(), false);
+    await page.evaluate(() => { document.querySelector('#gp-content details').open = true; });
+    await hover(page, '#gp-content details p', '#gp-content details p');
+    await open(page, '#gp-content details p', '中の段落', 'p');
+    await page.keyboard.press('Escape');
+    assert.equal(readFileSync(file, 'utf8'), original);
+  });
+
+  await t.test('mermaid の失敗表示から原文を直して図へ戻す', async (t) => {
+    const source = '```mermaid\n図ではない原文\n```';
+    const { page, file } = await editablePage(t, browser, source + '\n');
+    await page.waitForSelector('#gp-content > .gp-error');
+    await hover(page, '#gp-content > .gp-error', '#gp-content > .gp-error');
+    await open(page, '#gp-content > .gp-error', source, 'pre');
+    const changed = '```mermaid\ngraph TD; A-->B\n```';
+    await commit(page, changed);
+    await page.waitForSelector('.gp-mermaid svg');
+    assert.equal(readFileSync(file, 'utf8'), changed + '\n');
+  });
+
+  for (const failed of [false, true]) await t.test('PlantUML の' + (failed ? '失敗表示' : '画像') + 'から囲みを直す', async (t) => {
+    const source = '```plantuml\n' + (failed ? 'plain 日本語' : 'A -> B') + '\n```';
+    const { page, file, jumps } = await editablePage(t, browser, source + '\n', { plantuml: true, jump: true });
+    const selector = failed ? '.gp-plantuml-error' : 'img.gp-plantuml';
+    await page.waitForSelector(selector);
+    if (!failed) await page.waitForFunction(() => document.querySelector('img.gp-plantuml')?.naturalWidth > 0);
+    const opened = [];
+    page.context().on('page', (other) => opened.push(other));
+    await hover(page, failed ? '.gp-plantuml-error pre' : selector, selector);
+    await open(page, selector, source, 'img');
+    assert.deepEqual(opened, [], '編集モードでは SVG のリンクを開かない');
+    const changed = '```plantuml\nA -> C\n```';
+    await commit(page, changed);
+    await page.waitForFunction(() => document.querySelector('img.gp-plantuml')?.naturalWidth > 0);
+    assert.equal(await page.locator('#gp-content svg').count(), 0);
+    assert.equal(readFileSync(file, 'utf8'), changed + '\n');
+    assert.deepEqual(jumps, []);
+  });
+
+  await t.test('mermaid の編集中に配色を切り替えても入力と位置を保ち、消えた図は下書きへ戻す', async (t) => {
+    const source = '```mermaid\ngraph TD; A-->B\n```';
+    const original = '前\n\n' + source + '\n';
+    const { page, file, server } = await editablePage(t, browser, original);
+    await page.waitForSelector('.gp-mermaid svg');
+    await open(page, '.gp-mermaid', source, 'pre');
+    const draft = source.replace('B', 'C');
+    await page.locator('#gp-edit-input').fill(draft);
+    await page.evaluate(() => { window.oldEditDiagram = document.querySelector('.gp-mermaid'); });
+    await page.locator('#gp-theme').click();
+    await page.selectOption('#gp-theme', 'dark');
+    await page.waitForFunction(() => window.oldEditDiagram !== document.querySelector('.gp-mermaid'));
+    await page.waitForFunction(() => {
+      const input = document.querySelector('#gp-edit-input').getBoundingClientRect();
+      const figure = document.querySelector('.gp-mermaid').getBoundingClientRect();
+      return Math.abs(input.top - figure.top) < 1 && Math.abs(input.left - figure.left) < 1;
+    });
+    assert.equal(await page.locator('#gp-edit-layer').getAttribute('data-typing'), 'on');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), draft);
+    assert.equal(readFileSync(file, 'utf8'), original);
+    writeFileSync(file, '図を外した文書\n');
+    await server.setDocument({ path: file, text: '図を外した文書\n', rev: 20 });
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').hidden);
+    writeFileSync(file, original);
+    await server.setDocument({ path: file, text: original, rev: 21 });
+    await page.waitForSelector('.gp-mermaid svg');
+    await editIdle(page);
+    await page.locator('.gp-mermaid').dblclick();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), draft);
+    await page.keyboard.press('Escape');
+  });
+
+  await t.test('図から外側へ移った入力欄と別に、項目と注記の題名には開く対象の枠を出す', async (t) => {
+    const original = '- item\n\n  ```mermaid\n  graph TD; A-->B\n  ```\n- next\n\n>>> [!note] 題名\n本文\n>>>\n';
+    const { page } = await editablePage(t, browser, original);
+    await page.waitForSelector('.gp-mermaid svg');
+    const before = await page.locator('#gp-content').innerHTML();
+    // 空行のあるリストなので、項目の文字は段落に入る。載せた所のいちばん内側（段落）に枠が出る。
+    await hover(page, '#gp-content > ul > li:last-child > p', '#gp-content > ul > li:last-child > p');
+    await hover(page, '.markdown-alert-title', '.markdown-alert');
+    await hover(page, '.gp-mermaid svg', '.gp-mermaid');
+    await open(page, '.gp-mermaid', '```mermaid\n  graph TD; A-->B\n  ```', 'pre');
+    await page.keyboard.press('Alt+ArrowUp');
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value.startsWith('- item'));
+    // 入力欄は層にある。本文の図へ pointerover を送っても、外側でなく内側を選ぶ。
+    await page.locator('.gp-mermaid svg').dispatchEvent('pointerover');
+    assert.equal(await page.evaluate(() => {
+      const rule = document.querySelector('#gp-edit-hover').sheet.cssRules[0];
+      return document.querySelector(rule.selectorText) === document.querySelector('.gp-mermaid');
+    }), true);
+    await page.keyboard.press('Alt+ArrowDown');
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value.startsWith('```mermaid'));
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#gp-content').innerHTML(), before);
+    await page.locator('#gp-header').hover();
+    assert.equal(await page.locator('#gp-edit-hover').textContent(), '');
   });
 });

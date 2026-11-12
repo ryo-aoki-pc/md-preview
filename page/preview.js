@@ -525,6 +525,7 @@
 
   // 写しは数式・図・表の操作が変更する前の木。画面との対応だけを別に持つ。
   let shadow = null;
+  let sourceIndex = null;
   let liveOf = new WeakMap();
   let shadowOf = new WeakMap();
   let replaced = new WeakSet();
@@ -755,8 +756,40 @@
     });
   }
 
+  // 写しの節点は外へ渡さず、編集対象を公開の要素名と位置だけで照合する。
+  function sourceOf(element) {
+    for (let live = element; live && live !== content; live = live.parentElement) {
+      if (!content.contains(live)) return null;
+      const source = shadowOf.get(live);
+      if (source?.nodeType !== Node.ELEMENT_NODE) continue;
+      // 位置を持たない要素（details や生の HTML の包み）は、中の最初の段落などへ読み替えない。
+      // 数式・図へ置き換えた表示だけ、もとの包みの内側の位置を引く。
+      const positioned = source.hasAttribute('data-sourcepos') ? source
+        : replaced.has(live) ? source.querySelector('[data-sourcepos]') : null;
+      return positioned ? { tag: positioned.localName, range: positioned.getAttribute('data-sourcepos') } : null;
+    }
+    return null;
+  }
+  function findSource(tag, range) {
+    if (!shadow || typeof tag !== 'string' || typeof range !== 'string') return null;
+    if (!sourceIndex) {
+      sourceIndex = new Map();
+      for (const candidate of shadow.querySelectorAll('[data-sourcepos]')) {
+        const key = candidate.localName + '\n' + candidate.getAttribute('data-sourcepos');
+        if (!sourceIndex.has(key)) sourceIndex.set(key, candidate);
+      }
+    }
+    const source = sourceIndex.get(tag + '\n' + range);
+    // 図の包みだけが写しと結び直された場合も、内側の pre・img から現在の表示へ戻れる。
+    for (let node = source; node && node !== shadow; node = node.parentElement) {
+      const live = liveOf.get(node);
+      if (live?.isConnected && shadowOf.get(live) === node && (node === source || replaced.has(live))) return live;
+    }
+    return null;
+  }
+
   window.gpPreview = {
-    config: CONFIG, base: BASE, doc: query.get('doc'), current: () => last, tables,
+    config: CONFIG, base: BASE, doc: query.get('doc'), current: () => last, tables, sourceOf, findSource,
     holdScroll: (hold) => { scrollHeld = Boolean(hold); },
     setEditing: (active) => { editing = Boolean(active); },
     rememberAppearance, appearance: savedAppearance,
@@ -810,6 +843,7 @@
       }
     }
     shadow = tpl.content;
+    sourceIndex = null;
     bind(shadow, content);
     plantumlLoaded.clear();
     buildNotices(Object.hasOwn(m, 'error') ? [] : m.notices);
