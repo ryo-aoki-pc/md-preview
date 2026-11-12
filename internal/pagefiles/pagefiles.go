@@ -18,6 +18,7 @@ type Options struct {
 	Theme, Width    string
 	Jump, Directory bool
 	Edit            any
+	Review          bool
 }
 type Page struct{ HTML, JS, EditGridJS, EditJS, CSS, Fallback string }
 
@@ -31,6 +32,9 @@ func Load(o Options) (Page, error) {
 	config := map[string]any{"appearance": map[string]string{"theme": o.Theme, "width": o.Width}, "assets": nil, "notice": "", "jump": o.Jump, "directory": o.Directory}
 	if o.Edit != nil {
 		config["edit"] = o.Edit
+	}
+	if o.Review {
+		config["review"] = true
 	}
 	p := Page{}
 	for name, dest := range map[string]*string{"index.html": &p.HTML, "preview.js": &p.JS, "edit-grid.js": &p.EditGridJS, "edit.js": &p.EditJS, "preview.css": &p.CSS, "fallback.css": &p.Fallback} {

@@ -62,6 +62,7 @@ type Options struct {
 	OnClientCount func(int)
 	Libraries     *pagefiles.Libraries
 	Edit          Editor
+	Review        Reviewer
 }
 type Server struct {
 	URL         string
@@ -79,6 +80,7 @@ type Server struct {
 	closeOnce   sync.Once
 	done        chan struct{}
 	wg          sync.WaitGroup
+	reviews     reviewPreparations
 }
 type client struct {
 	conn   net.Conn
@@ -394,6 +396,16 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 	jumpRoute := s.opts.OnJump != nil && authorized && rest == "/_/jump"
 	editRoute := s.opts.Edit != nil && authorized && rest == "/_/edit"
 	editGet := s.opts.Edit != nil && authorized && (rest == "/_/edit/tables" || rest == "/_/edit/source")
+	reviewRoute := s.opts.Review != nil && authorized && rest == "/_/review/prepare"
+	reviewGet := s.opts.Review != nil && authorized && (rest == "/_/review/tables" || rest == "/_/review/source")
+	if r.Method == "POST" && reviewRoute {
+		s.prepareReview(conn, r)
+		return
+	}
+	if (r.Method == "GET" || r.Method == "HEAD") && reviewGet {
+		s.readSource(conn, r, rest, s.opts.Review)
+		return
+	}
 	if r.Method == "POST" && editRoute || (r.Method == "GET" || r.Method == "HEAD") && editGet {
 		s.edit(conn, r, rest)
 		return
@@ -404,7 +416,7 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 	}
 	if r.Method != "GET" && r.Method != "HEAD" {
 		h := http.Header{"Allow": []string{"GET, HEAD"}}
-		if jumpRoute || editRoute {
+		if jumpRoute || editRoute || reviewRoute {
 			h.Set("Allow", "GET, HEAD, POST")
 		}
 		send(conn, r, 405, h, nil)
@@ -500,6 +512,10 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 		} else {
 			s.events(conn, r)
 		}
+		return
+	}
+	if s.opts.Review != nil && isReviewPath(r) {
+		s.reject(conn, r, 404)
 		return
 	}
 	root := s.opts.Session.Root()

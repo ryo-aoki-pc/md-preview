@@ -305,22 +305,28 @@ func Run(ctx context.Context, args []string, streams IO, deps Dependencies) int 
 	live := &liveFile{state: state, path: path}
 	var editor *edit.Service
 	pageOptions := pagefiles.Options{Directory: directory}
-	if o.Edit {
+	if o.Edit || o.Review {
 		options := edit.Options{Host: state, Mode: edit.File}
-		if !directory {
+		if o.Edit && !directory {
 			options.Written = func(_ session.Source, text string) { _ = live.set(text) }
 		}
 		editor = edit.New(options)
-		pageOptions.Edit = editor.Config()
+		if o.Edit {
+			pageOptions.Edit = editor.Config()
+		}
 	}
+	pageOptions.Review = o.Review
 	p, e := pagefiles.Load(pageOptions)
 	if e != nil {
 		report("ファイルまたはサーバーを開けません")
 		return 2
 	}
 	serverOptions := server.Options{Session: state, Page: p, Port: o.Port, Plantuml: plantuml, Assets: assets, AssetsNotice: notice}
-	if editor != nil {
+	if o.Edit {
 		serverOptions.Edit = editor
+	}
+	if o.Review {
+		serverOptions.Review = editor
 	}
 	httpServer, e := server.New(serverOptions)
 	if e != nil {

@@ -14,6 +14,27 @@ import (
 	"github.com/ryo-aoki-pc/md-tools/sticky"
 )
 
+func TestReviewConfig(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		p, e := Load(Options{Review: enabled})
+		if e != nil {
+			t.Fatal(e)
+		}
+		m := configPattern.FindStringSubmatch(p.HTML)
+		var config map[string]any
+		if len(m) != 4 || json.Unmarshal([]byte(m[2]), &config) != nil {
+			t.Fatal("設定を読めない")
+		}
+		value, present := config["review"]
+		if present != enabled || enabled && value != true {
+			t.Fatal(config)
+		}
+		if _, present := config["edit"]; present {
+			t.Fatal("コメントだけで編集が有効になった")
+		}
+	}
+}
+
 func TestEmbedded(t *testing.T) {
 	libs, e := EmbeddedLibraries()
 	if e != nil {
