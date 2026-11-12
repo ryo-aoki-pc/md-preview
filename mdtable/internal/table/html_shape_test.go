@@ -24,6 +24,7 @@ func TestCellLocks(t *testing.T) {
 		{"同じセルの結合の理由を優先", "<table><tr><td colspan=0>a</tr></table>", invalidSpan, invalidSpan, invalidSpan},
 		{"後ろのセルの省略を優先", "<table><tr><td colspan=0>a<td>b</tr></table>", missingCell, missingCell, missingCell},
 		{"後ろのセルの結合を優先", "<table><tr><td>a<td colspan=0>b</tr></table>", invalidSpan, invalidSpan, invalidSpan},
+		{"後ろの通常のセルで理由を消さない", "<table><tr><td colspan=0>a</td><td>b</td></tr></table>", invalidSpan, invalidSpan, invalidSpan},
 		{"行の省略だけ", "<table><tr><td>a</td></table>", "", missingRow, missingRow},
 		{"列の区画だけ", "<table><colgroup><col></colgroup><tr><td>a</td></tr></table>", "", "", colgroup},
 		{"セルの無い位置だけ", "<table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table>", "", "", holes},
@@ -119,6 +120,9 @@ func TestSpanEditAttributeRanges(t *testing.T) {
 	}{
 		{"数字だけを変更", `<TD class='x' ROWSPAN = ' 002 ' align=left>`, "rowspan", 3, `<TD class='x' ROWSPAN = ' 003 ' align=left>`},
 		{"引用符なし", `<td colspan=02>`, "colspan", 3, `<td colspan=03>`},
+		{"引用符なしで等号の前後に空白", `<td colspan = 02>`, "colspan", 3, `<td colspan = 03>`},
+		{"ただ 1 つの属性の削除", `<td colspan=2>`, "colspan", 1, `<td>`},
+		{"値の無い属性の削除", `<td colspan>`, "colspan", 1, `<td>`},
 		{"属性の削除", "<td class=x\n\tCOLSPAN = \"02\" align=right>", "colspan", 1, `<td class=x align=right>`},
 		{"重複の先頭だけを変更", `<td colspan=2 colspan=2>`, "colspan", 3, `<td colspan=3 colspan=2>`},
 		{"属性の追加", `<td align=left>`, "rowspan", 2, `<td rowspan="2" align=left>`},

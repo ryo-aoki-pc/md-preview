@@ -12,6 +12,7 @@ func TestCheckConversionCells(t *testing.T) {
 		{"先頭の改行", "| h |\n|---|\n| <br>text |\n", "html", "セルの先頭の <br> は、HTML の表にすると消える"},
 		{"続く改行", "| h |\n|---|\n| a<br><br><br>b |\n", "html", "3 つ以上続く <br> は、HTML の表では段落の区切り 1 つになる"},
 		{"HTML のブロック", "| h |\n|---|\n| <div>hello<br>world</div> |\n", "html", "セルに HTML のブロック（<div>）があり、種類を変えると描画が変わる"},
+		{"コメントのブロック", "| h |\n|---|\n| <!-- メモ --> *強調* |\n", "html", "セルに HTML のブロック（コメント）があり、種類を変えると描画が変わる"},
 		{"リンク参照の定義", "<table>\n<tr><th>h</th></tr>\n<tr><td>\n\n[a]: /url\n\n</td></tr>\n</table>\n", "pipe", "セルの中にリンク参照の定義がある"},
 		{"通常のパイプのセル", "| h |\n|---|\n| **text** |\n", "html", ""},
 		{"改行だけのセル", "| h |\n|---|\n| <br> |\n", "html", ""},
