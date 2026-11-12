@@ -29,6 +29,7 @@ type request struct {
 	Root       string           `json:"root"`
 	Live       bool             `json:"live"`
 	Edit       string           `json:"edit"`
+	Review     bool             `json:"review"`
 	Jump       bool             `json:"jump"`
 	Directory  bool             `json:"directory"`
 	Plantuml   bool             `json:"plantuml"`
@@ -137,6 +138,9 @@ type application struct {
 }
 
 func (a *application) start(r request, out *output) error {
+	if r.Review && !r.Live {
+		return errors.New("画面のコメントの試験には live: true が必要です")
+	}
 	if r.Edit != "" && (r.Edit != "file" || !r.Live) {
 		return errors.New("画面の編集の試験には live: true と edit: file が必要です")
 	}
@@ -164,7 +168,7 @@ func (a *application) start(r request, out *output) error {
 		a.fixture = &fixtureState{root: root, render: r.Render, scroll: r.Scroll}
 		state = a.fixture
 	}
-	pageOptions := pagefiles.Options{Jump: r.Jump, Directory: r.Directory}
+	pageOptions := pagefiles.Options{Jump: r.Jump, Directory: r.Directory, Review: r.Review}
 	var editor *edit.Service
 	if r.Edit == "file" {
 		var mu sync.Mutex
@@ -184,6 +188,9 @@ func (a *application) start(r request, out *output) error {
 	opts := server.Options{Session: state, Page: page}
 	if editor != nil {
 		opts.Edit = editor
+	}
+	if r.Review {
+		opts.Review = edit.New(edit.Options{Host: a.live, Mode: edit.File})
 	}
 	if r.Jump {
 		opts.OnJump = func(line int64) { _ = out.send(map[string]any{"type": "jump", "line": line}) }

@@ -577,3 +577,148 @@ body {
 #gp-edit-status[data-kind='wait'] {
   border: 2px dashed var(--gp-border);
 }
+
+/* コメントの UI（書き出す本文のスタイルには含めない） */
+#gp-review-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  /* 表の固定の全幅表示（2147483646）より上に枠を出す。編集の層と同じ順。 */
+  z-index: 2147483647;
+}
+#gp-review-layer[hidden],
+#gp-review-layer [hidden],
+#gp-review-panel[hidden],
+#gp-review-panel [hidden],
+#gp-review-status[hidden] {
+  display: none;
+}
+#gp-review-hover-cell,
+#gp-review-selected-cell {
+  position: fixed;
+  box-sizing: border-box;
+  border: 1px dashed var(--gp-border);
+  pointer-events: none;
+}
+#gp-review-selected-cell {
+  border: 2px solid var(--gp-fg);
+}
+#gp-review-panel {
+  position: fixed;
+  inset: var(--gp-header-height) 0 0 auto;
+  /* 全幅表示の中のセルにもコメントを書けるよう、全幅表示より上に出す。 */
+  z-index: 2147483647;
+  box-sizing: border-box;
+  width: 360px;
+  padding: 12px;
+  overflow: auto;
+  border-inline-start: 1px solid var(--gp-border);
+  background: var(--gp-bg);
+  color: var(--gp-fg);
+  font: 14px/1.5 sans-serif;
+  overflow-wrap: anywhere;
+}
+:root[data-review='on'] #gp-layout {
+  margin-inline-end: 360px;
+}
+#gp-review-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+#gp-review-panel h2,
+#gp-review-panel h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+#gp-review-panel h3 {
+  font-size: 14px;
+}
+#gp-review-panel p {
+  margin: 8px 0;
+  white-space: pre-wrap;
+}
+#gp-review-panel textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+  padding: 6px;
+  border: 1px solid var(--gp-border);
+  border-radius: 4px;
+  color: var(--gp-fg);
+  background: var(--gp-bg);
+  font: inherit;
+}
+#gp-review-panel button {
+  margin: 4px 6px 4px 0;
+  padding: 4px 8px;
+  border: 1px solid var(--gp-border);
+  border-radius: 4px;
+  color: var(--gp-fg);
+  background: var(--gp-subtle);
+  font: inherit;
+  cursor: pointer;
+}
+#gp-review-panel button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+.gp-review-card,
+#gp-review-actions,
+#gp-review-output {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gp-border);
+}
+.gp-review-state,
+#gp-review-bytes {
+  color: var(--gp-muted);
+}
+#gp-review-status {
+  position: fixed;
+  inset: auto 12px 12px auto;
+  /* 編集の操作欄（編集の層）にも隠れないようにする。 */
+  z-index: 2147483647;
+  box-sizing: border-box;
+  max-width: min(600px, calc(100vw - 24px));
+  max-height: 25vh;
+  overflow: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--gp-border);
+  border-radius: 4px;
+  background: var(--gp-bg);
+  color: var(--gp-fg);
+  box-shadow: 0 2px 8px #0003;
+  font: 14px/1.5 sans-serif;
+  pointer-events: none;
+}
+@media (max-width: 700px) {
+  #gp-review-panel {
+    inset: auto 0 0;
+    width: 100%;
+    height: 45vh;
+    border-inline-start: 0;
+    border-top: 1px solid var(--gp-border);
+  }
+  :root[data-review='on'] #gp-layout {
+    margin-inline-end: 0;
+    padding-bottom: 45vh;
+  }
+  #gp-review-status {
+    bottom: 46vh;
+  }
+}
+@media print {
+  #gp-review-panel,
+  #gp-review-layer,
+  #gp-review-toggle,
+  #gp-review-status {
+    display: none !important;
+  }
+  :root[data-review='on'] #gp-layout {
+    margin-inline-end: 0;
+    padding-bottom: 0;
+  }
+}

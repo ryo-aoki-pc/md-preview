@@ -128,10 +128,27 @@ func TestReviewRejectedTargets(t *testing.T) {
 				}
 			}
 			_, _, err := s.Review(context.Background(), nil, h.src.Render, []ReviewTarget{c.target})
-			if err == nil || err.Status != 422 || err.Code != c.code || disk(t, h) != c.text {
+			if err == nil || err.Status != 422 || err.Code != c.code || err.Index == nil || *err.Index != 0 || disk(t, h) != c.text {
 				t.Fatalf("誤り=%+v、期待=%s\n%s", err, c.code, h.src.HTML)
 			}
 		})
+	}
+}
+
+func TestReviewRejectedIndex(t *testing.T) {
+	s, h := testService(t, testEngine(t), "本文\n", nil)
+	valid := ReviewTarget{Kind: "block", Tag: "p", Range: "1:1-1:6"}
+	for _, rejected := range []ReviewTarget{
+		{Kind: "block", Tag: "p", Range: "1:1-1:3"},
+		{Kind: "block", Tag: "script", Range: "1:1-1:6"},
+		{Kind: "html", Prev: &HTMLBoundary{Tag: "p", Range: "4:1-4:3"}},
+		{Kind: "cell", Table: 3},
+		{Kind: "invalid"},
+	} {
+		_, _, err := s.Review(context.Background(), nil, h.src.Render, []ReviewTarget{valid, valid, rejected})
+		if err == nil || err.Index == nil || *err.Index != 2 {
+			t.Fatalf("対象の番号を戻していない: %+v", err)
+		}
 	}
 }
 
@@ -167,7 +184,7 @@ func TestReviewDocumentGuards(t *testing.T) {
 			s, h := testService(t, e, "本文\n", nil)
 			c.change(s, h)
 			_, _, err := s.Review(context.Background(), nil, 1, targets)
-			if err == nil || err.Code != c.code || err.Status != c.status {
+			if err == nil || err.Code != c.code || err.Status != c.status || err.Index != nil {
 				t.Fatalf("誤り=%+v", err)
 			}
 		})

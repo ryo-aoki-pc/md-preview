@@ -126,7 +126,7 @@ export async function startGoStdio(t, { edit = true } = {}) {
   return { ready, url: ready.url, send, waitFor, close };
 }
 
-// options の edit: 'file' と live: true は、実ファイルへ書く編集 API も接続する。
+// options の edit: 'file' と live: true は編集 API、review: true と live: true はコメント API も接続する。
 export async function startGoPageServer(t, options = {}) {
   const commands = await prepareGoPageTests();
   assert.equal(commands.skip, false, 'ページ試験用サーバーが使える');

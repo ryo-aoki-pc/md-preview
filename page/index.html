@@ -10,7 +10,9 @@
 <script id="gp-config" type="application/json">{{CONFIG}}</script>
 <script src="_/preview.js" defer></script>
 <script src="_/edit-grid.js" defer></script>
+<script src="_/edit-targets.js" defer></script>
 <script src="_/edit.js" defer></script>
+<script src="_/review.js" defer></script>
 </head>
 <body>
 <header id="gp-header">
@@ -21,6 +23,7 @@
     <button id="gp-outline-toggle" type="button" aria-controls="gp-outline" aria-expanded="false" disabled>見出し</button>
     <button id="gp-sticky-toggle" type="button" aria-pressed="false">表を固定</button>
     <button id="gp-edit-toggle" type="button" aria-pressed="false" hidden>編集</button>
+    <button id="gp-review-toggle" type="button" aria-pressed="false" hidden>コメント</button>
     <button id="gp-notices-toggle" type="button" aria-controls="gp-notices" aria-expanded="false" hidden>GitLab との違い 0</button>
     <label>配色 <select id="gp-theme" aria-label="プレビューの配色">
       <option value="system">システム</option>

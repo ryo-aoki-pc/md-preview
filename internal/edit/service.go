@@ -46,6 +46,7 @@ type Error struct {
 	Status        int
 	Code, Message string
 	Outer         []OuterBlock
+	Index         *int
 }
 
 func (e *Error) Error() string { return e.Message }

@@ -120,6 +120,24 @@ func TestPageConfig(t *testing.T) {
 	}
 }
 
+func TestPageScripts(t *testing.T) {
+	p, err := Load(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := -1
+	for _, script := range []struct{ name, body string }{
+		{"preview.js", p.JS}, {"edit-grid.js", p.EditGridJS}, {"edit-targets.js", p.EditTargetsJS},
+		{"edit.js", p.EditJS}, {"review.js", p.ReviewJS},
+	} {
+		index := strings.Index(p.HTML, `<script src="_/`+script.name+`" defer></script>`)
+		if index <= previous || script.body == "" {
+			t.Fatal("スクリプトが無いか、読み込む順が違う", script.name)
+		}
+		previous = index
+	}
+}
+
 func TestEditConfig(t *testing.T) {
 	for _, c := range []struct {
 		value any
