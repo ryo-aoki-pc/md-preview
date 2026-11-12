@@ -112,36 +112,9 @@
 
   // 誤りの応答は {"error": {"code", "message"}}。文は利用者の文字を含みうるので、textContent だけに入れる。
   const messageOf = (data) => (typeof data?.error?.message === 'string' ? data.error.message : '');
-  const rangePattern = /^[1-9][0-9]*:[1-9][0-9]*-[1-9][0-9]*:[0-9]+$/;
-  const blockTags = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'dt', 'dd', 'blockquote', 'pre', 'ul', 'ol', 'dl', 'hr']);
-  const excludedBlock = 'table, .section-nav';
-  function blockOf(element) {
-    if (!element?.closest || !element.closest('#gp-content') || element.closest('table')) return null;
-    if (element.closest('section[data-footnotes]')) {
-      const definition = element.closest('section[data-footnotes] > ol > li[data-sourcepos]');
-      return definition && rangePattern.test(definition.getAttribute('data-sourcepos') || '') ? definition : null;
-    }
-    if (element.closest(excludedBlock)) return null;
-    for (let node = element; node && node.id !== 'gp-content'; node = node.parentElement) {
-      const target = preview.sourceOf(node);
-      if (!target || !rangePattern.test(target.range || '')) continue;
-      const live = preview.findSource(target.tag, target.range);
-      if (live && (blockTags.has(target.tag) ||
-        (target.tag === 'img' && live.matches('a[data-diagram="plantuml"] > img, img[data-diagram="plantuml"], .gp-plantuml-error')) ||
-        (target.tag === 'div' && live.matches('div.markdown-alert')))) return live;
-    }
-    return null;
-  }
+  const { rangePattern, blockOf, findBlock, rawBlockOf, grid } = window.gpEditTargets;
   const outerLabels = { list: 'リスト全体を編集', quote: '引用全体を編集', deflist: '説明リスト全体を編集',
     alert: '注記全体を編集', item: '項目全体を編集', description: '説明全体を編集', html: 'HTML のブロック全体を編集' };
-  const findBlock = (target) => target?.tag === 'html' ? preview.findHTML(target)[0] : target && preview.findSource(target.tag, target.range);
-  function rawBlockOf(element) {
-    if (!element?.closest || !element.closest('#gp-content') || element.closest('table, .section-nav, .markdown-code-block, section[data-footnotes]')) return null;
-    // 生の HTML の表（位置を持たない table）は、表のセルの編集が扱うので、ここでは開かない。
-    // 位置を持つ祖先の内側は、今までどおりそのブロックの原文で扱う。
-    if (element.closest('[data-sourcepos]')) return null;
-    return preview.htmlOf(element);
-  }
   function outerElement(element, target) {
     if (target?.tag === 'html') return findBlock(preview.htmlOf(element));
     if (!target || typeof target.tag !== 'string' || !rangePattern.test(target.range || '')) return null;
@@ -239,54 +212,6 @@
   function checkInsert() {
     if (pendingInsert && (pendingInsert.version !== externalVersion ||
       models[pendingInsert.table]?.table !== pendingInsert.tableElement)) cancelInsert();
-  }
-
-  // サーバーと同じく、区画を木の順にたどる。table.rows は tfoot の順序が変わる。
-  function grid(table, info) {
-    const groups = [];
-    let direct = [];
-    const flush = () => { if (direct.length) groups.push(direct); direct = []; };
-    for (const child of table.children) {
-      if (child.localName === 'tr') { direct.push(child); continue; }
-      flush();
-      if (['thead', 'tbody', 'tfoot'].includes(child.localName))
-        groups.push(Array.from(child.children).filter((row) => row.localName === 'tr'));
-    }
-    flush();
-    if (groups.reduce((n, rows) => n + rows.length, 0) !== info.rows) return null;
-    const cells = [];
-    const slots = [];
-    let row = 0, width = 0;
-    for (const group of groups) {
-      const occupied = new Map();
-      for (let local = 0; local < group.length; local++, row++) {
-        let col = 0;
-        for (const element of group[local].children) {
-          if (!element.matches('th, td')) continue;
-          while ((occupied.get(col) || 0) > local) col++;
-          const colspan = element.colSpan;
-          let rowspan = element.rowSpan;
-          if (!rowspan || rowspan > group.length - local) rowspan = group.length - local;
-          const cell = info.cells[cells.length];
-          if (!cell || col + colspan > info.cols || cell.row !== row || cell.col !== col ||
-            cell.rowspan !== rowspan || cell.colspan !== colspan || cell.header !== (element.localName === 'th'))
-            return null;
-          const item = { ...cell, element, table: info.index };
-          for (let x = col; x < col + colspan; x++) {
-            if ((occupied.get(x) || 0) > local) return null;
-            occupied.set(x, local + rowspan);
-            for (let y = row; y < row + rowspan; y++) {
-              slots[y] ??= [];
-              slots[y][x] = item;
-            }
-          }
-          cells.push(item);
-          col += colspan;
-          width = Math.max(width, col);
-        }
-      }
-    }
-    return cells.length === info.cells.length && width === info.cols ? { cells, slots, rows: groups.flat() } : null;
   }
 
   // 本文には識別用の属性も足さない。番号だけで作ったセレクターを層の style に置く。
@@ -1533,6 +1458,7 @@
   }
 
   function setMode(want) {
+    if (want) window.gpReviewMode?.exit();
     cancelSource();
     if (!want && editor) endEdit(true);
     mode = want && allowed();
@@ -1547,6 +1473,7 @@
     updateCheckboxes();
     if (mode) void loadTables();
   }
+  window.gpEditMode = { active: () => mode, busy: () => Boolean(editor || composing || busy || queue.length || sourceFetching), exit: () => setMode(false) };
   toggle.addEventListener('click', () => setMode(!mode));
 
   // ページと md-table-sticky の操作欄、本文の入力の部品は触らない。表のセルの中の入力（表の中のタスクのチェックボックス）は、セルの操作として扱う。
@@ -1591,6 +1518,8 @@
   }, true);
   window.addEventListener('click', (event) => {
     if (!mode || stopped || layer.contains(event.target)) return;
+    // コメントへの切り替えは、入力を確定せず busy() の確認へ渡す。
+    if (event.target.closest?.('#gp-review-toggle')) return;
     cancelSource();
     const checkbox = checkboxOf(event.target);
     if (checkbox && documentEditable && infoRender === preview.current()?.render && !dragged) {

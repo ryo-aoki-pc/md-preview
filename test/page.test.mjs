@@ -204,12 +204,12 @@ async function fixturePage(
   browser,
   render = payload('<h1>見出し</h1><p>本文</p>'),
   prepareRoot = () => {},
-  { jump = false, live = false, directory = false, edit = '', plantuml = false, beforeNavigate, waitUntil = 'load' } = {},
+  { jump = false, live = false, directory = false, edit = '', review = false, plantuml = false, beforeNavigate, waitUntil = 'load' } = {},
 ) {
   const root = temp(t);
   prepareRoot(root);
   const jumpRequests = [];
-  const server = await startGoPageServer(t, { root, live, jump, directory, edit, plantuml, render });
+  const server = await startGoPageServer(t, { root, live, jump, directory, edit, review, plantuml, render });
   const jumps = server.jumps;
   if (live && !directory)
     await server.setDocument({
@@ -296,6 +296,323 @@ async function contentTree(page) {
     return Array.from(root.childNodes, visit);
   });
 }
+
+test('画面のコメント', { skip, timeout: 240000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const source = '# コメントの試験\n\n最初の段落の文字。\n\n次の段落。\n\n```js\nconst n = 1;\n```\n\n<div>HTML の一つ目</div>\n\n<div>HTML の二つ目</div>\n\n境の段落。\n\n| 列 | 数 |\n| --- | --- |\n| 値 | 2 |\n\n<table><tr><td colspan="2">結合セル</td></tr><tr><td>左</td><td>右</td></tr></table>\n';
+  const reviewPage = (t, text = source, options = {}) => fixturePage(t, browser, undefined, (root) => {
+    writeFileSync(join(root, 'README.md'), text);
+    for (const [name, contents] of Object.entries(options.files || {})) writeFileSync(join(root, name), contents);
+  }, { live: true, review: true, ...options });
+  const enter = async (page) => {
+    await page.locator('#gp-review-toggle').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render));
+    assert.equal(await page.locator('#gp-review-toggle').getAttribute('aria-pressed'), 'true');
+  };
+  const addComment = async (page, target, text) => {
+    await target.click();
+    await page.locator('#gp-review-input').fill(text);
+    await page.locator('#gp-review-add').click();
+  };
+  const card = (page, text) => page.locator('.gp-review-card').filter({ has: page.locator('p').filter({ hasText: text }) });
+  const prepare = async (page) => {
+    const response = page.waitForResponse((value) => value.url().includes('/_/review/prepare') && value.request().method() === 'POST');
+    await page.locator('#gp-review-prepare').click();
+    const result = await response;
+    await page.waitForFunction(() => !document.querySelector('#gp-review-output').hidden);
+    assert.equal(result.status(), 200, await result.text());
+    return page.locator('#gp-review-prompt').inputValue();
+  };
+  const selectText = (page, start, startOffset, end = start, endOffset = startOffset + 2) => page.evaluate((value) => {
+    const range = document.createRange();
+    range.setStart(document.querySelector(value.start).firstChild, value.startOffset);
+    range.setEnd(document.querySelector(value.end).firstChild, value.endOffset);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  }, { start, startOffset, end, endOffset });
+  const clipboard = (page, fail = false) => page.addInitScript((fail) => {
+    window.reviewClipboard = [];
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      async writeText(text) {
+        if (fail) throw new Error('試験用のコピー拒否');
+        window.reviewClipboard.push(text);
+      },
+    } });
+  }, fail);
+
+  await t.test('指定した画面だけにボタンを出し、毎回閉じて始め、印刷と狭い画面で配置する', async (t) => {
+    const disabled = await reviewPage(t, source, { review: false });
+    assert.equal(await disabled.page.locator('#gp-review-toggle').isVisible(), false);
+    assert.equal(await disabled.page.locator('#gp-review-panel').count(), 0);
+    const { page } = await reviewPage(t);
+    assert.equal(await page.locator('#gp-review-toggle').isVisible(), true);
+    assert.equal(await page.locator('#gp-review-panel').isVisible(), false);
+    await enter(page);
+    assert.equal(await page.locator('#gp-review-add').isDisabled(), true);
+    assert.match(await page.locator('#gp-review-add').getAttribute('title'), /選んで/);
+    assert.equal(await page.locator('#gp-review-prepare').isDisabled(), true);
+    assert.equal(Math.round((await page.locator('#gp-review-panel').boundingBox()).width), 360);
+    await page.setViewportSize({ width: 600, height: 900 });
+    const bounds = await page.locator('#gp-review-panel').boundingBox();
+    assert.equal(Math.round(bounds.height), 405);
+    assert.equal(Math.round(bounds.width), 600);
+    await page.emulateMedia({ media: 'print' });
+    for (const selector of ['#gp-review-panel', '#gp-review-layer', '#gp-review-toggle'])
+      assert.equal(await page.locator(selector).isVisible(), false);
+    await page.emulateMedia({ media: 'screen' });
+    await page.reload();
+    await page.waitForSelector('#gp-review-toggle');
+    assert.equal(await page.locator('#gp-review-panel').isVisible(), false);
+    assert.equal(await page.locator('#gp-review-toggle').getAttribute('aria-pressed'), 'false');
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-appearance') || '{}').review), undefined);
+  });
+
+  await t.test('編集中と原文の読み込み中は切り替えず、編集とコメントは同時に開かない', async (t) => {
+    const { page, root } = await reviewPage(t, source, { edit: 'file' });
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    t.after(() => release());
+    await page.route('**/_/edit/source?**', async (route) => { await gate; await route.continue(); });
+    await page.locator('#gp-content > p').first().dblclick();
+    await page.waitForFunction(() => window.gpEditMode.busy());
+    await page.locator('#gp-review-toggle').click();
+    assert.match(await page.locator('#gp-review-status').textContent(), /編集を確定するか取り消して/);
+    assert.equal(await page.evaluate(() => window.gpEditMode.active() && !window.gpReviewMode.active()), true);
+    release();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+    await page.locator('#gp-edit-input').fill('まだ確定しない文');
+    await page.locator('#gp-review-toggle').click();
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), 'まだ確定しない文');
+    assert.equal(readFileSync(join(root, 'README.md'), 'utf8'), source);
+    assert.equal(await page.locator('#gp-review-panel').isVisible(), false);
+    await page.locator('#gp-edit-input').press('Escape');
+    await enter(page);
+    assert.equal(await page.evaluate(() => !window.gpEditMode.active() && window.gpReviewMode.active()), true);
+    await page.locator('#gp-review-input').fill('切り替えても残すコメント');
+    await page.locator('#gp-edit-toggle').click();
+    assert.equal(await page.evaluate(() => window.gpEditMode.active() && !window.gpReviewMode.active()), true);
+    await editIdle(page);
+    await enter(page);
+    assert.equal(await page.locator('#gp-review-input').inputValue(), '切り替えても残すコメント');
+  });
+
+  await t.test('段落・見出し・コード・HTML の連なり・両方の表のセルを選び、本文に印を足さない', async (t) => {
+    const { page, jumpRequests } = await reviewPage(t, source + '\n[リンク](#user-content-コメントの試験)\n', { jump: true });
+    const before = await page.locator('#gp-content').evaluate((content) => Array.from(content.querySelectorAll('p, h1, pre'),
+      (element) => Array.from(element.attributes, (a) => [a.name, a.value])));
+    await enter(page);
+    for (const [selector, label, text] of [
+      ['#gp-content > p', '段落:', '段落へのコメント'],
+      ['#gp-content h1', '見出し:', '見出しへのコメント'],
+      ['#gp-content pre', 'コード:', 'コードへのコメント'],
+      ['#gp-content > div:not(.markdown-code-block)', 'HTML のブロック', 'HTML へのコメント'],
+      ['#gp-content td', '表 1 の 2 行 1 列', 'パイプのセルへのコメント'],
+      ['#gp-content td[colspan="2"]', '表 2 の 1 行 1 列', 'HTML のセルへのコメント'],
+    ]) {
+      await page.locator(selector).first().click();
+      assert.match(await page.locator('#gp-review-target').textContent(), new RegExp(label));
+      await page.locator('#gp-review-input').fill(text);
+      await page.locator('#gp-review-add').click();
+    }
+    assert.equal(await page.locator('.gp-review-card').count(), 6);
+    assert.equal(await page.locator('#gp-review-toggle').textContent(), 'コメント 6');
+    await page.locator('#gp-content > div:not(.markdown-code-block)').first().hover();
+    await page.waitForFunction(() => document.querySelector('#gp-review-hover').textContent.includes(':nth-child('));
+    const rule = await page.locator('#gp-review-hover').textContent();
+    assert.equal(rule.includes('data-sourcepos'), false);
+    assert.equal((rule.match(/#gp-content/g) || []).length, 2, 'HTML の連なり全体に枠を出す');
+    const after = await page.locator('#gp-content').evaluate((content) => Array.from(content.querySelectorAll('p, h1, pre'),
+      (element) => Array.from(element.attributes, (a) => [a.name, a.value])));
+    assert.deepEqual(after, before);
+    await page.locator('#gp-content a').last().click();
+    assert.equal(new URL(page.url()).hash, '');
+    await page.locator('#gp-content h1').dblclick();
+    assert.deepEqual(jumpRequests, []);
+    await page.evaluate(() => window.getSelection().removeAllRanges());
+    await page.locator('#gp-content').dispatchEvent('click');
+    assert.equal(await page.locator('#gp-review-status').textContent(), 'ここにはコメントを付けられません');
+    assert.equal(await page.locator('#gp-review-add').isDisabled(), true);
+    assert.match(await prepare(page), /^\/plan\n/);
+  });
+
+  await t.test('対象外の表は理由を知らせ、選べない', async (t) => {
+    const { page } = await reviewPage(t, '```json:table\n{"markdown":true,"items":[{"列":"JSON の値"}]}\n```\n\n<table><tr><td><table><tr><td>入れ子</td></tr></table></td></tr></table>\n');
+    await enter(page);
+    await page.locator('#gp-content td').filter({ hasText: 'JSON の値' }).click();
+    assert.match(await page.locator('#gp-review-status').textContent(), /JSON から作った表/);
+    await page.locator('#gp-content table table td').click();
+    assert.match(await page.locator('#gp-review-status').textContent(), /入れ子の表/);
+    assert.equal(await page.locator('#gp-review-add').isDisabled(), true);
+  });
+
+  await t.test('一つの段落内の選択だけを添え、またがる選択と長すぎる選択を知らせる', async (t) => {
+    const { page } = await reviewPage(t, '最初の段落。\n\n次の段落。\n\n' + '長'.repeat(2001) + '\n');
+    await enter(page);
+    await selectText(page, '#gp-content > p:nth-child(1)', 0, '#gp-content > p:nth-child(1)', 2);
+    assert.equal(await page.locator('#gp-review-selection-text').textContent(), '選んだ文字: 最初');
+    await page.locator('#gp-review-input').fill('選んだ文字へのコメント');
+    await page.locator('#gp-review-input').press('Control+Enter');
+    assert.match(await page.locator('.gp-review-card').textContent(), /選んだ文字: 最初/);
+    await selectText(page, '#gp-content > p:nth-child(1)', 0, '#gp-content > p:nth-child(2)', 2);
+    assert.match(await page.locator('#gp-review-status').textContent(), /2 つ以上の対象にまたがって/);
+    assert.equal(await page.locator('#gp-review-selection-text').isVisible(), false);
+    await selectText(page, '#gp-content > p:nth-child(3)', 0, '#gp-content > p:nth-child(3)', 2001);
+    assert.equal(await page.locator('#gp-review-status').textContent(), '選んだ文字が長すぎます（2,000 文字まで）');
+    assert.equal(await page.locator('#gp-review-selection-text').isVisible(), false);
+    await page.locator('#gp-review-input').fill('残す下書き');
+    await page.locator('#gp-review-input').press('Escape');
+    assert.equal(await page.locator('#gp-review-input').inputValue(), '残す下書き');
+    assert.equal(await page.locator('#gp-review-add').isDisabled(), true);
+  });
+
+  await t.test('コメントを直し、本文へ移り、消す', async (t) => {
+    const { page } = await reviewPage(t);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content > p').first(), '最初のコメント');
+    await page.getByRole('button', { name: '直す', exact: true }).click();
+    assert.equal(await page.locator('#gp-review-input').inputValue(), '最初のコメント');
+    await page.locator('#gp-review-input').fill('直したコメント');
+    await page.locator('#gp-review-input').press('Control+Enter');
+    assert.equal(await page.locator('.gp-review-card').count(), 1);
+    assert.match(await page.locator('.gp-review-card').textContent(), /直したコメント/);
+    await page.getByRole('button', { name: '本文へ移る', exact: true }).click();
+    assert.match(await page.locator('#gp-review-target').textContent(), /段落: 最初/);
+    await page.waitForFunction(() => document.querySelector('#gp-review-selection').textContent.includes(':nth-child('));
+    await page.getByRole('button', { name: '消す', exact: true }).click();
+    assert.equal(await page.locator('.gp-review-card').count(), 0);
+    assert.equal(await page.locator('#gp-review-prepare').isDisabled(), true);
+  });
+
+  await t.test('再読み込みで戻り、文書ごとに保存し、消えた対象は要確認にする', async (t) => {
+    const { page, server, root } = await reviewPage(t, source, { files: { 'other.md': '別の文書。\n' } });
+    await enter(page);
+    await addComment(page, page.locator('#gp-content > p').first(), '保存するコメント');
+    await page.reload();
+    await page.waitForSelector('#gp-review-toggle');
+    assert.equal(await page.locator('#gp-review-panel').isVisible(), false);
+    await enter(page);
+    assert.equal(await page.locator('.gp-review-card').count(), 1);
+    const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')));
+    assert.equal(saved.version, 1);
+    assert.equal(saved.docs.current[0].text, '保存するコメント');
+    await page.goto(server.url + '?doc=other.md');
+    await page.waitForFunction(() => document.querySelector('#gp-content').textContent.includes('別の文書。'));
+    await enter(page);
+    assert.equal(await page.locator('.gp-review-card').count(), 0);
+    await addComment(page, page.locator('#gp-content > p').first(), '別の文書のコメント');
+    const posted = page.waitForResponse((r) => r.url().includes('/_/review/prepare?doc=other.md'));
+    await prepare(page);
+    await posted;
+    await page.goto(server.url);
+    await page.waitForSelector('#gp-review-toggle');
+    await enter(page);
+    assert.match(await page.locator('.gp-review-card').textContent(), /保存するコメント/);
+    writeFileSync(join(root, 'README.md'), '# 変更後\n');
+    await server.setDocument({ path: join(root, 'README.md'), text: '# 変更後\n', rev: 2 });
+    await page.waitForFunction(() => document.querySelector('.gp-review-state').textContent === '要確認');
+    assert.equal(await page.locator('.gp-review-card').count(), 1);
+    await page.getByRole('button', { name: '本文へ移る', exact: true }).click();
+    assert.match(await page.locator('#gp-review-status').textContent(), /対象が見つかりません/);
+  });
+
+  await t.test('依頼文に相対パス・原文の行と抜粋・選んだ文字・コメントを入れる', async (t) => {
+    const { page, root, server } = await reviewPage(t);
+    await enter(page);
+    await selectText(page, '#gp-content > p:nth-child(2)', 0, '#gp-content > p:nth-child(2)', 2);
+    await page.locator('#gp-review-input').fill('この表現を詳しくしてください');
+    await page.locator('#gp-review-add').click();
+    const prompt = await prepare(page);
+    for (const text of ['/plan\n', '対象のファイル: `README.md`\n', '## コメント 1: 段落（3 行）\n', '最初の段落の文字。', '選んだ文字:\n```text\n最初\n```', 'コメント:\nこの表現を詳しくしてください\n'])
+      assert.ok(prompt.includes(text), text);
+    // 依頼文はサーバーが作り、端末の絶対パスと token を入れない。
+    for (const secret of [root, root.replaceAll('\\', '/'), server.token])
+      assert.equal(prompt.includes(secret), false, '依頼文に入れてはいけない値が入った');
+    assert.equal(await page.locator('#gp-review-prompt').getAttribute('readonly'), '');
+    assert.match(await page.locator('#gp-review-bytes').textContent(), /バイト/);
+    assert.equal(await page.locator('#gp-review-prompt').evaluate((el) => el.value.length > 0 && el.textContent === ''), true);
+  });
+
+  await t.test('prepare が断った対象の番号を、そのカードの誤りにする', async (t) => {
+    const { page } = await reviewPage(t, '# 見出し\n\n::include{file=part.md}\n', { files: { 'part.md': '取り込んだ段落。\n' } });
+    await enter(page);
+    await addComment(page, page.locator('#gp-content h1'), '正しい対象');
+    await addComment(page, page.locator('#gp-content p'), '断られる対象');
+    const response = page.waitForResponse((value) => value.url().includes('/_/review/prepare'));
+    await page.locator('#gp-review-prepare').click();
+    const result = await response;
+    const data = await result.json();
+    assert.equal(result.status(), 422);
+    assert.equal(data.error.index, 1);
+    await page.waitForFunction(() => document.querySelectorAll('.gp-review-state')[1].textContent.startsWith('誤り:'));
+    assert.equal(await page.locator('.gp-review-state').first().textContent(), '未コピー');
+    assert.match(await page.locator('.gp-review-state').nth(1).textContent(), /誤り:.*取り込/);
+    assert.equal(await page.locator('#gp-review-output').isVisible(), false);
+    assert.match(await page.locator('#gp-review-status').textContent(), /取り込/);
+  });
+
+  await t.test('コピー成功で送ったコメントだけをコピー済みにし、まとめて消せる', async (t) => {
+    const { page } = await reviewPage(t, source, { beforeNavigate: (page) => clipboard(page) });
+    await enter(page);
+    await addComment(page, page.locator('#gp-content > p').first(), 'コピーするコメント');
+    const prompt = await prepare(page);
+    await page.locator('#gp-review-copy').click();
+    await page.waitForFunction(() => document.querySelector('.gp-review-state').textContent === 'コピー済み');
+    assert.deepEqual(await page.evaluate(() => window.reviewClipboard), [prompt]);
+    assert.equal(await page.locator('#gp-review-status').textContent(), '依頼文をコピーしました。');
+    assert.equal(await page.locator('#gp-review-prepare').isDisabled(), true);
+    await addComment(page, page.locator('#gp-content h1'), '次にコピーするコメント');
+    const response = page.waitForResponse((value) => value.url().includes('/_/review/prepare'));
+    const next = await prepare(page);
+    assert.equal((await response).request().postDataJSON().comments.length, 1);
+    assert.equal(next.includes('\nコピーするコメント\n'), false);
+    await page.locator('#gp-review-clear-copied').click();
+    assert.equal(await page.locator('.gp-review-card').count(), 1);
+    assert.match(await page.locator('.gp-review-card').textContent(), /次にコピーするコメント/);
+  });
+
+  await t.test('コピー失敗では依頼文を全選択し、コメントの状態を変えない', async (t) => {
+    const { page } = await reviewPage(t, source, { beforeNavigate: (page) => clipboard(page, true) });
+    await enter(page);
+    await addComment(page, page.locator('#gp-content > p').first(), 'コピーできないコメント');
+    const prompt = await prepare(page);
+    await page.locator('#gp-review-copy').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-status').textContent.includes('Ctrl+C'));
+    assert.deepEqual(await page.locator('#gp-review-prompt').evaluate((el) => [el.selectionStart, el.selectionEnd, el === document.activeElement]), [0, prompt.length, true]);
+    assert.equal(await page.locator('.gp-review-state').textContent(), '未コピー');
+    assert.deepEqual(await page.evaluate(() => window.reviewClipboard), []);
+  });
+
+  await t.test('HTML を文字として表示し、保存が無効でも続け、壊れた保存は捨てる', async (t) => {
+    const { page } = await reviewPage(t);
+    await enter(page);
+    await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('保存を拒否', 'QuotaExceededError'); }; });
+    const text = '<img src=x onerror="window.reviewInjected=1">';
+    await addComment(page, page.locator('#gp-content > p').first(), text);
+    assert.match(await card(page, text).textContent(), /<img src=x onerror=/);
+    assert.equal(await page.locator('#gp-review-panel img').count(), 0);
+    assert.equal(await page.evaluate(() => window.reviewInjected), undefined);
+    await page.locator('#gp-review-close').click();
+    await enter(page);
+    assert.equal(await page.locator('.gp-review-card').count(), 1);
+    await page.reload();
+    await page.waitForSelector('#gp-review-toggle');
+    await page.evaluate(() => sessionStorage.setItem('gitlab-preview-review', '{壊れた JSON'));
+    await page.reload();
+    await page.waitForSelector('#gp-review-toggle');
+    await enter(page);
+    assert.equal(await page.locator('.gp-review-card').count(), 0);
+    await page.evaluate(() => sessionStorage.setItem('gitlab-preview-review', JSON.stringify({ version: 1, docs: { current: [{ id: '壊れた項目' }] } })));
+    await page.reload();
+    await page.waitForSelector('#gp-review-toggle');
+    await enter(page);
+    assert.equal(await page.locator('.gp-review-card').count(), 0);
+  });
+});
 
 // 編集では画面だけでなく、本物のファイルに残ったバイトも確かめる。
 async function editablePage(t, browser, text, options = {}) {

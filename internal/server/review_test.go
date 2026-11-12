@@ -310,6 +310,37 @@ func TestReviewErrors(t *testing.T) {
 	}
 }
 
+func TestReviewErrorIndex(t *testing.T) {
+	index := 0
+	rejected := &edit.Error{Status: 422, Code: "target", Message: "対象がありません。", Index: &index}
+	s, _, _ := fixture(t, func(o *Options) {
+		o.Review = &testReviewer{review: func(*string, uint64, []edit.ReviewTarget) (edit.ReviewDocument, []edit.ReviewItem, *edit.Error) {
+			return edit.ReviewDocument{}, nil, rejected
+		}}
+		o.Edit = &testEditor{apply: func(context.Context, *string, map[string]any) (any, *edit.Error) {
+			return nil, rejected
+		}}
+	})
+	for _, route := range []string{"_/review/prepare", "_/edit"} {
+		r := request(t, s, "POST", route, reviewBody, reviewHeaders(s))
+		var value struct {
+			Error struct {
+				Index *int `json:"index"`
+			} `json:"error"`
+		}
+		if r.status != 422 || json.Unmarshal([]byte(r.body), &value) != nil {
+			t.Fatal(r)
+		}
+		if route == "_/edit" {
+			if value.Error.Index != nil {
+				t.Fatal("編集の応答にコメントの番号がある", r.body)
+			}
+		} else if value.Error.Index == nil || *value.Error.Index != 0 {
+			t.Fatal("0 番目のコメントの誤りを返していない", r.body)
+		}
+	}
+}
+
 func TestReviewPreparationRetention(t *testing.T) {
 	var p reviewPreparations
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

@@ -39,12 +39,16 @@ func editJSON(conn net.Conn, r *http.Request, status int, value any) {
 }
 func editError(conn net.Conn, r *http.Request, e *edit.Error) {
 	// 原文の読み取りと境の検査は編集と共有するので、コメントの経路では形の誤りの文だけをコメントの文に替える。
-	if e.Code == "invalid" && e.Message == "編集の要求の形が正しくありません。" && isReviewPath(r) {
-		copy := *e
-		copy.Message = reviewInvalid().Message
-		e = &copy
+	message := e.Message
+	if e.Code == "invalid" && message == "編集の要求の形が正しくありません。" && isReviewPath(r) {
+		message = reviewInvalid().Message
 	}
-	value := map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}}
+	detail := map[string]any{"code": e.Code, "message": message}
+	// コメントの経路では、断った対象の番号（0 始まり）を返し、ページがそのカードに印を付ける。
+	if isReviewPath(r) && e.Index != nil {
+		detail["index"] = *e.Index
+	}
+	value := map[string]any{"error": detail}
 	if e.Outer != nil {
 		value["outer"] = e.Outer
 	}
