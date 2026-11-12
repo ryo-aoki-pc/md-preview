@@ -137,6 +137,7 @@
   const findBlock = (target) => target?.tag === 'html' ? preview.findHTML(target)[0] : target && preview.findSource(target.tag, target.range);
   function rawBlockOf(element) {
     if (!element?.closest || !element.closest('#gp-content') || element.closest('table, .section-nav, .markdown-code-block, section[data-footnotes]')) return null;
+    // 生の HTML の表（位置を持たない table）は、表のセルの編集が扱うので、ここでは開かない。
     // 位置を持つ祖先の内側は、今までどおりそのブロックの原文で扱う。
     if (element.closest('[data-sourcepos]')) return null;
     return preview.htmlOf(element);

@@ -122,7 +122,7 @@ func (s *Service) insertBlock(ctx context.Context, src session.Source, r request
 	}
 	delta := strings.Count(added, "\n")
 	if !insertionPreserves(ctx, m, after, src.HTML, trial.HTML, cut, delta) ||
-		!insertionHTMLPreserves(ctx, m, after, src.HTML, trial.HTML, cut, delta, anchor.tag != "html" && m.rawRunOf(ctx, src, anchor) != nil) {
+		!insertionHTMLPreserves(ctx, m, after, src.HTML, trial.HTML, cut, delta, anchor) {
 		return "", fault(422, "insert", "追加した文が前後のブロックに取り込まれます。")
 	}
 	return text, nil
@@ -195,10 +195,27 @@ func insertionPreserves(ctx context.Context, m, after *blockMapping, oldHTML, ne
 // 位置のない節点も、追加点の外では最上位の並びと形（要素名・入れ子・文字）を保つ。
 // 追加点のある並びへ節点が増える場合は、既存の節点が同じ形のまま残れば受ける。
 // 要素名だけで比べると、文書の最後の連なりの前に閉じない要素を足して、既存の節点を中へ取り込む形を見逃す。
-// 追加先が生の HTML の中にあるとき（inside）は、その節点の中身が増えるので、追加点のある並びだけ要素名で比べる。
-func insertionHTMLPreserves(ctx context.Context, m, after *blockMapping, oldHTML, newHTML string, cut, delta int, inside bool) bool {
+// 追加先が生の HTML の中にあるときは、追加先を中に持つ節点だけ、中身が増えるので要素名で比べる。
+// 同じ並びにいるほかの節点は、形で比べる（追加した文が、隣の節点を取り込む形を断る）。
+func insertionHTMLPreserves(ctx context.Context, m, after *blockMapping, oldHTML, newHTML string, cut, delta int, anchor *block) bool {
 	bucket := 0
-	type shape struct{ tag, signature string }
+	type shape struct {
+		tag, signature string
+		holds          bool
+	}
+	// 追加先（位置を持つ対象）を中に持つ節点かどうか。連なりそのものが追加先のときは、どの節点も持たない。
+	holds := func(n *html.Node) bool {
+		found := false
+		if anchor.tag != "html" {
+			_ = htmltree.Walk(ctx, n, func(c *html.Node) error {
+				if c.Type == html.ElementNode && c.Data == anchor.tag && htmltree.Get(c, "data-sourcepos") == string(anchor.public) {
+					found = true
+				}
+				return nil
+			})
+		}
+		return found
+	}
 	collect := func(markup string, mapping *blockMapping, before bool) ([][]shape, error) {
 		root, err := htmltree.Fragment(ctx, markup)
 		if err != nil {
@@ -226,9 +243,9 @@ func insertionHTMLPreserves(ctx context.Context, m, after *blockMapping, oldHTML
 					bucket = len(groups) - 1
 				}
 			} else if n.Type == html.ElementNode {
-				groups[len(groups)-1] = append(groups[len(groups)-1], shape{n.Data, mapping.htmlSignature(n)})
+				groups[len(groups)-1] = append(groups[len(groups)-1], shape{n.Data, mapping.htmlSignature(n), before && holds(n)})
 			} else if n.Type == html.TextNode && strings.TrimSpace(n.Data) != "" {
-				groups[len(groups)-1] = append(groups[len(groups)-1], shape{"text", mapping.htmlSignature(n)})
+				groups[len(groups)-1] = append(groups[len(groups)-1], shape{"text", mapping.htmlSignature(n), false})
 			}
 		}
 		return groups, nil
@@ -250,7 +267,7 @@ func insertionHTMLPreserves(ctx context.Context, m, after *blockMapping, oldHTML
 		}
 		index := 0
 		for _, candidate := range next[i] {
-			if index < len(group) && candidate.tag == group[index].tag && (inside || candidate.signature == group[index].signature) {
+			if index < len(group) && candidate.tag == group[index].tag && (group[index].holds || candidate.signature == group[index].signature) {
 				index++
 			}
 		}

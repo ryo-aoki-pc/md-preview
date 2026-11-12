@@ -58,6 +58,9 @@ func TestHTMLRangesAndWrites(t *testing.T) {
 		{"リンクの参照の定義の前", "前 [r]\n\n", "<div>x</div>", "\n\n[r]: http://example.com\n"},
 		{"定義に挟まれる", "[a]: http://example.com/a\n[b]: http://example.com/b\n\n", "<div>x</div>", "\n\n[^1]: 注\n\n本文[^1] [a] [b]\n"},
 		// 定義の形の行が連なりの中の文字として描かれているときは、候補から外さない。
+		// 閉じていないコメントの中の行は描かれないが、連なりの原文の一部。外した行を印の段落に替える試しの描画で見分ける。
+		{"閉じていないコメントの中の定義の形の行", "前\n\n", "<div>a</div>\n\n<!--\nメモ\n\n[x]: y", "\n"},
+		{"文書の先頭の連なり", "", "<details>\n<summary>題</summary>\n</details>", "\n\n後\n"},
 		{"閉じていない pre の中の定義の形の行", "前\n\n", "<pre>\ntext\n\n[x]: y", "\n"},
 	} {
 		for _, mode := range []Mode{File, Buffer} {
@@ -84,7 +87,16 @@ func TestHTMLRangesAndWrites(t *testing.T) {
 					if h.src.HTML != originalHTML {
 						t.Fatal("公開の HTML が変わった")
 					}
-					if h.trials != 1 {
+					// 定義だけの段を外したときは、外した行が連なりの外にあることも試しの描画で確かめる（2 回）。
+					// 外した行が連なりの一部だったとき（閉じていないコメントの中）は、外さない候補で確かめ直す（3 回）。
+					trials := 1
+					switch c.name {
+					case "脚注の定義の後", "リンクの参照の定義の前", "定義に挟まれる":
+						trials = 2
+					case "閉じていないコメントの中の定義の形の行":
+						trials = 3
+					}
+					if h.trials != trials {
 						t.Fatalf("取得と確かめ済みの再利用=%d", h.trials)
 					}
 					replacement := "<div>変更</div>"
@@ -251,6 +263,11 @@ func TestHTMLInsertKeepsRawNodes(t *testing.T) {
 	}
 	// 生の HTML の中の段落は、それ自身が追加先。中へ足すと包みの中身が増えるが、最上位の並びは変わらないので受ける。
 	text := "前\n\n<details>\n<summary>題</summary>\n\n中\n\n</details>\n\n<div>後ろの連なり</div>\n"
+	// 中への追加でも、同じ並びにいるほかの節点（後ろの div）を取り込む形は断る。
+	s, h := testService(t, engine, text, nil)
+	if _, e := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render, "insert": map[string]any{"anchor": "6:1-6:3", "side": "after"}, "text": "</details>\n\n<div>"}); e == nil || e.Code != "insert" || disk(t, h) != text {
+		t.Fatalf("隣の節点を取り込む追加=%v", e)
+	}
 	for _, added := range []string{"追加", "~~~js\ncode\n~~~", "<div>中の HTML</div>"} {
 		s, h := testService(t, engine, text, nil)
 		if _, e := s.Apply(context.Background(), nil, map[string]any{"render": h.src.Render, "insert": map[string]any{"anchor": "6:1-6:3", "side": "after"}, "text": added}); e != nil {

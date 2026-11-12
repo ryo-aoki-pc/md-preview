@@ -191,7 +191,16 @@ func (m *blockMapping) rawRunOf(ctx context.Context, src session.Source, b *bloc
 	return nil
 }
 
-func (m *blockMapping) htmlCandidate(src session.Source, run *htmlRun) (*block, *Error) {
+// htmlCandidate は、連なりの候補の行を返す。
+// trim が真なら、両端の「リンクの参照や脚注の定義だけの段」を外し、外した行（展開後の最初と最後の行。無ければ 0）も返す。
+// 外した行が本当に連なりの外にあるかは、呼ぶ側が試しの描画で確かめる（definitionsOutside）。
+func (m *blockMapping) htmlCandidate(src session.Source, run *htmlRun, trim bool) (*block, [2][2]int, *Error) {
+	var trimmed [2][2]int
+	candidate, e := m.htmlCandidateLines(src, run, trim, &trimmed)
+	return candidate, trimmed, e
+}
+
+func (m *blockMapping) htmlCandidateLines(src session.Source, run *htmlRun, trim bool, trimmed *[2][2]int) (*block, *Error) {
 	lines := strings.Split(src.Text, "\n")
 	first, last := 1, src.Lines.Expanded(len(lines))
 	if run.prev != nil {
@@ -246,6 +255,9 @@ func (m *blockMapping) htmlCandidate(src session.Source, run *htmlRun) (*block, 
 	// 両端の、リンクの参照や脚注の定義だけの段（空行で区切った行のまとまり）は、連なりを作らないので候補から外す。
 	// 候補に入れると、試しの描画で参照や脚注が消えて、連なりの全部を断ることになる。
 	// 定義の形の行が、連なりの中の文字として描かれている場合（閉じていない pre の中など）は外さない。
+	// 閉じていないコメントの中のように、描かれない形で連なりの一部になっている行は、ここでは見分けられない。
+	// 外した行が連なりの外にあることは、呼ぶ側が試しの描画で確かめる。
+	outerFirst, outerLast := first, last
 	runText := ""
 	for _, n := range run.nodes {
 		runText += htmltree.Content(n)
@@ -281,12 +293,35 @@ func (m *blockMapping) htmlCandidate(src session.Source, run *htmlRun) (*block, 
 			from = n
 		}
 	}
-	var e *Error
-	if first, e = definitions(first, 1); e != nil {
-		return nil, blockFault("boundary")
-	}
-	if last, e = definitions(last, -1); e != nil {
-		return nil, blockFault("boundary")
+	if trim {
+		head, e := definitions(first, 1)
+		if e != nil {
+			return nil, blockFault("boundary")
+		}
+		tail, e := definitions(last, -1)
+		if e != nil || head > tail {
+			return nil, blockFault("boundary")
+		}
+		first, last = head, tail
+		// 外した行は、空行でない最初と最後の行で表す。
+		blank := func(n int) bool {
+			line, e := blockLine(src, lines, n)
+			return e == nil && strings.TrimSpace(line) == ""
+		}
+		if first > outerFirst {
+			end := first - 1
+			for end > outerFirst && blank(end) {
+				end--
+			}
+			trimmed[0] = [2]int{outerFirst, end}
+		}
+		if last < outerLast {
+			start := last + 1
+			for start < outerLast && blank(start) {
+				start++
+			}
+			trimmed[1] = [2]int{start, outerLast}
+		}
 	}
 	head, e := blockLine(src, lines, first)
 	if e != nil {
@@ -328,25 +363,38 @@ func (s *Service) verifyHTML(ctx context.Context, src session.Source, m *blockMa
 			return nil, run.reason
 		}
 	}
-	candidate, e := m.htmlCandidate(src, run)
-	if e != nil {
-		return nil, run.reason
+	// 定義だけの段を外した候補を先に試す。外した行が連なりの外にあると確かめられなければ、外さない候補で確かめ直す。
+	var tried Range
+	for _, trim := range []bool{true, false} {
+		candidate, trimmed, e := m.htmlCandidate(src, run, trim)
+		if e != nil || candidate.actual == tried {
+			continue
+		}
+		tried = candidate.actual
+		if !s.verifyCandidate(ctx, src, m, run, candidate) {
+			continue
+		}
+		if trimmed != [2][2]int{} && !s.definitionsOutside(ctx, src, trimmed) {
+			continue
+		}
+		run.block, run.reason = *candidate, nil
+		return &run.block, nil
 	}
+	return nil, run.reason
+}
+
+// verifyCandidate は、候補の行を印の段落に置き換えた試しの描画で、候補が連なりだけを作ることを確かめる。
+func (s *Service) verifyCandidate(ctx context.Context, src session.Source, m *blockMapping, run *htmlRun, candidate *block) bool {
 	actual, start, end, line := candidate.actual, candidate.start, candidate.end, candidate.line
 	c, _ := coordinates(actual)
 	first, last := c[0], c[2]
 	lines := strings.Split(src.Text, "\n")
-	var entropy [16]byte
-	_, _ = rand.Read(entropy[:])
-	marker := "gphtml" + hex.EncodeToString(entropy[:])
-	for strings.Contains(src.Text, marker) {
-		marker += "x"
-	}
+	marker := htmlMarker(src.Text)
 	replacement := marker
 	if first > 1 {
 		prev, e := blockLine(src, lines, first-1)
 		if e != nil {
-			return nil, run.reason
+			return false
 		}
 		if strings.TrimSpace(prev) != "" {
 			replacement = "\n" + replacement
@@ -355,7 +403,7 @@ func (s *Service) verifyHTML(ctx context.Context, src session.Source, m *blockMa
 	if last < src.Lines.Expanded(len(lines)) {
 		next, e := blockLine(src, lines, last+1)
 		if e != nil {
-			return nil, run.reason
+			return false
 		}
 		if strings.TrimSpace(next) != "" {
 			replacement += "\n"
@@ -365,34 +413,34 @@ func (s *Service) verifyHTML(ctx context.Context, src session.Source, m *blockMa
 	text := src.Text[:start] + replacement + src.Text[end:]
 	trial, err := s.opts.Host.Trial(ctx, src, text)
 	if err != nil {
-		return nil, run.reason
+		return false
 	}
 	next := src
 	next.Text, next.HTML, next.Lines = text, trial.HTML, trial.Source
 	next.HasSourcepos, next.SourceposInput = trial.HasSourcepos, trial.SourceposInput
 	after, e := s.buildBlocks(ctx, next)
 	if e != nil {
-		return nil, run.reason
+		return false
 	}
 	oldRoot, err := htmltree.Fragment(ctx, src.HTML)
 	if err != nil {
-		return nil, run.reason
+		return false
 	}
 	newRoot, err := htmltree.Fragment(ctx, trial.HTML)
 	if err != nil {
-		return nil, run.reason
+		return false
 	}
 	var mark *html.Node
 	for n := newRoot.FirstChild; n != nil; n = n.NextSibling {
 		if n.Type == html.ElementNode && n.Data == "p" && n.FirstChild != nil && n.FirstChild == n.LastChild && n.FirstChild.Type == html.TextNode && n.FirstChild.Data == marker && after.htmlBoundary(n) != nil {
 			if mark != nil {
-				return nil, run.reason
+				return false
 			}
 			mark = n
 		}
 	}
 	if mark == nil {
-		return nil, run.reason
+		return false
 	}
 	// 同じ断片を読み直した木から、連なりの節点を同じ最上位の番号で取り除く。
 	remove := map[int]bool{}
@@ -414,17 +462,77 @@ func (s *Service) verifyHTML(ctx context.Context, src session.Source, m *blockMa
 		n = following
 	}
 	if !slices.Equal(m.htmlShape(oldRoot, oldMark), after.htmlShape(newRoot, mark)) {
-		return nil, run.reason
+		return false
 	}
 	oldRoot.RemoveChild(oldMark)
 	newRoot.RemoveChild(mark)
 	delta := strings.Count(replacement, "\n") - strings.Count(src.Text[start:end], "\n")
 	if !insertionPreserves(ctx, m, after, renderHTMLRoot(oldRoot), renderHTMLRoot(newRoot), last+1, delta) {
-		return nil, run.reason
+		return false
 	}
-	run.block = block{tag: "html", kind: "html", public: actual, actual: actual, start: start, end: end, line: line, outer: -1}
-	run.reason = nil
-	return &run.block, nil
+	return true
+}
+
+// htmlMarker は、文書に無い英数字だけの語を作る。
+func htmlMarker(text string) string {
+	var entropy [16]byte
+	_, _ = rand.Read(entropy[:])
+	marker := "gphtml" + hex.EncodeToString(entropy[:])
+	for strings.Contains(text, marker) {
+		marker += "x"
+	}
+	return marker
+}
+
+// definitionsOutside は、候補から外した定義の行が、連なりの HTML のブロックの外にあることを確かめる。
+// 外した行を、空行で挟んだ印の語に置き換えて試しに描く。印が位置を持つ段落として出れば、
+// その行は Markdown のブロックとして読まれている（連なりとは別のブロック）。
+// 閉じていないコメントや pre・script の中の行なら、印は段落にならない。その行は連なりの原文の一部なので、候補から外せない。
+func (s *Service) definitionsOutside(ctx context.Context, src session.Source, trimmed [2][2]int) bool {
+	lines := strings.Split(src.Text, "\n")
+	text := src.Text
+	markers := []string{}
+	// 後ろから置き換えて、前の位置をずらさない。
+	for i := 1; i >= 0; i-- {
+		if trimmed[i][0] == 0 {
+			continue
+		}
+		tail, e := blockLine(src, lines, trimmed[i][1])
+		if e != nil {
+			return false
+		}
+		start, end, line, e := offsets(src, rangeOf([4]int{trimmed[i][0], 1, trimmed[i][1], len(tail)}))
+		if e != nil {
+			return false
+		}
+		marker, ending := htmlMarker(text), newlineAt(src.Text, line)
+		text = text[:start] + ending + marker + ending + text[end:]
+		markers = append(markers, marker)
+	}
+	trial, err := s.opts.Host.Trial(ctx, src, text)
+	if err != nil {
+		return false
+	}
+	root, err := htmltree.Fragment(ctx, trial.HTML)
+	if err != nil {
+		return false
+	}
+	found := map[string]int{}
+	if err := htmltree.Walk(ctx, root, func(n *html.Node) error {
+		if n.Type == html.ElementNode && n.Data == "p" && htmltree.Has(n, "data-sourcepos") &&
+			n.FirstChild != nil && n.FirstChild == n.LastChild && n.FirstChild.Type == html.TextNode {
+			found[n.FirstChild.Data]++
+		}
+		return nil
+	}); err != nil {
+		return false
+	}
+	for _, marker := range markers {
+		if found[marker] != 1 {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) htmlWritable(ctx context.Context, src session.Source, m *blockMapping, r Range) (*block, *Error) {
@@ -433,11 +541,20 @@ func (s *Service) htmlWritable(ctx context.Context, src session.Source, m *block
 		return nil, e
 	}
 	for _, run := range runs {
-		candidate, e := m.htmlCandidate(src, run)
-		if e != nil || candidate.actual != r {
+		// 定義だけの段を外した候補と、外さない候補のどちらかが一致する連なりだけを確かめる。
+		match := false
+		for _, trim := range []bool{true, false} {
+			if candidate, _, e := m.htmlCandidate(src, run, trim); e == nil && candidate.actual == r {
+				match = true
+			}
+		}
+		if !match {
 			continue
 		}
 		b, e := s.verifyHTML(ctx, src, m, run)
+		if e == nil && b.actual != r {
+			return nil, blockFault("target")
+		}
 		return b, e
 	}
 	return nil, blockFault("target")
