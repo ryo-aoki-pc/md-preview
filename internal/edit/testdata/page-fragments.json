@@ -15,6 +15,8 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [],
         "warnings": [],
         "cells": [
           {
@@ -28,7 +30,8 @@
             "raw": false,
             "source": "見出し",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -41,7 +44,8 @@
             "raw": false,
             "source": "二列",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -54,7 +58,8 @@
             "raw": false,
             "source": "本文",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -67,7 +72,8 @@
             "raw": false,
             "source": "値",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
@@ -155,6 +161,8 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [],
         "warnings": [],
         "cells": [
           {
@@ -168,7 +176,8 @@
             "raw": false,
             "source": "見出し",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -181,7 +190,8 @@
             "raw": false,
             "source": "二列",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -194,7 +204,8 @@
             "raw": false,
             "source": "本文",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -207,7 +218,8 @@
             "raw": false,
             "source": "値",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
@@ -277,6 +289,8 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [],
         "warnings": [],
         "cells": [
           {
@@ -290,7 +304,8 @@
             "raw": false,
             "source": "見出し",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -303,7 +318,8 @@
             "raw": false,
             "source": "二列",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -316,7 +332,8 @@
             "raw": false,
             "source": "本文",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -329,7 +346,8 @@
             "raw": false,
             "source": "値",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
@@ -398,6 +416,8 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [],
         "warnings": [],
         "cells": [
           {
@@ -411,7 +431,8 @@
             "raw": false,
             "source": "見出し",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -424,7 +445,8 @@
             "raw": false,
             "source": "二列",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -437,7 +459,8 @@
             "raw": false,
             "source": "本文",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -450,7 +473,8 @@
             "raw": false,
             "source": "値",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
@@ -510,6 +534,8 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [],
         "warnings": [],
         "cells": [
           {
@@ -523,7 +549,8 @@
             "raw": false,
             "source": "見出し",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -536,7 +563,8 @@
             "raw": false,
             "source": "二列",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -549,7 +577,8 @@
             "raw": false,
             "source": "本文",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -562,7 +591,8 @@
             "raw": false,
             "source": "値",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
@@ -650,6 +680,8 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [],
         "warnings": [],
         "cells": [
           {
@@ -663,7 +695,8 @@
             "raw": false,
             "source": "見出し",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -676,7 +709,8 @@
             "raw": false,
             "source": "二列",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -689,7 +723,8 @@
             "raw": false,
             "source": "本文",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -702,7 +737,8 @@
             "raw": false,
             "source": "値",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
@@ -790,6 +826,8 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [],
         "warnings": [],
         "cells": [
           {
@@ -803,7 +841,8 @@
             "raw": false,
             "source": "見出し",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -816,7 +855,8 @@
             "raw": false,
             "source": "二列",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -829,7 +869,8 @@
             "raw": false,
             "source": "本文",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -842,7 +883,8 @@
             "raw": false,
             "source": "値",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "66188e3f7e21e2edf9fbf75cfadcf427ac1530ed1c72e990e11819c53db3aaf8",
@@ -930,6 +972,21 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [
+          {
+            "tag": "thead",
+            "explicit": true,
+            "first_row": 0,
+            "rows": 1
+          },
+          {
+            "tag": "tbody",
+            "explicit": true,
+            "first_row": 1,
+            "rows": 2
+          }
+        ],
         "warnings": [],
         "cells": [
           {
@@ -943,7 +1000,8 @@
             "raw": false,
             "source": "A",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -956,7 +1014,8 @@
             "raw": false,
             "source": "B",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -969,7 +1028,8 @@
             "raw": true,
             "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
             "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -982,7 +1042,8 @@
             "raw": true,
             "source": "B\u0026amp;C",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 2,
@@ -995,7 +1056,8 @@
             "raw": true,
             "source": "\u003cem\u003e後\u003c/em\u003e",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
@@ -1094,6 +1156,21 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [
+          {
+            "tag": "thead",
+            "explicit": true,
+            "first_row": 0,
+            "rows": 1
+          },
+          {
+            "tag": "tbody",
+            "explicit": true,
+            "first_row": 1,
+            "rows": 2
+          }
+        ],
         "warnings": [],
         "cells": [
           {
@@ -1107,7 +1184,8 @@
             "raw": false,
             "source": "A",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -1120,7 +1198,8 @@
             "raw": false,
             "source": "B",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -1133,7 +1212,8 @@
             "raw": true,
             "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
             "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -1146,7 +1226,8 @@
             "raw": true,
             "source": "B\u0026amp;C",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 2,
@@ -1159,7 +1240,8 @@
             "raw": true,
             "source": "\u003cem\u003e後\u003c/em\u003e",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
@@ -1239,6 +1321,21 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [
+          {
+            "tag": "thead",
+            "explicit": true,
+            "first_row": 0,
+            "rows": 1
+          },
+          {
+            "tag": "tbody",
+            "explicit": true,
+            "first_row": 1,
+            "rows": 2
+          }
+        ],
         "warnings": [],
         "cells": [
           {
@@ -1252,7 +1349,8 @@
             "raw": false,
             "source": "A",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -1265,7 +1363,8 @@
             "raw": false,
             "source": "B",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -1278,7 +1377,8 @@
             "raw": true,
             "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
             "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -1291,7 +1391,8 @@
             "raw": true,
             "source": "B\u0026amp;C",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 2,
@@ -1304,7 +1405,8 @@
             "raw": true,
             "source": "\u003cem\u003e後\u003c/em\u003e",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
@@ -1403,6 +1505,21 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [
+          {
+            "tag": "thead",
+            "explicit": true,
+            "first_row": 0,
+            "rows": 1
+          },
+          {
+            "tag": "tbody",
+            "explicit": true,
+            "first_row": 1,
+            "rows": 2
+          }
+        ],
         "warnings": [],
         "cells": [
           {
@@ -1416,7 +1533,8 @@
             "raw": false,
             "source": "A",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -1429,7 +1547,8 @@
             "raw": false,
             "source": "B",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -1442,7 +1561,8 @@
             "raw": true,
             "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
             "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -1455,7 +1575,8 @@
             "raw": true,
             "source": "B\u0026amp;C",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 2,
@@ -1468,7 +1589,8 @@
             "raw": true,
             "source": "\u003cem\u003e後\u003c/em\u003e",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
@@ -1567,6 +1689,21 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [
+          {
+            "tag": "thead",
+            "explicit": true,
+            "first_row": 0,
+            "rows": 1
+          },
+          {
+            "tag": "tbody",
+            "explicit": true,
+            "first_row": 1,
+            "rows": 2
+          }
+        ],
         "warnings": [],
         "cells": [
           {
@@ -1580,7 +1717,8 @@
             "raw": false,
             "source": "A",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -1593,7 +1731,8 @@
             "raw": false,
             "source": "B",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -1606,7 +1745,8 @@
             "raw": true,
             "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
             "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -1619,7 +1759,8 @@
             "raw": true,
             "source": "B\u0026amp;C",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 2,
@@ -1632,7 +1773,8 @@
             "raw": true,
             "source": "\u003cem\u003e後\u003c/em\u003e",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
@@ -1731,6 +1873,21 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [
+          {
+            "tag": "thead",
+            "explicit": true,
+            "first_row": 0,
+            "rows": 1
+          },
+          {
+            "tag": "tbody",
+            "explicit": true,
+            "first_row": 1,
+            "rows": 2
+          }
+        ],
         "warnings": [],
         "cells": [
           {
@@ -1744,7 +1901,8 @@
             "raw": false,
             "source": "A",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -1757,7 +1915,8 @@
             "raw": false,
             "source": "B",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -1770,7 +1929,8 @@
             "raw": true,
             "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
             "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -1783,7 +1943,8 @@
             "raw": true,
             "source": "B\u0026amp;C",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 2,
@@ -1796,7 +1957,8 @@
             "raw": true,
             "source": "\u003cem\u003e後\u003c/em\u003e",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
@@ -1864,6 +2026,21 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [
+          {
+            "tag": "thead",
+            "explicit": true,
+            "first_row": 0,
+            "rows": 1
+          },
+          {
+            "tag": "tbody",
+            "explicit": true,
+            "first_row": 1,
+            "rows": 2
+          }
+        ],
         "warnings": [],
         "cells": [
           {
@@ -1877,7 +2054,8 @@
             "raw": false,
             "source": "A",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -1890,7 +2068,8 @@
             "raw": false,
             "source": "B",
             "tag": "\u003cth\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -1903,7 +2082,8 @@
             "raw": true,
             "source": "\u003cstrong\u003e複雑\u003c/strong\u003e",
             "tag": "\u003ctd style='color:red' rowspan=\"2\"\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 1,
@@ -1916,7 +2096,8 @@
             "raw": true,
             "source": "B\u0026amp;C",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 2,
@@ -1929,7 +2110,8 @@
             "raw": true,
             "source": "\u003cem\u003e後\u003c/em\u003e",
             "tag": "\u003ctd\u003e",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           }
         ],
         "hash": "34d834f7374ad2ed132018daecafc74d90974fb3f25d2876d03399261e0c177e",
@@ -1969,6 +2151,8 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [],
         "warnings": [],
         "cells": [
           {
@@ -1982,7 +2166,8 @@
             "raw": false,
             "source": "good",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -1995,7 +2180,8 @@
             "raw": false,
             "source": "tail\\",
             "tag": "",
-            "copyLocked": "このセルの原文は写しとして受け取れない（写しの 1 行 1 列: パイプのセルの原文が区切りを消す）"
+            "copyLocked": "このセルの原文は写しとして受け取れない（写しの 1 行 1 列: パイプのセルの原文が区切りを消す）",
+            "mergeLocked": ""
           }
         ],
         "hash": "16837ff7a430723b26bd60fd2a7a467f4683cf76bc46cd1e478b401fab28641b",
@@ -2034,6 +2220,8 @@
         "cols": 2,
         "rowsLocked": "",
         "colsLocked": "",
+        "cellsLocked": "",
+        "sections": [],
         "warnings": [],
         "cells": [
           {
@@ -2047,7 +2235,8 @@
             "raw": false,
             "source": "good",
             "tag": "",
-            "copyLocked": ""
+            "copyLocked": "",
+            "mergeLocked": ""
           },
           {
             "row": 0,
@@ -2060,7 +2249,8 @@
             "raw": false,
             "source": "tail\\",
             "tag": "",
-            "copyLocked": "このセルの原文は写しとして受け取れない（写しの 1 行 1 列: パイプのセルの原文が区切りを消す）"
+            "copyLocked": "このセルの原文は写しとして受け取れない（写しの 1 行 1 列: パイプのセルの原文が区切りを消す）",
+            "mergeLocked": ""
           }
         ],
         "hash": "16837ff7a430723b26bd60fd2a7a467f4683cf76bc46cd1e478b401fab28641b",

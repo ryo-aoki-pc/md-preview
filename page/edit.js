@@ -929,7 +929,7 @@
     operationStart();
     item.tableElement = models[item.point?.table]?.table;
     item.version = externalVersion;
-    item.structural = Boolean(item.insert || item.history || /^(insert|delete|duplicate|move|convert)/.test(item.op?.type || ''));
+    item.structural = Boolean(item.insert || item.history || /^(insert|delete|duplicate|move|convert|merge|unmerge)/.test(item.op?.type || ''));
     if (first) queue.unshift(item);
     else queue.push(item);
     addMask(item);
@@ -1330,7 +1330,7 @@
     if (!cell) return 'セルを選んでください';
     if (stopped) return 'プレビューが止まっています';
     if (infoRender !== preview.current()?.render) return '表の情報を読み込んでいます';
-    if (action === 'table') return '';
+    if (action === 'table' || action === 'cells') return '';
     if (action === 'table-before' || action === 'table-after') {
       if (busy || queue.length || sourceFetching) return '前の書き込みの反映を待っています';
       if (composing) return '文字の入力を終えてから操作してください';
@@ -1342,6 +1342,12 @@
     const model = models[cell.table], info = model.info, rect = actionRect(action);
     if (!rect) return '範囲を選び直してください';
     if (selecting) return '';
+    if (action === 'cell-merge' || action === 'cell-unmerge') {
+      if (composing || sourceFetching) return '文字の入力を終えてから操作してください';
+      if (model.rows.slice(rect.row, rect.row + rect.rows).some((row) => getComputedStyle(row).display === 'none'))
+        return '表の検索で隠れた行をまたいでいます。検索を解除してから選び直してください';
+      return action === 'cell-merge' ? editGrid.mergeReason(info, rect) : editGrid.unmergeReason(info, cell, rect);
+    }
     if (action === 'table-html' || action === 'table-pipe' || action === 'table-delete') {
       if (sourceFetching) return '前の書き込みの反映を待っています';
       if (composing) return '文字の入力を終えてから操作してください';
@@ -1384,6 +1390,7 @@
     for (const { menu, action, item, description } of menuItems) {
       if (!openMenus.some((entry) => entry.menu === menu)) continue;
       const reason = reasonFor(action);
+      if (action === 'cell-merge') item.textContent = models[selected?.table]?.info.kind === 'pipe' ? 'HTML の表にして結合' : '結合';
       if (/^(row|col)-insert-/.test(action)) {
         const [axis, , side] = action.split('-'), row = axis === 'row';
         const count = lastCopy?.fragment?.[row ? 'rows' : 'cols'];
@@ -1422,7 +1429,7 @@
       item.setAttribute('role', 'menuitem');
       item.tabIndex = -1;
       item.dataset.action = action;
-      if (['rows', 'cols', 'table'].includes(action)) {
+      if (['rows', 'cols', 'cells', 'table'].includes(action)) {
         item.setAttribute('aria-haspopup', 'menu');
         item.setAttribute('aria-expanded', 'false');
         item.setAttribute('aria-controls', 'gp-edit-menu-' + action);
@@ -1436,7 +1443,7 @@
       item.addEventListener('pointerover', () => showMenuReason(menu, item));
       item.addEventListener('click', () => {
         if (reasonFor(action)) { updateMenus(); showMenuReason(menu, item); return; }
-        if (['rows', 'cols', 'table'].includes(action)) openSubmenu(action, item);
+        if (['rows', 'cols', 'cells', 'table'].includes(action)) openSubmenu(action, item);
         else runAction(action);
       });
     }
@@ -1456,8 +1463,9 @@
     ]);
   }
   buildMenu('cell', 'セルの操作', [['copy', 'コピー（Ctrl+C）', 'cell-copy'], ['cut', '切り取り（Ctrl+X）', 'cell-cut'],
-    ['paste', '貼り付け（Ctrl+V）', 'cell-paste'], null, ['rows', '行', 'cell-rows'], ['cols', '列', 'cell-cols'], ['table', '表', 'cell-table'], null,
+    ['paste', '貼り付け（Ctrl+V）', 'cell-paste'], null, ['rows', '行', 'cell-rows'], ['cols', '列', 'cell-cols'], ['cells', 'セル', 'cell-cells'], ['table', '表', 'cell-table'], null,
     ['source', '原文を編集', 'cell-source']]);
+  buildMenu('cells', 'セルの結合と解除', [['cell-merge', '結合'], ['cell-unmerge', '結合を解除']]);
   buildMenu('table', '表の操作', [['table-before', '表の前にブロックを追加'], ['table-after', '表の後ろにブロックを追加'], null,
     ['table-html', 'HTML の表にする'], ['table-pipe', 'パイプの表にする'], ['table-delete', '表を削除']]);
   buildMenu('document', '文書への追加', [['document-start', '文書の先頭に追加'], ['document-end', '文書の末尾に追加']]);
@@ -1570,7 +1578,11 @@
       selectRange(selected.table, rect, action.startsWith('row-') ? 'rows' : 'cols', true);
       return;
     }
-    if (action === 'table-html' || action === 'table-pipe')
+    if (action === 'cell-merge')
+      enqueue({ point: { ...selected }, op: { type: model.info.kind === 'pipe' ? 'mergeCellsAsHTML' : 'mergeCells', ...rect } });
+    else if (action === 'cell-unmerge')
+      enqueue({ point: { ...selected }, op: { type: 'unmergeCells', row: selected.row, col: selected.col } });
+    else if (action === 'table-html' || action === 'table-pipe')
       enqueue({ point: { ...selected }, op: { type: 'convert', to: action.slice('table-'.length) } });
     else if (action === 'table-delete') enqueue({ point: { ...selected }, op: { type: 'deleteTable' } });
     else if (action === 'clear') {
@@ -1597,7 +1609,7 @@
         return true;
       }
       const action = [...buttons].find(([, button]) => button === document.activeElement)?.[0];
-      if (!['rows', 'cols', 'table'].includes(action) || buttons.get(action).disabled || !['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(key)) return false;
+      if (!['rows', 'cols', 'cells', 'table'].includes(action) || buttons.get(action).disabled || !['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(key)) return false;
       openMenu(action, buttons.get(action), { last: key === 'ArrowUp' });
     } else {
       const menu = openMenus.at(-1).menu;
@@ -1617,19 +1629,19 @@
     event.stopImmediatePropagation();
     return true;
   }
-  for (const [action, label] of [['rows', '行'], ['cols', '列'], ['table', '表'], ['source', '原文を編集'], ['undo', '元に戻す'], ['redo', 'やり直し']]) {
+  for (const [action, label] of [['rows', '行'], ['cols', '列'], ['cells', 'セル'], ['table', '表'], ['source', '原文を編集'], ['undo', '元に戻す'], ['redo', 'やり直し']]) {
     if ((action === 'undo' || action === 'redo') && !config.undo) continue;
     const button = make('button', 'gp-edit-' + action, bar);
     button.type = 'button';
     button.textContent = label;
     buttons.set(action, button);
-    if (['rows', 'cols', 'table'].includes(action)) {
+    if (['rows', 'cols', 'cells', 'table'].includes(action)) {
       button.setAttribute('aria-haspopup', 'menu');
       button.setAttribute('aria-expanded', 'false');
       button.setAttribute('aria-controls', 'gp-edit-menu-' + action);
     }
     button.addEventListener('click', () => {
-      if (['rows', 'cols', 'table'].includes(action)) {
+      if (['rows', 'cols', 'cells', 'table'].includes(action)) {
         if (button.getAttribute('aria-expanded') === 'true') closeMenus();
         else openMenu(action, button);
       } else runAction(action);

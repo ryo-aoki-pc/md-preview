@@ -1381,9 +1381,11 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     await page.locator('#gp-content td').first().click({ button: 'right' });
     const cellMenu = page.locator('#gp-edit-menu-cell'), rows = page.locator('#gp-edit-menu-rows'), cols = page.locator('#gp-edit-menu-cols');
     assert.equal(await cellMenu.getAttribute('role'), 'menu');
-    assert.equal(await page.locator('#gp-edit-actions > button').count(), 6);
+    // 操作欄は「行」「列」「セル」「表」「原文を編集」「元に戻す」「やり直し」。
+    assert.equal(await page.locator('#gp-edit-actions > button').count(), 7);
     assert.equal(await page.locator('#gp-edit-actions [role="menu"]').count(), 0);
-    assert.equal(await page.locator('#gp-edit-layer > [role="menu"]').count(), 5);
+    // メニューは行・列・セルの操作・セルの結合と解除・表・文書への追加。
+    assert.equal(await page.locator('#gp-edit-layer > [role="menu"]').count(), 6);
     assert.equal(await page.locator('#gp-edit-cell-rows').getAttribute('role'), 'menuitem');
     for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
@@ -5236,6 +5238,105 @@ test('最上位の表の前後への追加と、追加欄で空の表を入れ�
     assert.equal(await newTable.locator('tbody tr').count(), 3);
     const want = location === 'block' ? '元\n\n' + inserted + '\n\n' + pipe : original + '\n' + inserted + '\n';
     assert.equal(readFileSync(file, 'utf8'), want);
+  });
+});
+
+test('セルメニューで結合・解除・変換して結合と、一手の取り消しを確かめる', { skip }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const pipe = '| 見出し | 次 | 外 |\n| --- | --- | --- |\n| 左上 | 消す | 外1 |\n| 消す2 | 消す3 | 外2 |\n';
+  const html = '<table>\n<thead><tr><th>見出し</th><th>次</th><th>外</th></tr></thead>\n<tbody><tr><td align="center">左上</td><td>消す</td><td>外1</td></tr>\n<tr><td>消す2</td><td>消す3</td><td>外2</td></tr></tbody>\n</table>\n';
+  const open = async (page, context = false) => {
+    if (context) {
+      // 選択済みの範囲の左上から開く。右クリックで範囲を縮めない。
+      await page.locator('#gp-content td').first().click({ button: 'right' });
+      assert.equal(await page.locator('#gp-edit-cell-cells').getAttribute('aria-haspopup'), 'menu');
+      await page.locator('#gp-edit-cell-cells').focus();
+      await page.keyboard.press('ArrowRight');
+    } else {
+      assert.equal(await page.locator('#gp-edit-cells').getAttribute('aria-haspopup'), 'menu');
+      await page.locator('#gp-edit-cells').click();
+    }
+    assert.equal(await page.locator('#gp-edit-menu-cells').isVisible(), true);
+  };
+  const action = async (page, name) => {
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.locator('#gp-edit-cell-' + name).click();
+    assert.equal((await response).status(), 200);
+    await editIdle(page);
+  };
+  const atLeft = async (page) => {
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+    assert.equal(await page.evaluate(() => {
+      const selected = document.querySelector('#gp-edit-selection').getBoundingClientRect();
+      const cell = document.querySelector('#gp-content td').getBoundingClientRect();
+      return Math.abs(selected.left - cell.left) < 1 && Math.abs(selected.top - cell.top) < 1;
+    }), true);
+  };
+  for (const source of [pipe, html]) for (const ending of ['\n', '\r\n'])
+    await t.test((source === pipe ? 'パイプ' : 'HTML') + 'の結合と解除 ' + JSON.stringify(ending), async (t) => {
+      const original = ('前\n\n' + source + '\n後\n').replaceAll('\n', ending);
+      const { page, file } = await editablePage(t, browser, original);
+      await page.locator('#gp-content td').first().click();
+      await page.keyboard.press('Shift+ArrowRight');
+      await page.keyboard.press('Shift+ArrowDown');
+      await open(page, source === html);
+      assert.equal(await page.locator('#gp-edit-cell-merge').textContent(), source === pipe ? 'HTML の表にして結合' : '結合');
+      assert.equal(await page.locator('#gp-edit-cell-merge').getAttribute('aria-disabled'), 'false');
+      await action(page, 'merge');
+      const merged = readFileSync(file, 'utf8');
+      assert.notEqual(merged, original);
+      assert.equal(merged.includes('消す'), false);
+      assert.equal(merged.startsWith('前\n\n'.replaceAll('\n', ending)), true);
+      assert.equal(merged.endsWith('\n後\n'.replaceAll('\n', ending)), true);
+      assert.equal(await page.locator('#gp-content td').first().getAttribute('rowspan'), '2');
+      assert.equal(await page.locator('#gp-content td').first().getAttribute('colspan'), '2');
+      await atLeft(page);
+      // 変換と結合を一度で戻し、やり直してから解除する。
+      await page.locator('#gp-edit-undo').click();
+      await editIdle(page);
+      assert.equal(readFileSync(file, 'utf8'), original);
+      assert.equal(await page.locator('#gp-edit-undo').isEnabled(), false);
+      await page.locator('#gp-edit-redo').click();
+      await editIdle(page);
+      assert.equal(readFileSync(file, 'utf8'), merged);
+      await page.locator('#gp-content td').first().click();
+      await open(page, source === pipe);
+      assert.equal(await page.locator('#gp-edit-cell-unmerge').getAttribute('aria-disabled'), 'false');
+      await action(page, 'unmerge');
+      const unmerged = readFileSync(file, 'utf8');
+      assert.notEqual(unmerged, merged);
+      assert.equal(await page.locator('#gp-content td').count(), 6);
+      assert.equal(await page.locator('#gp-content td').first().getAttribute('colspan'), null);
+      assert.equal(await page.locator('#gp-edit-input').getAttribute('aria-label'), '表のセルの編集（2 行 2 列を選択中）');
+      await atLeft(page);
+      await page.locator('#gp-edit-undo').click();
+      await editIdle(page);
+      assert.equal(readFileSync(file, 'utf8'), merged);
+    });
+
+  for (const c of [
+    { name: '一セル', source: html, first: '#gp-content td', keys: [], reason: /1 セル/ },
+    { name: '区画', source: html, first: '#gp-content th', keys: ['Shift+ArrowRight', 'Shift+ArrowDown'], reason: /区画/ },
+    { name: 'パイプの見出しと本文', source: pipe, first: '#gp-content th', keys: ['Shift+ArrowRight', 'Shift+ArrowDown'], reason: /見出し行と本文/ },
+    { name: '結合の分断', source: '<table><tr><td>A</td><td rowspan="2">B</td><td>C</td></tr><tr><td>D</td><td>E</td></tr></table>\n', first: '#gp-content td', keys: ['Shift+ArrowRight', 'Shift+ArrowRight'], reason: /途中/ },
+    { name: 'セルの制約', source: '<table><tr><td colspan="0">A</td><td>B</td></tr></table>\n', first: '#gp-content td', keys: ['Shift+ArrowRight'], reason: /結合の値/ },
+    { name: '覆われるセルの定義', source: '<table><tr><td>A</td><td>\n\n[ref]: /example\n\nB\n\n</td></tr></table>\n', first: '#gp-content td', keys: ['Shift+ArrowRight'], reason: /参照の定義/ },
+    { name: 'タスクの印だけのセル', source: pipe.replace('| 左上 |', '| [ ] |'), first: '#gp-content td', keys: ['Shift+ArrowRight'], reason: /チェックボックス/ },
+  ]) await t.test(c.name + ' を断る理由を表示する', async (t) => {
+    const { page, file } = await editablePage(t, browser, c.source);
+    await page.locator(c.first).first().click();
+    for (const key of c.keys) await page.keyboard.press(key);
+    await open(page);
+    await page.locator('#gp-edit-cell-merge').focus();
+    assert.equal(await page.locator('#gp-edit-cell-merge').getAttribute('aria-disabled'), 'true');
+    assert.match(await page.locator('#gp-edit-menu-cells-reason').textContent(), c.reason);
+    await page.locator('#gp-edit-cell-merge').click({ force: true });
+    assert.equal(readFileSync(file, 'utf8'), c.source);
+    if (c.name === '一セル') {
+      await page.locator('#gp-edit-cell-unmerge').focus();
+      assert.match(await page.locator('#gp-edit-menu-cells-reason').textContent(), /結合していない/);
+    }
   });
 });
 

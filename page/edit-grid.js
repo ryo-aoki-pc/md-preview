@@ -83,6 +83,43 @@
     return object(rect) && integer(rect.row, 0) && integer(rect.col, 0) && integer(rect.rows, 1) && integer(rect.cols, 1) && rect.row + rect.rows <= info.rows && rect.col + rect.cols <= info.cols;
   }
 
+  function holesIn(info, rect) {
+    if (!validRect(info, rect)) return [];
+    const slots = slotsOf(info), holes = [];
+    for (let row = rect.row; row < rect.row + rect.rows; row++)
+      for (let col = rect.col; col < rect.col + rect.cols; col++)
+        if (!slots[row]?.[col]) holes.push({ row, col });
+    return holes;
+  }
+
+  function crossesSection(info, rect) {
+    if (info.kind === 'pipe') return rect.row === 0 && rect.rows > 1;
+    return !(info.sections ?? []).some((section) => rect.row >= section.first_row && rect.row + rect.rows <= section.first_row + section.rows);
+  }
+
+  function mergeReason(info, rect) {
+    if (info.cellsLocked) return info.cellsLocked;
+    if (!validRect(info, rect) || !limited(rect.rows, rect.cols)) return '結合する範囲を選び直してください';
+    if (crossing(info, rect)) return '結合セルの途中で範囲が切れています。結合セル全体を含むように選び直してください';
+    const cells = cellsIn(info, rect);
+    if (cells.length < 2) return '1 セルだけの範囲は結合できません';
+    if (holesIn(info, rect).length) return 'セルの無い位置を含む範囲は結合できません';
+    if (crossesSection(info, rect)) return info.kind === 'pipe'
+      ? 'パイプの表の見出し行と本文をまたいでは結合できません' : 'thead・tbody・tfoot の区画をまたいでは結合できません';
+    const locked = cells.find((cell) => (cell.row !== rect.row || cell.col !== rect.col) && cell.mergeLocked);
+    if (locked) return locked.mergeLocked;
+    return info.kind === 'pipe' ? info.convertLocked?.html || '' : '';
+  }
+
+  function unmergeReason(info, point, rect) {
+    if (info.cellsLocked) return info.cellsLocked;
+    const cell = info.cells.find((cell) => cell.row === point.row && cell.col === point.col);
+    if (!cell || cell.rowspan === 1 && cell.colspan === 1) return '結合していないセルは解除できません';
+    if (!rect || rect.row !== cell.row || rect.col !== cell.col || rect.rows !== cell.rowspan || rect.cols !== cell.colspan)
+      return '結合を解除するセルを1つ選んでください';
+    return '';
+  }
+
   function matrix(info, rect) {
     if (!validRect(info, rect)) return null;
     const values = Array.from({ length: rect.rows }, () => Array(rect.cols).fill(''));
@@ -211,6 +248,12 @@
   // info は送信前の宛先の表情報（index・rows・cols）。戻り値は反映後の矩形。
   function placed(op, info) {
     const size = dimensions(info);
+    if (['mergeCells', 'mergeCellsAsHTML'].includes(op.type))
+      return validRect(info, op) ? { row: op.row, col: op.col, rows: op.rows, cols: op.cols } : null;
+    if (op.type === 'unmergeCells') {
+      const cell = info.cells.find((cell) => cell.row === op.row && cell.col === op.col);
+      return cell ? { row: cell.row, col: cell.col, rows: cell.rowspan, cols: cell.colspan } : null;
+    }
     const source = op.fragment ?? (op.values ? { rows: op.values.length, cols: op.values[0]?.length } : op.from);
     if (['paste', 'pasteFragment', 'moveCells'].includes(op.type)) {
       return source && integer(op.row, 0) && integer(op.col, 0) && limited(source.rows, source.cols) ? { row: op.row, col: op.col, rows: source.rows, cols: source.cols } : null;
@@ -242,5 +285,5 @@
     return fragment.cells.some((cell) => [cell.text, cell.tag, cell.source].some((text) => /\]\(|\]\[|\[\^|\b(?:href|src)\s*=/i.test(text)));
   }
 
-  window.gpEditGrid = Object.freeze({ TYPE, LIMITS, emptyPipeTable, slotsOf, rectOf, crossing, cellsIn, step, axisRect, matrix, toTSV, parseTSV, toHTML, fragment, valuesFragment, envelope, parseEnvelope, placed, foreignHints });
+  window.gpEditGrid = Object.freeze({ TYPE, LIMITS, emptyPipeTable, slotsOf, rectOf, crossing, cellsIn, holesIn, crossesSection, mergeReason, unmergeReason, step, axisRect, matrix, toTSV, parseTSV, toHTML, fragment, valuesFragment, envelope, parseEnvelope, placed, foreignHints });
 })();

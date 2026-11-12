@@ -35,29 +35,30 @@ type Section struct {
 	Rows     int    `json:"rows"`
 }
 type Table struct {
-	document   *Document
-	region     *table.Region
-	RowTags    []string     `json:"row_tags"`
-	Delimiters []string     `json:"delimiters"`
-	CopyLocked string       `json:"copy_locked"`
-	Number     int          `json:"number"`
-	Kind       Kind         `json:"kind"`
-	StartLine  int          `json:"start_line"`
-	EndLine    int          `json:"end_line"`
-	Location   string       `json:"location"`
-	Heading    string       `json:"heading"`
-	Excluded   string       `json:"excluded"`
-	Warnings   []string     `json:"warnings"`
-	SourceHash string       `json:"source_hash"`
-	Parent     int          `json:"parent"`
-	Tag        *TagPosition `json:"tag"`
-	Rows       int          `json:"rows"`
-	Cols       int          `json:"cols"`
-	Cells      []Cell       `json:"cells"`
-	Holes      []Position   `json:"holes"`
-	Sections   []Section    `json:"sections"`
-	RowsLocked string       `json:"rows_locked"`
-	ColsLocked string       `json:"cols_locked"`
+	document    *Document
+	region      *table.Region
+	RowTags     []string     `json:"row_tags"`
+	Delimiters  []string     `json:"delimiters"`
+	CopyLocked  string       `json:"copy_locked"`
+	Number      int          `json:"number"`
+	Kind        Kind         `json:"kind"`
+	StartLine   int          `json:"start_line"`
+	EndLine     int          `json:"end_line"`
+	Location    string       `json:"location"`
+	Heading     string       `json:"heading"`
+	Excluded    string       `json:"excluded"`
+	Warnings    []string     `json:"warnings"`
+	SourceHash  string       `json:"source_hash"`
+	Parent      int          `json:"parent"`
+	Tag         *TagPosition `json:"tag"`
+	Rows        int          `json:"rows"`
+	Cols        int          `json:"cols"`
+	Cells       []Cell       `json:"cells"`
+	Holes       []Position   `json:"holes"`
+	Sections    []Section    `json:"sections"`
+	RowsLocked  string       `json:"rows_locked"`
+	ColsLocked  string       `json:"cols_locked"`
+	CellsLocked string       `json:"cells_locked"`
 }
 type TagPosition struct {
 	Start   int `json:"start"`
@@ -65,7 +66,8 @@ type TagPosition struct {
 	End     int `json:"end"`
 }
 type Cell struct {
-	CopyLocked      string `json:"copy_locked"` // 原文を保った写しとして受け取れない理由。
+	CopyLocked      string `json:"copy_locked"`  // 原文を保った写しとして受け取れない理由。
+	MergeLocked     string `json:"merge_locked"` // 結合で覆って消せない理由。
 	Tag             string `json:"tag"`
 	Row             int    `json:"row"`
 	Col             int    `json:"col"`
@@ -241,12 +243,13 @@ func (d *Document) snapshot(r *table.Region) *Table {
 		}
 	}
 	if t.Excluded != "" {
-		t.RowsLocked, t.ColsLocked, t.CopyLocked = t.Excluded, t.Excluded, t.Excluded
+		t.RowsLocked, t.ColsLocked, t.CopyLocked, t.CellsLocked = t.Excluded, t.Excluded, t.Excluded, t.Excluded
 		return t
 	}
 	m := r.Model()
 	t.Rows, t.Cols = m.Rows, m.Cols
 	t.RowsLocked, t.ColsLocked = table.ShapeLocks(r)
+	t.CellsLocked = table.CellLocks(r)
 	t.CopyLocked = table.CopyLock(r)
 	if r.Kind == "pipe" {
 		t.Delimiters = table.PipeDelimiterCells(r)
@@ -276,6 +279,7 @@ func (d *Document) snapshot(r *table.Region) *Table {
 			v.Source = r.HTML.Text[h.ContentStart:h.ContentEnd]
 			v.Tag = h.StartToken.Text
 			v.LinkDefinitions = h.LinkDefinitions
+			v.MergeLocked = table.CoveredCellLock(h)
 			v.Complex = complexCell(c.Text, v.Source, h.LinkDefinitions)
 		}
 		if t.CopyLocked == "" {
