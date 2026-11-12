@@ -32,6 +32,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      MDTABLE_COMRAK_REQUIRED: '1'
     steps:
       - name: ソースを取得
         uses: actions/checkout@v7
@@ -39,6 +41,13 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: Node.js を用意
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: comrak を用意
+        working-directory: mdtable/testdata/comrak
+        run: npm ci --ignore-scripts
       - name: 静的検査
         run: go vet ./mdtable/...
       - name: 試験

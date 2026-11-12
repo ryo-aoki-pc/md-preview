@@ -1,0 +1,8 @@
+{
+  "name": "mdtable-comrak-oracle",
+  "private": true,
+  "description": "mdtable の試験が突き合わせに使う comrak の版の固定",
+  "dependencies": {
+    "comrak": "0.48.0-rc.0"
+  }
+}
