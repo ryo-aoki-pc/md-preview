@@ -1,6 +1,6 @@
 {
   "name": "md-tools",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Markdown のプレビュー、Excel での表の編集、GitLab の表の固定を行う 3 つの道具",
   "private": true,
   "type": "module",

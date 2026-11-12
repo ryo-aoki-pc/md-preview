@@ -293,6 +293,12 @@ GitLab との差を知らせる [internal/notices](../../internal/notices/notice
 
 「表を固定」は、埋め込んだ `sticky/src/sticky-table.js` を実行して表のそばにツールバーを出し、もう一度押すと外す。ブックマークを足さずに使え、同じサーバーから配るので CSP を緩めずに済む。`window.__mdTableSticky` の状態を確かめて必要なときだけ読み、読み込み中は重ねて実行しない。ブックマークレットで先に動かしていても二重に足さず、ボタンとブックマークレットのどちらからでも同じ解除処理で戻す。保存した固定の指定は最初の本文の描画後に当て、ボタンの押下状態は描画のたびに現在の状態から決める。
 
+列幅は md-table-sticky の表の記録だけに持ち、固定を使うかどうかの保存とは別に、保存領域へ書かない。「折り返す」の欄の右端のつまみで 32〜1600 px に変え、手動の幅を当てるセルは折り返す。結合セルは、覆うすべての列を手で決めたときだけ合計の幅にする。本文の差分更新で表と記録を残すため、本文のセルの文字だけの変更では幅を保つ。見出しの文字・開始位置・結合の形が変わった列は自動に戻し、見出しの無い表で列数が変わるとすべて戻す。再読み込みでも自動に戻す。印刷前は手動の幅を外し、印刷後に戻す。幅の当て方と形の判定は [md-table-sticky の設計](../../sticky/docs/reference/design.md#列の幅の調節)にある。
+
+`page/edit.js` は `data-md-table-sticky-resizer` のつまみからの `pointerdown`・`click` を編集として扱わない。`window.__mdTableSticky.resizing` がある間の Esc も処理を譲り、幅の変更だけを取り消す。ドラッグを離したときの `click` は、つまみと離した位置の共通の祖先へ届く場合がある。先に登録される編集の capture の受け手は `resizeClick` が真なら処理を譲り、md-table-sticky の受け手がその `click` を 1 回だけ捨てる。これにより、セルの選択を変えず、入力欄の外を押した扱いで入力を確定しない。次の `pointerdown` と `pointerup` 後のタイマーでも待機を解き、後の通常のクリックを妨げない。
+
+列幅のブラウザ試験は GitLab をまねたページで行っており、gitlab.com の実際の画面での列幅は未確認。この版の検証記録は、`repos/md-tools/docs/verification/readme.md` の「表の列幅の調節と、版 0.17.0 の配布の検証（2026-11-13）」にある。
+
 ## Neovim との取り決め
 
 Neovim の橋渡しは [LazyVimStarter](https://github.com/ryo-aoki-pc/LazyVimStarter) が持ち、アプリは [internal/stdio](../../internal/stdio/stdio.go) で受ける。ファイルの保存を待たずに本文とカーソル位置を受け取るため、`mdpreview --stdio` の標準入力・標準出力に UTF-8 の JSON を 1 行ずつ流す。標準出力には、人が読む案内を混ぜない。
