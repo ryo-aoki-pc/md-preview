@@ -20,38 +20,41 @@ type documentState struct {
 	Reason   string `json:"reason"`
 }
 type cellInfo struct {
-	Row        int    `json:"row"`
-	Col        int    `json:"col"`
-	Rowspan    int    `json:"rowspan"`
-	Colspan    int    `json:"colspan"`
-	Header     bool   `json:"header"`
-	Align      string `json:"align"`
-	Text       string `json:"text"`
-	Raw        bool   `json:"raw"`
-	Source     string `json:"source"`
-	Tag        string `json:"tag"`
-	CopyLocked string `json:"copyLocked"`
+	Row         int    `json:"row"`
+	Col         int    `json:"col"`
+	Rowspan     int    `json:"rowspan"`
+	Colspan     int    `json:"colspan"`
+	Header      bool   `json:"header"`
+	Align       string `json:"align"`
+	Text        string `json:"text"`
+	Raw         bool   `json:"raw"`
+	Source      string `json:"source"`
+	Tag         string `json:"tag"`
+	CopyLocked  string `json:"copyLocked"`
+	MergeLocked string `json:"mergeLocked"`
 }
 type tableInfo struct {
-	Index         int               `json:"index"`
-	Number        int               `json:"number"`
-	Kind          tableedit.Kind    `json:"kind"`
-	Editable      bool              `json:"editable"`
-	Reason        string            `json:"reason"`
-	Anchor        Range             `json:"anchor"`
-	AnchorReason  string            `json:"anchorReason"`
-	Rows          int               `json:"rows"`
-	Cols          int               `json:"cols"`
-	RowsLocked    string            `json:"rowsLocked"`
-	ColsLocked    string            `json:"colsLocked"`
-	Warnings      []string          `json:"warnings"`
-	Cells         []cellInfo        `json:"cells"`
-	Hash          string            `json:"hash"`
-	RowTags       []string          `json:"rowTags"`
-	Delimiters    []string          `json:"delimiters"`
-	CopyLocked    string            `json:"copyLocked"`
-	ConvertLocked map[string]string `json:"convertLocked"`
-	DeleteLocked  string            `json:"deleteLocked"`
+	Index         int                 `json:"index"`
+	Number        int                 `json:"number"`
+	Kind          tableedit.Kind      `json:"kind"`
+	Editable      bool                `json:"editable"`
+	Reason        string              `json:"reason"`
+	Anchor        Range               `json:"anchor"`
+	AnchorReason  string              `json:"anchorReason"`
+	Rows          int                 `json:"rows"`
+	Cols          int                 `json:"cols"`
+	RowsLocked    string              `json:"rowsLocked"`
+	ColsLocked    string              `json:"colsLocked"`
+	CellsLocked   string              `json:"cellsLocked"`
+	Sections      []tableedit.Section `json:"sections"`
+	Warnings      []string            `json:"warnings"`
+	Cells         []cellInfo          `json:"cells"`
+	Hash          string              `json:"hash"`
+	RowTags       []string            `json:"rowTags"`
+	Delimiters    []string            `json:"delimiters"`
+	CopyLocked    string              `json:"copyLocked"`
+	ConvertLocked map[string]string   `json:"convertLocked"`
+	DeleteLocked  string              `json:"deleteLocked"`
 }
 type tablesResponse struct {
 	// 文書の先頭へ追加したときに、下書きの位置をずらす最初の行（front matter の後ろ）。
@@ -174,11 +177,13 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 		if ctx.Err() != nil {
 			return nil, fault(422, "cancelled", "表の対応の確認を取り消しました。")
 		}
-		info := tableInfo{Index: i, Reason: "原文の表と対応づけられない", Warnings: []string{}, Cells: []cellInfo{}, RowTags: []string{}, Delimiters: []string{}}
+		info := tableInfo{Index: i, Reason: "原文の表と対応づけられない", Warnings: []string{}, Cells: []cellInfo{}, RowTags: []string{}, Delimiters: []string{}, Sections: []tableedit.Section{}}
 		t := m.models[i]
 		if t != nil {
 			info.Number, info.Kind, info.Rows, info.Cols = t.Number, t.Kind, t.Rows, t.Cols
 			info.RowsLocked, info.ColsLocked = t.RowsLocked, t.ColsLocked
+			info.CellsLocked = t.CellsLocked
+			info.Sections = append(info.Sections, t.Sections...)
 			info.ConvertLocked = map[string]string{"html": t.ConvertLocked("html"), "pipe": t.ConvertLocked("pipe")}
 			info.DeleteLocked = t.DeleteLocked()
 			info.Warnings = append(info.Warnings, t.Warnings...)
@@ -197,7 +202,7 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 				info.RowTags = append(info.RowTags, t.RowTags...)
 				info.Delimiters = append(info.Delimiters, t.Delimiters...)
 				for _, c := range t.Cells {
-					info.Cells = append(info.Cells, cellInfo{Row: c.Row, Col: c.Col, Rowspan: c.Rowspan, Colspan: c.Colspan, Header: c.Header, Align: c.Align, Text: c.Text, Raw: c.Complex, Source: c.Source, Tag: c.Tag, CopyLocked: c.CopyLocked})
+					info.Cells = append(info.Cells, cellInfo{Row: c.Row, Col: c.Col, Rowspan: c.Rowspan, Colspan: c.Colspan, Header: c.Header, Align: c.Align, Text: c.Text, Raw: c.Complex, Source: c.Source, Tag: c.Tag, CopyLocked: c.CopyLocked, MergeLocked: c.MergeLocked})
 				}
 			}
 		} else if htmltree.Has(n, "data-table-fields") {

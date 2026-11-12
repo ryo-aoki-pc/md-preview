@@ -10,8 +10,9 @@ import (
 	"golang.org/x/net/html"
 )
 
-// verifyConversion は書き込み前の一回の試しの描画で、格子・左上の文字・タスクの個数を比べる。
-func (s *Service) verifyConversion(ctx context.Context, src session.Source, index int, converted *tableedit.Table, text string) *Error {
+// verifyConversion は書き込み前の一回の試しの描画で、格子・左上の文字を比べる。
+// 種類だけを変えるときはタスクの個数も比べ、結合で覆われたセルの削除は許す。
+func (s *Service) verifyConversion(ctx context.Context, src session.Source, index int, converted *tableedit.Table, text string, keepTasks bool) *Error {
 	trial, err := s.opts.Host.Trial(ctx, src, text)
 	if err != nil {
 		return fault(422, "render", "変換後の文書を描画できません。")
@@ -33,7 +34,7 @@ func (s *Service) verifyConversion(ctx context.Context, src session.Source, inde
 		return fault(422, "verify", "変換すると、描画した表の数が変わります。")
 	}
 	// 変換後の原文で確かめたモデルを使い、HTML の行・列と結合の形も確かめる。
-	if converted == nil || !sameGrid(b[index], converted) || firstCellText(a[index]) != firstCellText(b[index]) || checkboxCount(a[index]) != checkboxCount(b[index]) {
+	if converted == nil || !sameGrid(b[index], converted) || firstCellText(a[index]) != firstCellText(b[index]) || keepTasks && checkboxCount(a[index]) != checkboxCount(b[index]) {
 		return fault(422, "verify", "変換すると、表の行・列、左上のセルの文字、またはチェックボックスの数が変わります。")
 	}
 	return nil

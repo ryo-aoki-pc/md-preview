@@ -54,6 +54,68 @@ test('外部への定義は凍結した gpEditGrid だけ', () => {
   assert.equal(grid.TYPE, 'application/x-gp-table');
 });
 
+test('結合は一セル・穴・途中で切る結合を断り、既存の結合を飲み込める', () => {
+  const info = { ...html, sections: [{ first_row: 0, rows: 3 }] };
+  assert.match(grid.mergeReason(pipe, rect(1, 0, 1, 1)), /1 セル/);
+  assert.match(grid.mergeReason(info, rect(0, 0, 1, 3)), /途中/);
+  assert.equal(grid.mergeReason(info, rect(0, 0, 2, 3)), '');
+  assert.match(grid.mergeReason(info, rect(2, 0, 1, 3)), /セルの無い/);
+  equal(grid.holesIn(info, rect(2, 0, 1, 3)), [{ row: 2, col: 1 }]);
+  const merged = { kind: 'html', rows: 2, cols: 2, cells: [cell(0, 0, '結合済み', { rowspan: 2, colspan: 2 })] };
+  assert.match(grid.mergeReason(merged, rect(0, 0, 2, 2)), /1 セル/);
+  assert.match(grid.mergeReason(info, rect(-1, 0, 1, 2)), /選び直/);
+});
+
+test('結合は HTML の区画とパイプの見出しの境界をまたげない', () => {
+  const info = { ...pipe, kind: 'html', sections: [{ tag: 'thead', first_row: 0, rows: 1 }, { tag: 'tbody', first_row: 1, rows: 1 }, { tag: 'tbody', first_row: 2, rows: 1 }] };
+  assert.equal(grid.crossesSection(info, rect(1, 0, 1, 2)), false);
+  assert.equal(grid.crossesSection(info, rect(1, 0, 2, 2)), true);
+  assert.match(grid.mergeReason(info, rect(0, 0, 2, 2)), /区画/);
+  assert.match(grid.mergeReason(info, rect(1, 0, 2, 2)), /区画/);
+  assert.match(grid.mergeReason(pipe, rect(0, 0, 2, 2)), /見出し行と本文/);
+  assert.equal(grid.mergeReason(pipe, rect(0, 0, 1, 2)), '');
+  assert.equal(grid.mergeReason(pipe, rect(1, 0, 2, 2)), '');
+});
+
+test('結合の理由は表の制約・覆われるセル・変換の制約を確かめる', () => {
+  const selected = rect(1, 0, 1, 2);
+  assert.equal(grid.mergeReason({ ...pipe, cellsLocked: 'セルの制約' }, selected), 'セルの制約');
+  assert.equal(grid.mergeReason({ ...pipe, convertLocked: { html: '変換の制約' } }, selected), '変換の制約');
+  const info = { ...pipe, kind: 'html', sections: [{ first_row: 0, rows: 3 }], cells: pipe.cells.map((cell) => ({ ...cell })) };
+  info.cells[3].mergeLocked = '左上の参照の定義';
+  assert.equal(grid.mergeReason(info, selected), '');
+  info.cells[4].mergeLocked = '覆われるセルの参照の定義';
+  assert.equal(grid.mergeReason(info, selected), '覆われるセルの参照の定義');
+  info.cells[4].mergeLocked = '覆われるセルの入れ子の表';
+  assert.equal(grid.mergeReason(info, selected), '覆われるセルの入れ子の表');
+});
+
+test('解除は結合したセルの左上を指し、そのセルだけを選んだときにできる', () => {
+  const point = { row: 0, col: 0 }, selected = rect(0, 0, 1, 2);
+  assert.equal(grid.unmergeReason(html, point, selected), '');
+  assert.match(grid.unmergeReason(html, { row: 0, col: 1 }, selected), /結合していない/);
+  assert.match(grid.unmergeReason(html, { row: 2, col: 2 }, rect(2, 2, 1, 1)), /結合していない/);
+  assert.match(grid.unmergeReason(html, point, rect(0, 0, 2, 3)), /1つ/);
+  assert.equal(grid.unmergeReason({ ...html, cellsLocked: 'セルの制約' }, point, selected), 'セルの制約');
+  // 下の行の左に穴があると、空のセルを覆っていた列に置けない（サーバーと同じ理由）。
+  const holed = { kind: 'html', rows: 2, cols: 3, cells: [
+    { row: 0, col: 0, rowspan: 1, colspan: 1 }, { row: 0, col: 1, rowspan: 1, colspan: 1 },
+    { row: 0, col: 2, rowspan: 2, colspan: 1 }, { row: 1, col: 0, rowspan: 1, colspan: 1 }] };
+  assert.match(grid.unmergeReason(holed, { row: 0, col: 2 }, rect(0, 2, 2, 1)), /セルの無い位置/);
+  holed.cells.push({ row: 1, col: 1, rowspan: 1, colspan: 1 });
+  assert.equal(grid.unmergeReason(holed, { row: 0, col: 2 }, rect(0, 2, 2, 1)), '');
+});
+
+test('結合後は結合したセルを、解除後はもとの範囲を選び直す', () => {
+  for (const type of ['mergeCells', 'mergeCellsAsHTML']) {
+    equal(grid.placed({ type, ...rect(1, 0, 2, 2) }, pipe), rect(1, 0, 2, 2));
+    assert.equal(grid.placed({ type, ...rect(2, 0, 2, 2) }, pipe), null);
+  }
+  equal(grid.placed({ type: 'unmergeCells', row: 0, col: 0 }, html), rect(0, 0, 1, 2));
+  equal(grid.placed({ type: 'unmergeCells', row: 0, col: 2 }, html), rect(0, 2, 2, 1));
+  assert.equal(grid.placed({ type: 'unmergeCells', row: 0, col: 1 }, html), null);
+});
+
 const clipboardFixtures = JSON.parse(readFileSync(new URL('../sticky/test/fixtures/table-clipboard.json', import.meta.url), 'utf8'));
 const clipboardInfo = ({ rows, cols, cells }) => ({ rows, cols, cells: cells.map((item) => cell(item.row, item.col, item.text, item)) });
 const checkClipboard = (input, expected, selected = rect(0, 0, input.rows, input.cols)) => {

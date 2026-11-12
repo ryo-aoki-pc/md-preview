@@ -226,8 +226,8 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 				return nil, tableError(applyErr)
 			}
 			text, warnings = result.Text, result.Warnings
-			if result.Changed && r.operation.kind == "convert" {
-				if e := s.verifyConversion(ctx, src, r.table, result.Document.Table(t.Number), result.Text); e != nil {
+			if result.Changed && (r.operation.kind == "convert" || r.operation.kind == "mergeCellsAsHTML") {
+				if e := s.verifyConversion(ctx, src, r.table, result.Document.Table(t.Number), result.Text, r.operation.kind == "convert"); e != nil {
 					return nil, e
 				}
 			}

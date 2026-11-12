@@ -31,6 +31,7 @@ const (
 type operation struct {
 	kind            string
 	row, col, count int
+	rows, cols      int
 	side            tableedit.Side
 	cells           []tableedit.CellEdit
 	values          [][]string
@@ -186,6 +187,18 @@ func parseOperation(m map[string]any) (operation, *Error) {
 		if !fields(m, "type") {
 			return o, invalid()
 		}
+	case "mergeCells", "mergeCellsAsHTML":
+		if !fields(m, "type", "row", "col", "rows", "cols") {
+			return o, invalid()
+		}
+		o.row, o.col = get("row", 0), get("col", 0)
+		o.rows, o.cols = get("rows", 1), get("cols", 1)
+		ok = ok && o.rows <= maxOperationCount && o.cols <= maxOperationCount && o.rows <= maxOperationCells/o.cols
+	case "unmergeCells":
+		if !fields(m, "type", "row", "col") {
+			return o, invalid()
+		}
+		o.row, o.col = get("row", 0), get("col", 0)
 	case "set":
 		if !fields(m, "type", "cells") {
 			return o, invalid()
@@ -396,6 +409,12 @@ func (o operation) apply(ctx context.Context, d *tableedit.Document, t tableedit
 		return d.ConvertTable(t, o.to)
 	case "deleteTable":
 		return d.DeleteTable(t)
+	case "mergeCells":
+		return d.MergeCells(t, tableedit.Rect{Row: o.row, Col: o.col, Rows: o.rows, Cols: o.cols})
+	case "mergeCellsAsHTML":
+		return d.MergeCellsAsHTML(t, tableedit.Rect{Row: o.row, Col: o.col, Rows: o.rows, Cols: o.cols})
+	case "unmergeCells":
+		return d.UnmergeCells(t, o.row, o.col)
 	case "set":
 		return d.SetCells(t, o.cells)
 	case "paste":
