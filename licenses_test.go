@@ -80,29 +80,135 @@ func TestLicenseManifestFiles(t *testing.T) {
 }
 
 func TestLicenseGoModules(t *testing.T) {
+	modules := executableGoModules(t, "./cmd/mdpreview", mdpreviewTargets)
+	checkLicenseGoModules(t, modules, licenseGoModules(t, licenseManifest(t)))
+}
+
+var mdpreviewTargets = [][2]string{{"windows", "amd64"}, {"linux", "amd64"}, {"linux", "arm64"}}
+
+func licenseGoModules(t *testing.T, components []LicenseComponent) map[string]string {
+	t.Helper()
+	versions := map[string]string{}
+	for _, component := range components {
+		if len(component.Files) > 0 && strings.HasPrefix(component.Files[0], "licenses/go/") && component.Name != "Go" {
+			if _, exists := versions[component.Name]; exists {
+				t.Fatalf("一覧の Go のモジュールが重複しています: %s", component.Name)
+			}
+			versions[component.Name] = component.Version
+		}
+	}
+	return versions
+}
+
+func goDependencies(t *testing.T, pkg string, target [2]string, format string) []string {
+	t.Helper()
+	cmd := exec.Command("go", "list", "-deps", "-f", format, pkg)
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=readonly", "CGO_ENABLED=0", "GOOS="+target[0], "GOARCH="+target[1])
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%s の依存を取得できません (%s/%s): %v\n%s", pkg, target[0], target[1], err, stderr.String())
+	}
+	return strings.Split(strings.TrimSpace(string(output)), "\n")
+}
+
+func executableGoModules(t *testing.T, pkg string, targets [][2]string) map[string]string {
+	t.Helper()
+	modules := map[string]string{}
+	for _, target := range targets {
+		for _, line := range goDependencies(t, pkg, target, "{{with .Module}}{{if not .Main}}{{.Path}} {{.Version}}{{end}}{{end}}") {
+			fields := strings.Fields(line)
+			if len(fields) == 0 {
+				continue
+			}
+			if len(fields) != 2 {
+				t.Fatalf("Go のモジュールの出力が不正です: %s", line)
+			}
+			if version, exists := modules[fields[0]]; exists && version != fields[1] {
+				t.Fatalf("対象によって Go のモジュールの版が違います: %s %s / %s", fields[0], version, fields[1])
+			}
+			modules[fields[0]] = fields[1]
+		}
+	}
+	if len(modules) == 0 {
+		t.Fatal("実行ファイルの Go のモジュールがありません")
+	}
+	return modules
+}
+
+func checkLicenseGoModules(t *testing.T, modules, versions map[string]string) {
+	t.Helper()
+	for name, version := range modules {
+		if versions[name] != version {
+			t.Errorf("Go のモジュールの版が違うか一覧にありません: %s 依存=%s 一覧=%s", name, version, versions[name])
+		}
+	}
+	for name := range versions {
+		if _, exists := modules[name]; !exists {
+			t.Errorf("依存に無い Go のモジュールが一覧にあります: %s", name)
+		}
+	}
+}
+
+func TestLicenseGoRequirements(t *testing.T) {
 	data, err := os.ReadFile("go.mod")
 	if err != nil {
 		t.Fatal(err)
 	}
-	versions := map[string]string{}
-	for _, component := range licenseManifest(t) {
-		if strings.HasPrefix(component.Files[0], "licenses/go/") && component.Name != "Go" {
-			versions[component.Name] = component.Version
-		}
+	if regexp.MustCompile(`(?m)^\s*(replace|exclude)\s`).Match(data) {
+		t.Fatal("replace・exclude を使うときは、同梱ライセンスと依存の照合方法を見直してください")
 	}
-	// go.mod の直接・間接の require を両方読み、依存を増やした際の同梱漏れを検知する。
-	modules := goModRequirements(string(data))
+	versions := licenseGoModules(t, licenseManifest(t))
+	manifest, err := os.ReadFile("mdtable/licenses/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var components []LicenseComponent
+	if err := json.Unmarshal(manifest, &components); err != nil {
+		t.Fatal(err)
+	}
+	for name, version := range licenseGoModules(t, components) {
+		if previous, exists := versions[name]; exists && previous != version {
+			t.Fatalf("実行ファイルの一覧で Go のモジュールの版が違います: %s %s / %s", name, previous, version)
+		}
+		versions[name] = version
+	}
+	// 直接・間接の require と両実行ファイルの一覧の和を比べ、使わない依存も検知する。
+	modules := map[string]string{}
+	for _, module := range goModRequirements(string(data)) {
+		modules[module[1]] = module[2]
+	}
 	if len(modules) == 0 {
 		t.Fatal("go.mod のモジュールがありません")
 	}
-	for _, module := range modules {
-		if versions[module[1]] != module[2] {
-			t.Errorf("Go のモジュールの版が違うか一覧にありません: %s go.mod=%s 一覧=%s", module[1], module[2], versions[module[1]])
-		}
-		delete(versions, module[1])
-	}
-	if len(versions) > 0 {
-		t.Errorf("go.mod に無いモジュール: %v", versions)
+	checkLicenseGoModules(t, modules, versions)
+}
+
+func TestExecutableDependencies(t *testing.T) {
+	const module = "github.com/ryo-aoki-pc/md-tools/"
+	for _, test := range []struct {
+		pkg     string
+		targets [][2]string
+		blocked []string
+	}{
+		{"./cmd/mdpreview", mdpreviewTargets, []string{"github.com/xuri/", module + "mdtable/internal/workbook", module + "mdtable/internal/sync", module + "mdtable/internal/cli"}},
+		{"./mdtable/cmd/mdtable", [][2]string{{"windows", "amd64"}}, []string{module + "engine", module + "page", module + "assets", module + "internal"}},
+	} {
+		t.Run(test.pkg, func(t *testing.T) {
+			for _, target := range test.targets {
+				t.Run(target[0]+"/"+target[1], func(t *testing.T) {
+					for _, dependency := range goDependencies(t, test.pkg, target, "{{.ImportPath}}") {
+						dependency = strings.TrimSpace(dependency)
+						for _, blocked := range test.blocked {
+							if dependency == blocked || strings.HasPrefix(dependency, strings.TrimSuffix(blocked, "/")+"/") {
+								t.Errorf("%s に不要な依存があります: %s", test.pkg, dependency)
+							}
+						}
+					}
+				})
+			}
+		})
 	}
 }
 

@@ -1,0 +1,49 @@
+name: mdtable の検証
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mdtable/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'LICENSE'
+      - '.github/workflows/test-mdtable.yml'
+  pull_request:
+    paths:
+      - 'mdtable/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'LICENSE'
+      - '.github/workflows/test-mdtable.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go の検査（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: ソースを取得
+        uses: actions/checkout@v7
+      - name: Go を用意
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: 静的検査
+        run: go vet ./mdtable/...
+      - name: 試験
+        run: go test ./mdtable/...
+      - name: 競合の検査
+        if: runner.os == 'Linux'
+        run: go test -race -timeout 20m ./mdtable/...
+      - name: 配布物を作れることを確認
+        shell: bash
+        run: |
+          release_version=$(sed -n 's/^var Version = "\([^"]*\)"$/\1/p' mdtable/internal/version/version.go)
+          bash mdtable/scripts/build-release.sh "$release_version" dist

@@ -415,14 +415,30 @@ func TestConcurrentDocument(t *testing.T) {
 }
 
 func TestDependencies(t *testing.T) {
-	cmd := exec.Command("go", "list", "-deps", ".")
+	cmd := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}} {{.Standard}} {{with .Module}}{{.Path}}{{end}}", "./")
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=readonly", "CGO_ENABLED=0")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("公開 API の依存を取得できません: %v\n%s", err, stderr.String())
 	}
-	for _, bad := range []string{"github.com/xuri/", "/internal/workbook", "/internal/sync"} {
-		if strings.Contains(string(out), bad) {
-			t.Fatalf("公開 API に不要な依存がある: %s", bad)
+	const module = "github.com/ryo-aoki-pc/md-tools"
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[1] == "true" {
+			continue
+		}
+		if len(fields) != 3 || fields[1] != "false" {
+			t.Fatalf("依存の出力が不正です: %s", line)
+		}
+		if fields[2] != module || !strings.HasPrefix(fields[0], module+"/mdtable/") {
+			t.Errorf("公開 API に mdtable の外の依存があります: %s", line)
+		}
+		for _, bad := range []string{module + "/mdtable/internal/workbook", module + "/mdtable/internal/sync"} {
+			if fields[0] == bad || strings.HasPrefix(fields[0], bad+"/") {
+				t.Errorf("公開 API に不要な依存があります: %s", fields[0])
+			}
 		}
 	}
 }
