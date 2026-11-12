@@ -1342,6 +1342,18 @@
     const model = models[cell.table], info = model.info, rect = actionRect(action);
     if (!rect) return '範囲を選び直してください';
     if (selecting) return '';
+    if (action.startsWith('cell-align-') || action === 'cell-header' || action === 'cell-data') {
+      if (composing || sourceFetching) return '文字の入力を終えてから操作してください';
+      if (!model.editable) return info.reason || 'この表は編集できません';
+      if (info.cellsLocked) return info.cellsLocked;
+      if (info.kind === 'pipe' && !action.startsWith('cell-align-'))
+        return 'パイプの表は見出し行だけが見出しセルなので、セルごとの見出しは変えられません';
+      if (rect.rows > 1000 || rect.cols > 1000 || rect.rows * rect.cols > 10000) return '範囲が大きすぎます。範囲を選び直してください';
+      if (model.rows.slice(rect.row, rect.row + rect.rows).some((row) => getComputedStyle(row).display === 'none'))
+        return '表の検索で隠れた行をまたいでいます。検索を解除してから選び直してください';
+      if (editGrid.crossing(model, rect)) return '結合セルの途中で範囲が切れています。結合セル全体を含むように選び直してください';
+      return '';
+    }
     if (action === 'cell-merge' || action === 'cell-unmerge') {
       if (composing || sourceFetching) return '文字の入力を終えてから操作してください';
       if (model.rows.slice(rect.row, rect.row + rect.rows).some((row) => getComputedStyle(row).display === 'none'))
@@ -1391,6 +1403,11 @@
       if (!openMenus.some((entry) => entry.menu === menu)) continue;
       const reason = reasonFor(action);
       if (action === 'cell-merge') item.textContent = models[selected?.table]?.info.kind === 'pipe' ? 'HTML の表にして結合' : '結合';
+      if (action.startsWith('cell-align-')) {
+        const label = { left: '左揃え', center: '中央揃え', right: '右揃え', default: '揃えを既定に' }[action.slice('cell-align-'.length)];
+        const pipe = models[selected?.table]?.info.kind === 'pipe';
+        item.textContent = pipe ? (action === 'cell-align-default' ? '列の' : '列を') + label : label;
+      }
       if (/^(row|col)-insert-/.test(action)) {
         const [axis, , side] = action.split('-'), row = axis === 'row';
         const count = lastCopy?.fragment?.[row ? 'rows' : 'cols'];
@@ -1465,7 +1482,9 @@
   buildMenu('cell', 'セルの操作', [['copy', 'コピー（Ctrl+C）', 'cell-copy'], ['cut', '切り取り（Ctrl+X）', 'cell-cut'],
     ['paste', '貼り付け（Ctrl+V）', 'cell-paste'], null, ['rows', '行', 'cell-rows'], ['cols', '列', 'cell-cols'], ['cells', 'セル', 'cell-cells'], ['table', '表', 'cell-table'], null,
     ['source', '原文を編集', 'cell-source']]);
-  buildMenu('cells', 'セルの結合と解除', [['cell-merge', '結合'], ['cell-unmerge', '結合を解除']]);
+  buildMenu('cells', 'セルの操作', [['cell-merge', '結合'], ['cell-unmerge', '結合を解除'], null,
+    ['cell-align-left', '左揃え'], ['cell-align-center', '中央揃え'], ['cell-align-right', '右揃え'], ['cell-align-default', '揃えを既定に'], null,
+    ['cell-header', '見出しセル（th）にする'], ['cell-data', '通常のセル（td）にする']]);
   buildMenu('table', '表の操作', [['table-before', '表の前にブロックを追加'], ['table-after', '表の後ろにブロックを追加'], null,
     ['table-html', 'HTML の表にする'], ['table-pipe', 'パイプの表にする'], ['table-delete', '表を削除']]);
   buildMenu('document', '文書への追加', [['document-start', '文書の先頭に追加'], ['document-end', '文書の末尾に追加']]);
@@ -1582,6 +1601,10 @@
       enqueue({ point: { ...selected }, op: { type: model.info.kind === 'pipe' ? 'mergeCellsAsHTML' : 'mergeCells', ...rect } });
     else if (action === 'cell-unmerge')
       enqueue({ point: { ...selected }, op: { type: 'unmergeCells', row: selected.row, col: selected.col } });
+    else if (action.startsWith('cell-align-'))
+      enqueue({ point: { ...selected }, op: { type: 'setAlign', ...rect, align: action === 'cell-align-default' ? '' : action.slice('cell-align-'.length) } });
+    else if (action === 'cell-header' || action === 'cell-data')
+      enqueue({ point: { ...selected }, op: { type: 'setHeader', ...rect, header: action === 'cell-header' } });
     else if (action === 'table-html' || action === 'table-pipe')
       enqueue({ point: { ...selected }, op: { type: 'convert', to: action.slice('table-'.length) } });
     else if (action === 'table-delete') enqueue({ point: { ...selected }, op: { type: 'deleteTable' } });

@@ -106,8 +106,8 @@ test('解除は結合したセルの左上を指し、そのセルだけを選�
   assert.equal(grid.unmergeReason(holed, { row: 0, col: 2 }, rect(0, 2, 2, 1)), '');
 });
 
-test('結合後は結合したセルを、解除後はもとの範囲を選び直す', () => {
-  for (const type of ['mergeCells', 'mergeCellsAsHTML']) {
+test('結合・揃え・見出しセルの変更後は操作した範囲を、解除後はもとの範囲を選び直す', () => {
+  for (const type of ['mergeCells', 'mergeCellsAsHTML', 'setAlign', 'setHeader']) {
     equal(grid.placed({ type, ...rect(1, 0, 2, 2) }, pipe), rect(1, 0, 2, 2));
     assert.equal(grid.placed({ type, ...rect(2, 0, 2, 2) }, pipe), null);
   }
