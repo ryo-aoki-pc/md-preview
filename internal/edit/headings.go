@@ -518,6 +518,9 @@ func moveHeadingLines(lines []headingLine, a, b *headingEntry, newline string) [
 		for range max(b.sectionEnd-bEnd, 1) {
 			part = append(part, headingLine{newline, 0})
 		}
+	} else {
+		// 文書の末尾の空行は、入れ替えた後も文書の末尾に残す。
+		part = append(part, lines[bEnd:b.sectionEnd]...)
 	}
 	return slices.Replace(lines, a.first, b.sectionEnd, part...)
 }

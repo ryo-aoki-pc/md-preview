@@ -92,6 +92,8 @@ func TestHeadingLevels(t *testing.T) {
 		{"setext h1", "見出し\n===\n\n本文\n", "## 見出し\n\n本文\n", "heading", 1},
 		{"setext h2", "見出し\n---\n", "# 見出し\n", "heading", -1},
 		{"setext 閉じ", "foo #\n---\n", "# foo \\#\n", "heading", -1},
+		{"setext のエスケープ済みの #", "foo \\#\n---\n", "# foo \\#\n", "heading", -1},
+		{"ATX のエスケープ済みの #", "## 題 \\##\n", "### 題 \\##\n", "heading", 1},
 		{"中身のない ATX", "#\n---\n", "##\n---\n", "heading", 1},
 		{"複数行", "foo\nbar\n---\n", "# foo bar\n", "heading", -1},
 		{"中身の BOM", "foo\n\ufeffbar\n---\n", "# foo \ufeffbar\n", "heading", -1},
@@ -181,6 +183,7 @@ func TestHeadingMoves(t *testing.T) {
 		{"子の節", "## A\n\nA\n\n### 子\n\n中\n\n## B\n\nB\n", "## B\n\nB\n\n## A\n\nA\n\n### 子\n\n中\n"},
 		{"空行なし", "## A\n## B\n", "## B\n\n## A\n"},
 		{"末尾の改行なし", "## A\n\nA\n\n## B\n\nB", "## B\n\nB\n\n## A\n\nA"},
+		{"末尾の空行", "## A\n\nA\n\n## B\n\nB\n\n\n", "## B\n\nB\n\n## A\n\nA\n\n\n"},
 		{"CRLF", "## A\r\n\r\nA\r\n\r\n## B\r\n\r\nB\r\n", "## B\r\n\r\nB\r\n\r\n## A\r\n\r\nA\r\n"},
 		{"脚注", "## A\n\nA[^a]\n\n[^a]: あ\n\n## B\n\nB[^b]\n\n[^b]: い\n", "## B\n\nB[^b]\n\n[^b]: い\n\n## A\n\nA[^a]\n\n[^a]: あ\n"},
 	} {
