@@ -18,6 +18,20 @@
       line(Array(cols).fill('---')), ...Array(rows).fill(line(Array(cols).fill('')))].join('\n');
   }
 
+  function emptyAlert(kind) {
+    if (!['note', 'tip', 'important', 'warning', 'caution'].includes(kind)) throw new RangeError('注記の種類を選んでください');
+    return '> [!' + kind + ']\n> ';
+  }
+
+  function emptyCodeBlock(language) {
+    if (!['sh', 'bash', 'powershell'].includes(language)) throw new RangeError('コードの言語を選んでください');
+    return '```' + language + '\n\n```';
+  }
+
+  function detailsBlock() {
+    return '<details>\n<summary>題</summary>\n\n本文\n\n</details>';
+  }
+
   function dimensions(model) {
     return {
       rows: Array.isArray(model.rows) ? model.rows.length : model.rows ?? model.slots?.length ?? 0,
@@ -289,5 +303,5 @@
     return fragment.cells.some((cell) => [cell.text, cell.tag, cell.source].some((text) => /\]\(|\]\[|\[\^|\b(?:href|src)\s*=/i.test(text)));
   }
 
-  window.gpEditGrid = Object.freeze({ TYPE, LIMITS, emptyPipeTable, slotsOf, rectOf, crossing, cellsIn, holesIn, crossesSection, mergeReason, unmergeReason, step, axisRect, matrix, toTSV, parseTSV, toHTML, fragment, valuesFragment, envelope, parseEnvelope, placed, foreignHints });
+  window.gpEditGrid = Object.freeze({ TYPE, LIMITS, emptyPipeTable, emptyAlert, emptyCodeBlock, detailsBlock, slotsOf, rectOf, crossing, cellsIn, holesIn, crossesSection, mergeReason, unmergeReason, step, axisRect, matrix, toTSV, parseTSV, toHTML, fragment, valuesFragment, envelope, parseEnvelope, placed, foreignHints });
 })();

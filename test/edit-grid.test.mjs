@@ -46,6 +46,24 @@ test('空のパイプの表を、見出しと本文の行に分けて作る', ()
     assert.throws(() => grid.emptyPipeTable(cols, rows), { name: 'RangeError' });
 });
 
+test('注記は五種類とも、空の本文を引用の行にして作る', () => {
+  for (const kind of ['note', 'tip', 'important', 'warning', 'caution'])
+    assert.equal(grid.emptyAlert(kind), '> [!' + kind + ']\n> ');
+  for (const kind of ['', 'NOTE', 'unknown', null, undefined])
+    assert.throws(() => grid.emptyAlert(kind), { name: 'RangeError' });
+});
+
+test('シェルのコードは三つの言語とも、空の一行を囲む', () => {
+  for (const language of ['sh', 'bash', 'powershell'])
+    assert.equal(grid.emptyCodeBlock(language), '```' + language + '\n\n```');
+  for (const language of ['', 'js', 'SH', null, undefined])
+    assert.throws(() => grid.emptyCodeBlock(language), { name: 'RangeError' });
+});
+
+test('折りたたみは題と本文の仮の文字と空行を入れて作る', () => {
+  assert.equal(grid.detailsBlock(), '<details>\n<summary>題</summary>\n\n本文\n\n</details>');
+});
+
 test('外部への定義は凍結した gpEditGrid だけ', () => {
   assert.deepEqual(Object.keys(context), ['window']);
   assert.deepEqual(Object.keys(context.window), ['gpEditGrid']);

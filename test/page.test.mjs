@@ -6590,6 +6590,241 @@ test('最上位の表の前後への追加と、追加欄で空の表を入れ�
   });
 });
 
+test('追加欄の注記・コード・折りたたみの定型を確かめる', { skip }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const pipe = '| 見出し |\n| --- |\n| 本文 |\n';
+  const original = '元\n\n' + pipe;
+  const snippets = [
+    { kind: 'note', value: '> [!note]\n> ', body: '注記の本文', selector: 'div.markdown-alert.markdown-alert-note' },
+    // 既存の配色は sh・bash を language-shell にまとめ、指定した言語を data-canonical-lang に残す。
+    { kind: 'code', value: '```sh\n\n```', offset: 6, body: 'echo hello', selector: 'pre.language-shell[data-canonical-lang="sh"] code' },
+    { kind: 'details', value: '<details>\n<summary>題</summary>\n\n本文\n\n</details>', selector: 'details' },
+  ];
+  const open = async (page, location = 'document') => {
+    if (location === 'block') {
+      await page.locator('#gp-content > p').dblclick();
+      for (const { kind } of snippets) assert.equal(await page.locator('#gp-edit-insert-' + kind).isVisible(), false);
+      await page.locator('#gp-edit-after').click();
+    } else if (location === 'table') {
+      await page.locator('#gp-content td').click();
+      await page.locator('#gp-edit-table').click();
+      await page.locator('#gp-edit-table-after').click();
+    } else {
+      await page.locator('#gp-edit-add').click();
+      await page.locator('#gp-edit-document-end').click();
+    }
+    for (const { kind } of snippets) assert.equal(await page.locator('#gp-edit-insert-' + kind).isVisible(), true);
+  };
+  const insert = async (page, kind, option) => {
+    await page.locator('#gp-edit-insert-' + kind).click();
+    if (kind === 'details') return;
+    if (option) await page.locator(kind === 'note' ? '#gp-edit-note-kind' : '#gp-edit-code-language').selectOption(option);
+    await page.locator('#gp-edit-' + kind + '-picker button[type="submit"]').click();
+  };
+  const commit = async (page, status = 200) => {
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.keyboard.press('Control+Enter');
+    assert.equal((await response).status(), status);
+    await editIdle(page);
+  };
+
+  for (const location of ['document', 'block', 'table']) for (const snippet of snippets)
+    await t.test(location + ' のカーソルへ ' + snippet.kind + ' を入れ、確定して描く', async (t) => {
+      const { page, file } = await editablePage(t, browser, original);
+      await open(page, location);
+      const input = page.locator('#gp-edit-input');
+      await input.fill('先\n後');
+      await input.evaluate((element) => element.setSelectionRange(1, 1));
+      await insert(page, snippet.kind);
+      let inserted = '先\n\n' + snippet.value + '\n\n後';
+      assert.equal(await input.inputValue(), inserted);
+      const caret = 3 + (snippet.offset ?? snippet.value.length);
+      assert.equal(await input.evaluate((element) => element.selectionStart === element.selectionEnd && element === document.activeElement && element.selectionStart), caret);
+      assert.equal(readFileSync(file, 'utf8'), original, '断片を差し込むだけでは書かない');
+      if (snippet.body) {
+        await page.keyboard.insertText(snippet.body);
+        inserted = inserted.slice(0, caret) + snippet.body + inserted.slice(caret);
+      }
+      await commit(page);
+      assert.equal(readFileSync(file, 'utf8'), location === 'block' ? '元\n\n' + inserted + '\n\n' + pipe : original + '\n' + inserted + '\n');
+      assert.equal(await page.locator('#gp-content ' + snippet.selector).count(), 1);
+      if (snippet.body) assert.match(await page.locator('#gp-content ' + snippet.selector).textContent(), new RegExp(snippet.body));
+      else {
+        assert.equal(await page.locator('#gp-content details summary').textContent(), '題');
+        await page.locator('#gp-content details summary').click();
+        assert.equal(await page.locator('#gp-content details > p').textContent(), '本文');
+      }
+    });
+
+  for (const kind of ['note', 'code']) await t.test(kind + ' の小窓をキー・外のクリック・本文入力で閉じる', async (t) => {
+    const { page, file } = await editablePage(t, browser, original);
+    await open(page);
+    const input = page.locator('#gp-edit-input'), button = page.locator('#gp-edit-insert-' + kind);
+    const picker = page.locator('#gp-edit-' + kind + '-picker');
+    const field = page.locator(kind === 'note' ? '#gp-edit-note-kind' : '#gp-edit-code-language');
+    await input.fill('先\n後');
+    await input.evaluate((element) => element.setSelectionRange(1, 3));
+    await button.focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await button.getAttribute('aria-expanded'), 'true');
+    assert.equal(await field.evaluate((element) => element === document.activeElement), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await picker.isVisible(), false);
+    assert.equal(await button.getAttribute('aria-expanded'), 'false');
+    assert.deepEqual(await input.evaluate((element) => [element === document.activeElement, element.selectionStart, element.selectionEnd]), [true, 1, 3]);
+    assert.equal(await input.inputValue(), '先\n後');
+    await button.click();
+    await page.keyboard.press('Tab');
+    assert.equal(await picker.locator('button[type="submit"]').evaluate((element) => element === document.activeElement), true);
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Enter');
+    assert.equal(await picker.isVisible(), false);
+    assert.equal(await input.inputValue(), '先\n後');
+    await button.click();
+    await input.click();
+    assert.equal(await picker.isVisible(), false);
+    await button.click();
+    // 本文の input を合成し、差し込み前に覚えた範囲を捨てることを確かめる。
+    await input.evaluate((element) => element.dispatchEvent(new InputEvent('input', { bubbles: true })));
+    assert.equal(await picker.isVisible(), false);
+    assert.equal(readFileSync(file, 'utf8'), original);
+    await input.evaluate((element) => element.setSelectionRange(1, 3));
+    await button.click();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Enter');
+    const snippet = snippets.find((snippet) => snippet.kind === kind);
+    assert.equal(await input.inputValue(), '先\n\n' + snippet.value);
+    assert.equal(readFileSync(file, 'utf8'), original);
+  });
+
+  await t.test('小窓は一つだけ開き、変換中はボタンでも小窓の確定でも差し込まない', async (t) => {
+    const { page, file } = await editablePage(t, browser, original);
+    await open(page);
+    const input = page.locator('#gp-edit-input');
+    await input.fill('変換中');
+    await page.locator('#gp-edit-insert-note').click();
+    await page.locator('#gp-edit-insert-code').click();
+    assert.equal(await page.locator('#gp-edit-note-picker').isVisible(), false);
+    assert.equal(await page.locator('#gp-edit-insert-note').getAttribute('aria-expanded'), 'false');
+    assert.equal(await page.locator('#gp-edit-code-picker').isVisible(), true);
+    await input.dispatchEvent('compositionstart');
+    await page.locator('#gp-edit-code-picker').evaluate((form) => form.requestSubmit());
+    assert.equal(await input.inputValue(), '変換中');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#gp-edit-code-picker').isVisible(), true);
+    await input.dispatchEvent('compositionend');
+    await page.keyboard.press('Escape');
+    await input.dispatchEvent('compositionstart');
+    for (const { kind } of snippets) await page.locator('#gp-edit-insert-' + kind).click();
+    assert.equal(await input.inputValue(), '変換中');
+    assert.equal(await page.locator('#gp-edit-note-picker').isVisible(), false);
+    assert.equal(await page.locator('#gp-edit-code-picker').isVisible(), false);
+    await input.dispatchEvent('compositionend');
+    assert.equal(readFileSync(file, 'utf8'), original);
+  });
+
+  for (const [kind, options] of [['note', ['tip', 'important', 'warning', 'caution']], ['code', ['bash', 'powershell']]])
+    for (const option of options) await t.test(kind + ' の ' + option + ' を選んで描く', async (t) => {
+      const { page, file } = await editablePage(t, browser, '元\n');
+      await open(page);
+      await insert(page, kind, option);
+      await page.keyboard.insertText(kind === 'note' ? '本文' : 'echo hello');
+      await commit(page);
+      const text = kind === 'note' ? '> [!' + option + ']\n> 本文' : '```' + option + '\necho hello\n```';
+      assert.equal(readFileSync(file, 'utf8'), '元\n\n' + text + '\n');
+      const selector = kind === 'note' ? 'div.markdown-alert.markdown-alert-' + option
+        : 'pre.language-' + (option === 'bash' ? 'shell' : option) + '[data-canonical-lang="' + option + '"] code';
+      assert.equal(await page.locator('#gp-content ' + selector).count(), 1);
+    });
+
+  for (const snippet of snippets) for (const [left, right, prefix, suffix] of [
+    ['', '', '', ''], ['先', '後', '\n\n', '\n\n'], ['先\n', '\n後', '\n', '\n'], ['先\n\n', '\n\n後', '', ''],
+    // 欄の先頭・末尾では、空の側へ改行を足さない。
+    ['', '後', '', '\n\n'], ['先', '', '\n\n', ''],
+  ]) await t.test(snippet.kind + ' の前後の空行を補う ' + JSON.stringify([left, right]), async (t) => {
+    const { page, file } = await editablePage(t, browser, '元\n');
+    await open(page);
+    const input = page.locator('#gp-edit-input');
+    await input.fill(left + '消す' + right);
+    await input.evaluate((element, start) => element.setSelectionRange(start, start + 2), left.length);
+    await insert(page, snippet.kind);
+    assert.equal(await input.inputValue(), left + prefix + snippet.value + suffix + right);
+    assert.equal(readFileSync(file, 'utf8'), '元\n');
+  });
+
+  for (const kind of ['code', 'details']) await t.test(kind + ' の閉じを消すと、前後を巻き込む追加として断る', async (t) => {
+    const { page, file } = await editablePage(t, browser, '前\n\n後\n');
+    await page.locator('#gp-content > p').first().dblclick();
+    await page.locator('#gp-edit-after').click();
+    await insert(page, kind);
+    const input = page.locator('#gp-edit-input');
+    const unclosed = (await input.inputValue()).replace(kind === 'code' ? /\n```$/ : /\n<\/details>$/, '');
+    await input.fill(unclosed);
+    await commit(page, 422);
+    assert.equal(await input.inputValue(), unclosed);
+    assert.match(await page.locator('#gp-edit-status').textContent(), /前後のブロック/);
+    assert.equal(readFileSync(file, 'utf8'), '前\n\n後\n');
+  });
+
+  await t.test('空の文書の最初のブロックにも定型を出し、小窓を開いたまま止まったら閉じる', async (t) => {
+    const { page, file } = await editablePage(t, browser, '');
+    assert.equal(await page.locator('#gp-edit-add').textContent(), '最初のブロックを書く');
+    await page.locator('#gp-edit-add').click();
+    for (const { kind } of snippets) assert.equal(await page.locator('#gp-edit-insert-' + kind).isVisible(), true);
+    await insert(page, 'note', 'warning');
+    await page.keyboard.insertText('最初の注記');
+    await commit(page);
+    assert.equal(readFileSync(file, 'utf8'), '> [!warning]\n> 最初の注記\n');
+    assert.equal(await page.locator('#gp-content div.markdown-alert.markdown-alert-warning').count(), 1);
+
+    await open(page);
+    const button = page.locator('#gp-edit-insert-code');
+    await button.click();
+    assert.equal(await page.locator('#gp-edit-code-picker').isVisible(), true);
+    await page.evaluate(() => document.dispatchEvent(new Event('gp:stop')));
+    assert.equal(await page.locator('#gp-edit-code-picker').isVisible(), false);
+    assert.equal(await button.getAttribute('aria-expanded'), 'false');
+    assert.equal(readFileSync(file, 'utf8'), '> [!warning]\n> 最初の注記\n');
+  });
+});
+
+test('追加欄の定型を Neovim へ一個の行の置き換えで送る', { skip }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  for (const [kind, text, selector] of [
+    ['note', '> [!note]\n> 本文', 'div.markdown-alert.markdown-alert-note'],
+    ['code', '```sh\necho hello\n```', 'pre.language-shell[data-canonical-lang="sh"] code'],
+    ['details', '<details>\n<summary>題</summary>\n\n本文\n\n</details>', 'details'],
+  ]) await t.test(kind + ' を一手で追加する', async (t) => {
+    const bridge = await startGoStdio(t);
+    const context = await browser.newContext();
+    t.after(() => context.close());
+    const page = await context.newPage();
+    await page.goto(bridge.url);
+    await bridge.send({ type: 'doc', path: null, name: '定型.md', text: '元\n', buf: 7, rev: 1 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 1);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    await page.locator('#gp-edit-add').click();
+    await page.locator('#gp-edit-document-end').click();
+    await page.locator('#gp-edit-insert-' + kind).click();
+    if (kind !== 'details') {
+      await page.locator('#gp-edit-' + kind + '-picker button[type="submit"]').click();
+      await page.keyboard.insertText(kind === 'note' ? '本文' : 'echo hello');
+    }
+    await page.keyboard.press('Control+Enter');
+    const edit = await bridge.waitFor('edit');
+    assert.deepEqual(edit, { type: 'edit', id: 1, path: null, buf: 7, rev: 1,
+      edits: [{ start: 1, end: 1, lines: ['', ...text.split('\n')] }] });
+    await bridge.send({ type: 'edit_result', id: edit.id, ok: true });
+    await bridge.send({ type: 'doc', path: null, name: '定型.md', text: '元\n\n' + text + '\n', buf: 7, rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 2);
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-content ' + selector).count(), 1);
+  });
+});
+
 test('セルメニューで結合・解除・変換して結合と、一手の取り消しを確かめる', { skip }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
