@@ -1025,6 +1025,369 @@ async function editIdle(page) {
   await page.waitForFunction(() => document.querySelector('#gp-edit-layer').getAttribute('aria-busy') === 'false' &&
     Number(document.querySelector('#gp-edit-layer').dataset.render) === window.gpPreview.current().render);
 }
+
+test('見出しの操作の画面・キー・送信とフォーカス', { skip, timeout: 240000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const outline = (page, title) => page.locator('#gp-outline a').filter({ hasText: title }).first();
+  const menu = (page) => page.locator('#gp-edit-menu-heading');
+  const action = (page, name) => page.locator('#gp-edit-heading-' + name);
+  const open = async (page, title) => {
+    await outline(page, title).focus();
+    await page.keyboard.press('Shift+F10');
+    await menu(page).waitFor({ state: 'visible' });
+  };
+  const requests = (page) => {
+    const sent = [];
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith('/_/edit') && request.method() === 'POST') sent.push(request.postDataJSON());
+    });
+    return sent;
+  };
+  const before = '# 題\n\n## 前\n\n前本文。\n\n';
+  const section = '## 対象\n\n対象本文。\n\n### 子\n\n子本文。\n\n';
+  const after = '## 後\n\n後本文。\n';
+
+  await t.test('編集モードだけの操作ボタン、元の番号、対象外の理由と既定のキー', async (t) => {
+    const text = '# 題\n\n<h2>番号なし</h2>\n\n## 子\n\n> ### 引用\n\n<h2 id="user-content-raw">生の見出し</h2>\n';
+    const { page } = await editablePage(t, browser, text);
+    const mapping = await page.evaluate(() => window.gpPreview.outline().map((link, i) => ({
+      index: link.index, id: link.id, level: link.level,
+      live: document.querySelectorAll('#gp-outline a')[i] === link.anchor,
+      correct: window.gpPreview.current().headings[link.index].id === link.id,
+    })));
+    assert.equal(mapping.every((link) => link.correct), true);
+    assert.equal(mapping.every((link) => link.live), true);
+    assert.deepEqual(mapping.map((link) => link.index), [0, 2, 3, 4]);
+    assert.equal(await page.locator('#gp-outline .gp-outline-actions').count(), mapping.length);
+    assert.match(await page.locator('.gp-outline-actions').first().getAttribute('aria-label'), /題/);
+    assert.equal(await page.locator('.gp-outline-actions').first().getAttribute('aria-haspopup'), 'menu');
+    await page.locator('.gp-outline-actions').first().click();
+    assert.equal(await menu(page).isVisible(), true);
+    await page.keyboard.press('Escape');
+    await open(page, '題');
+    assert.equal(await action(page, 'promote').getAttribute('aria-disabled'), 'true');
+    assert.equal(await action(page, 'moveUp').getAttribute('aria-disabled'), 'true');
+    assert.equal(await action(page, 'moveDown').getAttribute('aria-disabled'), 'true');
+    await action(page, 'promote').focus();
+    assert.match(await page.locator('#gp-edit-menu-heading-reason').textContent(), /h1 より上/);
+    await page.keyboard.press('Escape');
+    assert.equal(await outline(page, '題').evaluate((element) => element === document.activeElement), true);
+    for (const [title, reason] of [['引用', /引用・リスト/], ['生の見出し', /HTML/]]) {
+      await outline(page, title).click({ button: 'right' });
+      await menu(page).waitFor({ state: 'visible' });
+      assert.equal(await action(page, 'demote').getAttribute('aria-disabled'), 'true');
+      await action(page, 'demote').focus();
+      assert.match(await page.locator('#gp-edit-menu-heading-reason').textContent(), reason);
+      await page.keyboard.press('Escape');
+    }
+    await outline(page, '子').focus();
+    await page.keyboard.press('ContextMenu');
+    assert.equal(await menu(page).isVisible(), true);
+    await page.keyboard.press('Escape');
+    await page.locator('#gp-edit-toggle').click();
+    assert.equal(await page.locator('.gp-outline-actions').count(), 0);
+    assert.equal(await outline(page, '題').evaluate((element) => {
+      element.focus();
+      const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true, cancelable: true });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    }), false);
+    assert.equal(await outline(page, '題').evaluate((element) => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    }), false);
+    const plain = await editablePage(t, browser, '# 題\n', { edit: '' });
+    assert.equal(await plain.page.locator('.gp-outline-actions').count(), 0);
+  });
+
+  for (const [key, op, expected] of [
+    ['Alt+ArrowLeft', { type: 'level', delta: -1, scope: 'heading' }, before + section.replace('## 対象', '# 対象') + after],
+    ['Alt+ArrowRight', { type: 'level', delta: 1, scope: 'heading' }, before + section.replace('## 対象', '### 対象') + after],
+    ['Shift+Alt+ArrowLeft', { type: 'level', delta: -1, scope: 'section' }, before + section.replace('## 対象', '# 対象').replace('### 子', '## 子') + after],
+    ['Shift+Alt+ArrowRight', { type: 'level', delta: 1, scope: 'section' }, before + section.replace('## 対象', '### 対象').replace('### 子', '#### 子') + after],
+    ['Alt+ArrowUp', { type: 'move', direction: 'up' }, '# 題\n\n' + section + '## 前\n\n前本文。\n\n' + after],
+    ['Alt+ArrowDown', { type: 'move', direction: 'down' }, before + after + '\n' + section.trimEnd() + '\n'],
+  ]) await t.test(key + ' は一回だけ送り、同じ見出しへ戻し、URL と履歴を保つ', async (t) => {
+    const { page, file } = await editablePage(t, browser, before + section + after);
+    const sent = requests(page);
+    await page.evaluate(() => history.replaceState(null, '', '#保持する位置'));
+    const navigation = await page.evaluate(() => ({ url: location.href, length: history.length }));
+    await outline(page, '対象').focus();
+    await page.keyboard.press(key);
+    await editIdle(page);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].op, op);
+    assert.deepEqual(Object.keys(sent[0]).sort(), ['heading', 'op', 'render']);
+    assert.equal(readFileSync(file, 'utf8'), expected);
+    assert.equal(await outline(page, '対象').evaluate((element) => element === document.activeElement), true);
+    assert.deepEqual(await page.evaluate(() => ({ url: location.href, length: history.length })), navigation);
+  });
+
+  await t.test('繰り返しと Ctrl・Meta を捨て、無効な Alt キーは止めて理由を知らせる', async (t) => {
+    const { page, file } = await editablePage(t, browser, '# 題\n');
+    const sent = requests(page);
+    const prevented = await outline(page, '題').evaluate((element) => {
+      element.focus();
+      return [{ repeat: true }, { ctrlKey: true }, { metaKey: true }, {}].map((extra) => {
+        const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true, cancelable: true, ...extra });
+        element.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+    });
+    assert.deepEqual(prevented, [true, false, false, true]);
+    assert.equal(sent.length, 0);
+    assert.match(await page.locator('#gp-edit-status').textContent(), /h1 より上/);
+    assert.equal(readFileSync(file, 'utf8'), '# 題\n');
+  });
+
+  await t.test('節ごとの削除は題・行数・内側の見出し数を示し、やめると Esc は送らない', async (t) => {
+    const { page, file } = await editablePage(t, browser, before + section + after);
+    const sent = requests(page);
+    const info = await page.evaluate(async () => {
+      const response = await fetch(new URL('_/edit/tables?render=' + window.gpPreview.current().render, window.gpPreview.base));
+      return (await response.json()).headings.find((heading) => heading.text === '対象').section;
+    });
+    for (const cancel of ['button', 'escape']) {
+      await open(page, '対象');
+      await action(page, 'deleteSection').click();
+      assert.equal(await action(page, 'cancel').evaluate((element) => element === document.activeElement), true);
+      const summary = await page.locator('#gp-edit-heading-delete-summary').textContent();
+      assert.match(summary, /「対象」/);
+      assert.ok(summary.includes(info.lines + ' 行'));
+      assert.ok(summary.includes('内側の見出し 1 個'));
+      if (cancel === 'button') await action(page, 'cancel').click();
+      else await page.keyboard.press('Escape');
+      assert.equal(sent.length, 0);
+      assert.equal(await page.locator('#gp-edit-menu-heading-delete').isVisible(), false);
+    }
+    await open(page, '対象');
+    await action(page, 'deleteSection').click();
+    await action(page, 'confirm-delete').click();
+    await editIdle(page);
+    assert.deepEqual(sent[0].op, { type: 'delete', scope: 'section' });
+    assert.equal(readFileSync(file, 'utf8'), before + after);
+    assert.equal(await outline(page, '後').evaluate((element) => element === document.activeElement), true);
+  });
+
+  await t.test('見出しだけの削除は本文と内側の見出しを残す', async (t) => {
+    const { page, file } = await editablePage(t, browser, before + section + after);
+    const sent = requests(page);
+    await open(page, '対象');
+    await action(page, 'deleteHeading').click();
+    await editIdle(page);
+    assert.deepEqual(sent[0].op, { type: 'delete', scope: 'heading' });
+    assert.equal(readFileSync(file, 'utf8'), before + section.replace('## 対象\n\n', '') + after);
+    assert.equal(await outline(page, '子').evaluate((element) => element === document.activeElement), true);
+  });
+
+  await t.test('送信の応答・次の描画・次の情報を待ってフォーカスを戻す', async (t) => {
+    const { page } = await editablePage(t, browser, before + section + after);
+    const initial = await page.evaluate(() => window.gpPreview.current().render);
+    let releasePost, releaseInfo, infoStarted;
+    const heldPost = new Promise((resolve) => { releasePost = resolve; });
+    const heldInfo = new Promise((resolve) => { releaseInfo = resolve; });
+    const receivedInfo = new Promise((resolve) => { infoStarted = resolve; });
+    t.after(() => { releasePost(); releaseInfo(); });
+    await page.route('**/_/edit', async (route) => {
+      const response = await route.fetch();
+      await heldPost;
+      await route.fulfill({ response });
+    });
+    await page.route('**/_/edit/tables?*', async (route) => {
+      const response = await route.fetch();
+      infoStarted();
+      await heldInfo;
+      await route.fulfill({ response });
+    });
+    await outline(page, '対象').focus();
+    await page.keyboard.press('Alt+ArrowUp');
+    await page.waitForFunction((initial) => window.gpPreview.current().render > initial, initial);
+    await receivedInfo;
+    assert.equal(await outline(page, '対象').evaluate((element) => element === document.activeElement), false);
+    releasePost();
+    await page.waitForResponse((response) => new URL(response.url()).pathname.endsWith('/_/edit'));
+    assert.equal(await outline(page, '対象').evaluate((element) => element === document.activeElement), false);
+    releaseInfo();
+    await editIdle(page);
+    assert.equal(await outline(page, '対象').evaluate((element) => element === document.activeElement), true);
+  });
+
+  await t.test('操作せずに見出し欄を描き直してもフォーカスを保ち、停止中のキーは理由を知らせる', async (t) => {
+    const text = '# 題\n\n## 対象\n';
+    const { page, file, server } = await editablePage(t, browser, text);
+    await outline(page, '対象').focus();
+    await server.setDocument({ path: file, text, rev: 40 });
+    await page.waitForFunction(() => window.gpPreview.current().rev === 40);
+    await editIdle(page);
+    assert.equal(await outline(page, '対象').evaluate((element) => element === document.activeElement), true);
+    // 隣の「操作」ボタンにフォーカスがあっても同じ見出しのキーとして受け、ブラウザーの「戻る・進む」にしない。
+    const address = page.url();
+    await page.locator('#gp-outline li').filter({ hasText: '対象' }).locator('.gp-outline-actions').focus();
+    await page.keyboard.press('Alt+ArrowRight');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '# 題\n\n### 対象\n');
+    assert.equal(page.url(), address);
+    await outline(page, '対象').focus();
+    const sent = requests(page);
+    await page.evaluate(() => document.dispatchEvent(new Event('gp:stop')));
+    await page.keyboard.press('Alt+ArrowLeft');
+    assert.equal(sent.length, 0);
+    assert.equal(await page.locator('#gp-edit-status').textContent(), 'プレビューが止まっています');
+    await page.keyboard.press('Shift+F10');
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await action(page, 'demote').evaluate((element) => element === document.activeElement), true);
+    assert.equal(await page.locator('#gp-edit-menu-heading-reason').textContent(), 'プレビューが止まっています');
+    await page.keyboard.press('Escape');
+    assert.equal(await menu(page).isVisible(), false);
+  });
+
+  await t.test('本文から開いた節ごとの削除の確認の位置、理由のある見出しの項目、「操作」ボタンの開閉', async (t) => {
+    const text = '# 題\n\n## 対象\n\n段落。\n\n## 次\n\n> ### 引用\n';
+    const { page, file } = await editablePage(t, browser, text);
+    await page.locator('#gp-content > h2').first().dispatchEvent('contextmenu', { clientX: 300, clientY: 200 });
+    await page.locator('#gp-edit-menu-block').waitFor({ state: 'visible' });
+    await page.locator('#gp-edit-block-headings').focus();
+    await page.keyboard.press('ArrowRight');
+    await menu(page).waitFor({ state: 'visible' });
+    const shown = await menu(page).boundingBox();
+    await action(page, 'deleteSection').click();
+    const confirm = page.locator('#gp-edit-menu-heading-delete');
+    await confirm.waitFor({ state: 'visible' });
+    const box = await confirm.boundingBox();
+    assert.ok(Math.abs(box.x - shown.x) < 12 && Math.abs(box.y - shown.y) < 12, '見出しのメニューの位置に出す（' + JSON.stringify([box, shown]) + '）');
+    assert.equal(await action(page, 'cancel').evaluate((element) => element === document.activeElement), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await confirm.isVisible(), false);
+    // 引用の中の見出しは、本文のメニューでも項目を出し、理由を読める。
+    await page.locator('#gp-content blockquote h3').dispatchEvent('contextmenu', { clientX: 300, clientY: 300 });
+    await page.waitForFunction(() => document.querySelector('#gp-edit-block-source').getAttribute('aria-disabled') === 'false');
+    const child = page.locator('#gp-edit-block-headings');
+    assert.equal(await child.isVisible(), true);
+    assert.equal(await child.getAttribute('aria-disabled'), 'true');
+    await child.focus();
+    assert.match(await page.locator('#gp-edit-menu-block-reason').textContent(), /引用/);
+    await page.keyboard.press('Escape');
+    // 見出し欄の「操作」ボタンは、もう一度押すと閉じる。
+    const button = page.locator('#gp-outline li').filter({ hasText: '対象' }).locator('.gp-outline-actions');
+    await button.click();
+    await menu(page).waitFor({ state: 'visible' });
+    await button.click();
+    assert.equal(await menu(page).isVisible(), false);
+    assert.equal(readFileSync(file, 'utf8'), text);
+  });
+
+  await t.test('本文の子メニューと原文の操作欄で共用し、確定していない原文は断る', async (t) => {
+    const { page, file } = await editablePage(t, browser, '# 題\n\n## 対象\n\n段落。\n');
+    await page.locator('#gp-content h2').dispatchEvent('contextmenu', { clientX: 400, clientY: 200 });
+    await page.locator('#gp-edit-menu-block').waitFor({ state: 'visible' });
+    const child = page.locator('#gp-edit-block-headings');
+    assert.equal(await child.isVisible(), true);
+    await child.focus();
+    await page.keyboard.press('ArrowRight');
+    await action(page, 'demote').click();
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '# 題\n\n### 対象\n\n段落。\n');
+    assert.equal(await page.locator('#gp-content h3').evaluate((element) => element === document.activeElement), true);
+    await page.locator('#gp-content p').dispatchEvent('contextmenu', { clientX: 400, clientY: 200 });
+    await page.waitForFunction(() => document.querySelector('#gp-edit-block-source').getAttribute('aria-disabled') === 'false');
+    assert.equal(await page.locator('#gp-content h3').getAttribute('tabindex'), null, 'フォーカスが外れたら本文に tabindex を残さない');
+    assert.equal(await child.isVisible(), false);
+    await page.keyboard.press('End');
+    assert.equal(await page.locator('#gp-edit-block-after').evaluate((element) => element === document.activeElement), true);
+    await page.keyboard.press('Escape');
+    await page.locator('#gp-content h3').dblclick();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value === '### 対象');
+    const button = page.locator('#gp-edit-heading');
+    assert.equal(await button.isVisible(), true);
+    assert.equal(await button.isEnabled(), true);
+    await page.locator('#gp-edit-input').fill('### 未確定');
+    assert.equal(await button.isDisabled(), true);
+    assert.equal(await button.getAttribute('title'), '原文の変更を確定するか取り消してから操作してください');
+    await page.keyboard.press('Escape');
+    await page.locator('#gp-content h3').dblclick();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value === '### 対象');
+    await button.click();
+    await action(page, 'promote').click();
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-edit-input').isVisible(), false);
+    assert.equal(await page.locator('#gp-content h2').evaluate((element) => element === document.activeElement), true);
+    await page.locator('#gp-content p').dblclick();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value === '段落。');
+    assert.equal(await button.isVisible(), false);
+  });
+
+  await t.test('対応の不一致を断り、422 は理由を文字で知らせてメニューを開き直さない', async (t) => {
+    const { page, file } = await editablePage(t, browser, '# 題\n\n## 対象\n');
+    for (const field of ['id', 'level']) {
+      await page.locator('#gp-edit-toggle').click();
+      await page.route('**/_/edit/tables?*', async (route) => {
+        const response = await route.fetch(), data = await response.json();
+        data.headings[1][field] = field === 'id' ? '別の見出し' : 6;
+        await route.fulfill({ response, json: data });
+      });
+      await page.locator('#gp-edit-toggle').click();
+      await editIdle(page);
+      await open(page, '対象');
+      assert.equal(await action(page, 'demote').getAttribute('aria-disabled'), 'true');
+      await action(page, 'demote').focus();
+      assert.equal(await page.locator('#gp-edit-menu-heading-reason').textContent(), '見出しの対応を確かめられません');
+      await page.keyboard.press('Escape');
+      await page.unroute('**/_/edit/tables?*');
+    }
+    await page.locator('#gp-edit-toggle').click();
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    const reason = '<img src=x onerror=alert(1)> この操作はできません。';
+    await page.route('**/_/edit', (route) => route.fulfill({ status: 422, contentType: 'application/json',
+      json: { error: { code: 'heading', message: reason } } }));
+    await open(page, '対象');
+    await action(page, 'demote').click();
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-edit-status').textContent(), reason);
+    assert.equal(await page.locator('#gp-edit-status img').count(), 0);
+    assert.equal(await menu(page).isVisible(), false);
+    assert.equal(readFileSync(file, 'utf8'), '# 題\n\n## 対象\n');
+  });
+
+  await t.test('同じ題の移動で id が変わる警告を知らせる', async (t) => {
+    const links = '[先](#同じ) [後](#同じ-1)\n\n';
+    const { page, file } = await editablePage(t, browser, '# 題\n\n' + links + '## 同じ\n\n先。\n\n## 同じ\n\n後。\n');
+    await page.locator('#gp-outline a').nth(2).focus();
+    await page.keyboard.press('Alt+ArrowUp');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '# 題\n\n' + links + '## 同じ\n\n後。\n\n## 同じ\n\n先。\n');
+    assert.match(await page.locator('#gp-edit-status').textContent(), /id|ID|リンク/);
+    assert.equal(await page.locator('#gp-outline a').nth(1).evaluate((element) => element === document.activeElement), true);
+  });
+
+  await t.test('見出しの送信中に並んだ表の入力を構造の変更後に下書きへ戻す', async (t) => {
+    const text = '# 題\n\n## 対象\n\n| 一 | 二 |\n| --- | --- |\n| 元 | 次 |\n';
+    const { page, file } = await editablePage(t, browser, text);
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    t.after(() => release());
+    await page.route('**/_/edit', async (route) => {
+      const response = await route.fetch();
+      await held;
+      await route.fulfill({ response });
+    });
+    await outline(page, '対象').focus();
+    await page.keyboard.press('Alt+ArrowRight');
+    await page.locator('#gp-content td').first().click();
+    await page.keyboard.insertText('下書き');
+    await page.keyboard.press('Tab');
+    release();
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), text.replace('## 対象', '### 対象'));
+    assert.match(await page.locator('#gp-edit-status').textContent(), /下書きへ戻しました/);
+    await page.locator('#gp-content td').first().click();
+    await page.keyboard.press('F2');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '下書き');
+  });
+});
+
 async function replaceCell(page, cell, value, key = 'Enter') {
   await cell.click();
   await page.keyboard.insertText(value);
@@ -1588,8 +1951,8 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     // 操作欄は「行」「列」「セル」「表」「原文を編集」「元に戻す」「やり直し」。
     assert.equal(await page.locator('#gp-edit-actions > button').count(), 7);
     assert.equal(await page.locator('#gp-edit-actions [role="menu"]').count(), 0);
-    // メニューは行・列・セルの操作・セルの結合と解除・表・文書への追加・表以外のブロック。
-    assert.equal(await page.locator('#gp-edit-layer > [role="menu"]').count(), 7);
+    // 行・列・セル・結合・表・文書への追加・ブロックに、見出しと節削除の確認を加える。
+    assert.equal(await page.locator('#gp-edit-layer > [role="menu"]').count(), 9);
     assert.equal(await page.locator('#gp-edit-cell-rows').getAttribute('role'), 'menuitem');
     for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
