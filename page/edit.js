@@ -766,6 +766,7 @@
   }
   async function loadBlock() {
     const pending = pendingBlock;
+    let opened = false;
     let element = pending && findBlock(pending.target);
     if (!element || sourceFetching || busy || queue.length || failed || stopped || !mode ||
       infoRender !== preview.current()?.render) return;
@@ -814,19 +815,27 @@
         anchor: data.anchor && typeof data.anchor.tag === 'string' && rangePattern.test(data.anchor.range || '') &&
           rangePattern.test(data.anchor.actual || '') ? data.anchor : null });
       if (pending.fallbackNotice) notice(pending.fallbackNotice);
+      opened = true;
     } catch (error) {
       if (number === sourceNumber && error.name !== 'AbortError') notice(error.message || '原文を読み込めませんでした', true);
     } finally {
       if (number === sourceNumber) sourceFetching = null;
     }
+    // ブロックのメニューの「外側を編集」「前・後ろにブロックを追加」は、原文を開いてから今の操作欄と同じ手順で続ける。
+    if (!opened || !pending.then || editor?.target !== pending.target) return;
+    if (pending.then === 'outer') {
+      if (editor.outer?.length) moveBlock(true);
+      else notice('外側に編集できるブロックがありません', true);
+    } else if (editor.anchor) beginInsert(pending.then);
+    else notice('このブロックの前後には追加できません', true);
   }
-  function beginBlock(element, { preserve = false, inner = [], fallbackNotice = '', target = null } = {}) {
+  function beginBlock(element, { preserve = false, inner = [], fallbackNotice = '', target = null, then = '' } = {}) {
     target ||= preview.sourceOf(element) || rawBlockOf(element);
     if (!target) return;
     cancelSource();
     if (editor && !preserve) endEdit(true);
     clearSelection();
-    pendingBlock = { target, inner, fallbackNotice };
+    pendingBlock = { target, inner, fallbackNotice, then };
     operationStart();
     void loadBlock();
   }
@@ -1316,7 +1325,26 @@
       : action.startsWith('col-') ? editGrid.axisRect(model, rect, 'cols') : rect;
   }
   // 表示・メニュー・実行は、必ず同じ理由を使う。DOM の行の表示状態はこの時だけ読む。
+  function blockMenuReason(action) {
+    if (!mode || !allowed()) return '編集モードで操作してください';
+    if (stopped) return 'プレビューが止まっています';
+    if (infoRender !== preview.current()?.render) return '文書の情報を読み込んでいます';
+    if (busy || queue.length) return '前の書き込みの反映を待っています';
+    if (composing) return '文字の入力を終えてから操作してください';
+    if (!documentEditable) return documentReason || 'この文書は編集できません';
+    const context = blockMenu;
+    if (!context || context.render !== preview.current()?.render || !findBlock(context.target))
+      return '対象が見つかりません。もう一度右クリックしてください';
+    // 「原文を編集」はダブルクリックと同じ手順で開く（範囲を決められないときの外側への切り替えも同じ）。
+    if (action === 'block-source') return '';
+    if (context.loading) return '原文の情報を読み込んでいます';
+    if (context.error) return context.error;
+    if (action === 'block-outer' && !context.data.outer.length) return '外側に編集できるブロックがありません';
+    if ((action === 'block-before' || action === 'block-after') && !context.data.anchor) return 'このブロックの前後には追加できません';
+    return '';
+  }
   function reasonFor(action) {
+    if (action.startsWith('block-')) return blockMenuReason(action);
     if (action === 'document-start' || action === 'document-end') return documentInsertReason();
     if (action === 'paste') return pasteInstruction;
     if (action === 'undo' || action === 'redo') {
@@ -1498,6 +1526,62 @@
   buildMenu('table', '表の操作', [['table-before', '表の前にブロックを追加'], ['table-after', '表の後ろにブロックを追加'], null,
     ['table-html', 'HTML の表にする'], ['table-pipe', 'パイプの表にする'], ['table-delete', '表を削除']]);
   buildMenu('document', '文書への追加', [['document-start', '文書の先頭に追加'], ['document-end', '文書の末尾に追加']]);
+  buildMenu('block', 'ブロックの操作', [['block-source', '原文を編集'], ['block-outer', '外側を編集'], null,
+    ['block-before', '前にブロックを追加'], ['block-after', '後ろにブロックを追加']]);
+  // 表以外のブロックの右クリック。原文の情報を 1 回読み、外側や追加先が無ければ理由を出して無効にする。
+  let blockMenu = null;
+  let blockMenuNumber = 0;
+  async function loadBlockMenu(context) {
+    const request = url('/source');
+    request.searchParams.set('render', context.render);
+    const source = context.target;
+    if (source.tag === 'html') {
+      for (const side of ['prev', 'next']) if (source[side]) {
+        request.searchParams.set(side + 'Tag', source[side].tag);
+        request.searchParams.set(side + 'Range', source[side].range);
+      }
+    } else request.searchParams.set('range', source.range);
+    request.searchParams.set('tag', source.tag);
+    try {
+      const response = await fetch(request);
+      const data = await response.json();
+      if (blockMenu !== context || context.number !== blockMenuNumber) return;
+      // 説明リストの用語のように範囲を決められないブロックは、ダブルクリックと同じく外側を開ける（前後には追加しない）。
+      const outer = response.status === 422 && Array.isArray(data.outer) && data.outer.length ? data.outer : null;
+      if (!response.ok && !outer) throw new Error(messageOf(data) || '原文を読み込めませんでした');
+      if (outer) context.data = { outer, anchor: false };
+      else if (data.render !== context.render || typeof data.range !== 'string' || !rangePattern.test(data.range))
+        throw new Error('原文の応答の形が正しくありません');
+      else context.data = { outer: Array.isArray(data.outer) ? data.outer : [],
+        anchor: Boolean(data.anchor && typeof data.anchor.tag === 'string' && rangePattern.test(data.anchor.range || '') &&
+          rangePattern.test(data.anchor.actual || '')) };
+    } catch (error) {
+      if (blockMenu !== context || context.number !== blockMenuNumber) return;
+      context.error = error.message || '原文を読み込めませんでした';
+    }
+    context.loading = false;
+    updateMenus();
+  }
+  function openBlockMenu(event) {
+    // 文字を選んでいる・リンクや動画の上・Shift を押しながら・変換中は、ブラウザーの既定のメニュー（コピーなど）を残す。
+    // PlantUML の図は SVG へのリンクで包まれているが、ダブルクリックと同じく図の原文の対象にする。
+    if (event.shiftKey || composing || ignored(event.target) || layer.contains(event.target) ||
+      event.target.closest?.('a[href]:not([data-diagram="plantuml"]), video, audio')) return;
+    const block = blockOf(event.target);
+    const raw = block ? null : rawBlockOf(event.target);
+    // 生の HTML の連なりは、どの要素の上の選択でも既定のメニューを残す。
+    const elements = block ? [block] : raw ? preview.findHTML(raw) : [];
+    const target = block ? preview.sourceOf(block) : raw;
+    if (!elements.length || !target) return;
+    const selection = document.getSelection();
+    if (selection && !selection.isCollapsed && selection.rangeCount &&
+      elements.some((element) => selection.getRangeAt(0).intersectsNode(element))) return;
+    event.preventDefault();
+    event.stopPropagation();
+    blockMenu = { target, render: preview.current()?.render, number: ++blockMenuNumber, loading: true, data: null, error: '' };
+    openMenu('block', input, { point: { x: event.clientX, y: event.clientY } });
+    void loadBlockMenu(blockMenu);
+  }
 
   function closeMenus(restore = false) {
     const opener = openMenus[0]?.opener;
@@ -1542,10 +1626,10 @@
     else if (editor) endEdit(true);
     closeMenus();
     const menu = menus.get(name);
-    const placement = name === 'cell' ? 'cell' : name === 'document' ? 'header' : 'toolbar';
+    const placement = name === 'cell' ? 'cell' : name === 'document' ? 'header' : point ? 'point' : 'toolbar';
     const rect = point ? { left: point.x, right: point.x, top: point.y, bottom: point.y }
       : name === 'cell' ? selectionCell().element.getBoundingClientRect() : opener.getBoundingClientRect();
-    openMenus.push({ menu, opener, placement, rect: name === 'cell' ? rect : null });
+    openMenus.push({ menu, opener, placement, rect: name === 'cell' || point ? rect : null });
     if (opener !== input) opener.setAttribute('aria-expanded', 'true');
     updateMenus();
     placeMenu(menu, rect, placement);
@@ -1578,6 +1662,12 @@
     operationStart();
     closeMenus();
     if (action === 'table-before' || action === 'table-after') { beginTableInsert(action.slice('table-'.length)); return; }
+    if (action.startsWith('block-')) {
+      const { target } = blockMenu, element = findBlock(target);
+      blockMenu = null;
+      if (element) beginBlock(element, { target, then: { 'block-outer': 'outer', 'block-before': 'before', 'block-after': 'after' }[action] || '' });
+      return;
+    }
     if (action === 'source') { if (editor) endEdit(true); beginEdit({ source: true }); return; }
     if (editor) endEdit(true);
     // 入力の確定が先に送られたなら、座標を使う次の操作は反映を待つ。
@@ -1746,7 +1836,7 @@
   window.addEventListener('contextmenu', (event) => {
     if (!mode || stopped || window.__mdTableSticky?.picking || (event.target === input && editor)) return;
     const cell = event.target === input ? selectionCell() : byCell.get(event.target.closest?.('td, th'));
-    if (!cell) return;
+    if (!cell) { openBlockMenu(event); return; }
     event.preventDefault();
     event.stopPropagation();
     if (editor) endEdit(true);
@@ -1758,7 +1848,7 @@
   window.addEventListener('resize', () => closeMenus());
   window.addEventListener('blur', () => closeMenus());
   window.addEventListener('scroll', (event) => {
-    if (openMenus[0]?.placement === 'cell' && !event.target.closest?.('.gp-edit-menu')) closeMenus();
+    if (['cell', 'point'].includes(openMenus[0]?.placement) && !event.target.closest?.('.gp-edit-menu')) closeMenus();
   }, true);
   window.addEventListener('pointermove', (event) => {
     if (down && event.buttons && Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) dragged = true;

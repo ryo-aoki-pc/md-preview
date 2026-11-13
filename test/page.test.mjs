@@ -1588,8 +1588,8 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     // 操作欄は「行」「列」「セル」「表」「原文を編集」「元に戻す」「やり直し」。
     assert.equal(await page.locator('#gp-edit-actions > button').count(), 7);
     assert.equal(await page.locator('#gp-edit-actions [role="menu"]').count(), 0);
-    // メニューは行・列・セルの操作・セルの結合と解除・表・文書への追加。
-    assert.equal(await page.locator('#gp-edit-layer > [role="menu"]').count(), 6);
+    // メニューは行・列・セルの操作・セルの結合と解除・表・文書への追加・表以外のブロック。
+    assert.equal(await page.locator('#gp-edit-layer > [role="menu"]').count(), 7);
     assert.equal(await page.locator('#gp-edit-cell-rows').getAttribute('role'), 'menuitem');
     for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
@@ -1641,6 +1641,141 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
       return event.defaultPrevented;
     }), false);
     assert.equal(await blocked.page.locator('#gp-edit-menu-cell').isVisible(), false);
+  });
+
+  await t.test('表以外のブロックを右クリックすると、ブロックのメニューを開く', async (t) => {
+    const text = '# 見出し\n\n段落の文字。\n\n- 項目の段落\n- 二つ目の項目\n\n参照[^1]。\n\n<div>HTML の連なり</div>\n\n[リンク](https://example.com/) の段落。\n\n[^1]: 脚注の内容。\n';
+    const { page, file } = await editablePage(t, browser, text);
+    const menu = page.locator('#gp-edit-menu-block');
+    const item = (id) => page.locator('#gp-edit-block-' + id);
+    const openOn = async (locator) => {
+      const box = await locator.boundingBox();
+      const loaded = page.waitForResponse((response) => response.url().includes('/_/edit/source'));
+      await page.mouse.click(box.x + Math.min(40, box.width / 2), box.y + box.height / 2, { button: 'right' });
+      await menu.waitFor({ state: 'visible' });
+      await loaded;
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+      return box;
+    };
+    // 段落: 指した位置に開き、外側が無いので「外側を編集」は理由付きで無効。
+    const box = await openOn(page.locator('#gp-content p').first());
+    const placed = await menu.boundingBox();
+    assert.ok(Math.abs(placed.x - (box.x + 40)) < 40 && placed.y >= box.y - 4, '指した位置の近くに開く');
+    assert.equal(await item('outer').getAttribute('aria-disabled'), 'true');
+    await item('outer').focus();
+    assert.equal(await page.locator('#gp-edit-menu-block-reason').textContent(), '外側に編集できるブロックがありません');
+    assert.equal(await item('before').getAttribute('aria-disabled'), 'false');
+    await item('outer').click({ force: true });
+    assert.equal(await menu.isVisible(), true, '無効な項目を押してもメニューを閉じない');
+    // 「原文を編集」はダブルクリックと同じ入力欄を開く。
+    await item('source').click();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value === '段落の文字。');
+    assert.equal(await page.locator('#gp-edit-input').getAttribute('aria-label'), 'ブロックの原文の編集');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').hidden || !document.querySelector('#gp-edit-input').value);
+    // 項目: 「外側を編集」でリスト全体を開く。
+    await openOn(page.locator('#gp-content li').first());
+    assert.equal(await item('outer').getAttribute('aria-disabled'), 'false');
+    await item('outer').click();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value === '- 項目の段落\n- 二つ目の項目');
+    await page.keyboard.press('Escape');
+    // 「後ろにブロックを追加」は、今の操作欄の追加と同じ入力欄で、確定すると書く。
+    await openOn(page.locator('#gp-content p').first());
+    await item('after').click();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').getAttribute('aria-label') === 'ブロックの追加');
+    await page.locator('#gp-edit-input').fill('追加した段落。');
+    await page.keyboard.press('Control+Enter');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), text.replace('段落の文字。\n\n', '段落の文字。\n\n追加した段落。\n\n'));
+    // 脚注の定義は前後に追加できない。
+    await openOn(page.locator('section[data-footnotes] li p').first());
+    assert.equal(await item('before').getAttribute('aria-disabled'), 'true');
+    await item('before').focus();
+    assert.equal(await page.locator('#gp-edit-menu-block-reason').textContent(), 'このブロックの前後には追加できません');
+    await page.keyboard.press('Escape');
+    assert.equal(await menu.isVisible(), false);
+    // 生の HTML の連なりも開ける。
+    await openOn(page.locator('#gp-content > div').filter({ hasText: 'HTML の連なり' }));
+    await item('source').click();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value === '<div>HTML の連なり</div>');
+    await page.keyboard.press('Escape');
+    // ブラウザーの既定のメニューを残す: Shift・リンクの上・選んだ文字の上。
+    const prevented = (selector, init = {}) => page.locator(selector).first().evaluate((element, init) => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, ...init });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    }, init);
+    assert.equal(await prevented('#gp-content p', { shiftKey: true }), false);
+    assert.equal(await prevented('#gp-content a[href^="https"]'), false);
+    await page.evaluate(() => {
+      const range = document.createRange();
+      range.selectNodeContents(document.querySelector('#gp-content p'));
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+    });
+    assert.equal(await prevented('#gp-content p'), false);
+    await page.evaluate(() => getSelection().removeAllRanges());
+    assert.equal(await prevented('#gp-content p'), true);
+    await page.keyboard.press('Escape');
+    // 生の HTML の連なりは、先頭でない要素の上の選択でも既定のメニューを残す。
+    const raw = await editablePage(t, browser, '<div>一つ目</div>\n<div>二つ目</div>\n\n後の段落。\n');
+    const second = raw.page.locator('#gp-content > div').nth(1);
+    await raw.page.evaluate(() => {
+      const range = document.createRange();
+      range.selectNodeContents(document.querySelectorAll('#gp-content > div')[1]);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+    });
+    assert.equal(await second.evaluate((element) => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    }), false);
+    await raw.page.evaluate(() => getSelection().removeAllRanges());
+    assert.equal(await second.evaluate((element) => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    }), true);
+    // 編集モードの外では、ブラウザーの既定のメニューのまま。
+    await page.locator('#gp-edit-toggle').click();
+    assert.equal(await prevented('#gp-content p'), false);
+  });
+
+  await t.test('数式・図の上でも右クリックでブロックのメニューを開き、キーで原文を開く', async (t) => {
+    const sources = ['```math\na^2\n```', '```mermaid\ngraph TD; A-->B\n```', '```plantuml\nA -> B\n```'];
+    const text = sources.join('\n\n') + '\n\n' + Array.from({ length: 40 }, (_, i) => '段落 ' + i).join('\n\n') + '\n';
+    const { page } = await editablePage(t, browser, text, { plantuml: true });
+    await page.waitForSelector('.gp-math-display');
+    await page.waitForSelector('.gp-mermaid svg');
+    await page.waitForFunction(() => document.querySelector('img.gp-plantuml')?.naturalWidth > 0);
+    const menu = page.locator('#gp-edit-menu-block');
+    const openOn = async (selector) => {
+      const box = await page.locator(selector).first().boundingBox();
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+      await menu.waitFor({ state: 'visible' });
+    };
+    const opened = [];
+    page.context().on('page', (other) => opened.push(other));
+    for (const [i, selector] of ['.gp-math-display', '.gp-mermaid', 'img.gp-plantuml'].entries()) {
+      await openOn(selector);
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'gp-edit-block-source');
+      await page.keyboard.press('ArrowDown');
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'gp-edit-block-outer');
+      await page.keyboard.press('ArrowUp');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction((source) => document.querySelector('#gp-edit-input').value === source, sources[i]);
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => document.querySelector('#gp-edit-input').hidden || !document.querySelector('#gp-edit-input').value);
+    }
+    assert.deepEqual(opened, [], 'PlantUML の図の右クリックで SVG のリンクを開かない');
+    // Esc とスクロールで閉じる。
+    await openOn('.gp-math-display');
+    await page.keyboard.press('Escape');
+    assert.equal(await menu.isVisible(), false);
+    await openOn('.gp-math-display');
+    await page.mouse.wheel(0, 300);
+    await menu.waitFor({ state: 'hidden' });
   });
 
   await t.test('固定行列と横スクロールでは範囲を四つに分け、Esc はメニュー・範囲・全幅の順に解く', async (t) => {
@@ -2172,6 +2307,22 @@ test('外側のブロックへ移り、下書きと操作欄の位置を保っ�
     assert.equal(await page.locator('#gp-edit-status').textContent(), 'この用語だけの範囲を決められないので、説明リスト全体を開きました');
     assert.equal(readFileSync(file, 'utf8'), original);
     await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').hidden || !document.querySelector('#gp-edit-input').value);
+    // 右クリックのメニューでも、同じ応答から外側を開ける。前後への追加はできない。
+    for (const action of ['outer', 'source']) {
+      const loaded = page.waitForResponse((response) => response.url().includes('/_/edit/source'));
+      await page.locator('#gp-content dt').click({ button: 'right' });
+      await page.locator('#gp-edit-menu-block').waitFor({ state: 'visible' });
+      await loaded;
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+      assert.equal(await page.locator('#gp-edit-block-outer').getAttribute('aria-disabled'), 'false');
+      assert.equal(await page.locator('#gp-edit-block-after').getAttribute('aria-disabled'), 'true');
+      await page.locator('#gp-edit-block-' + action).click();
+      await valueIs(page, 'Apple\n: red');
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => document.querySelector('#gp-edit-input').hidden || !document.querySelector('#gp-edit-input').value);
+    }
+    assert.equal(readFileSync(file, 'utf8'), original);
   });
 
   for (const colorScheme of ['light', 'dark']) {
