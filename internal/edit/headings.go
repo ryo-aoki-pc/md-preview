@@ -212,8 +212,11 @@ func (m *blockMapping) headingMapping(ctx context.Context, src session.Source) (
 	}
 	for i, e := range h.entries {
 		e.previous = previous[e.info.Level]
-		for level := e.info.Level; level <= 6; level++ {
-			previous[level] = i
+		// 兄弟は境の見出しだけでたどる（引用・リスト・HTML の中の見出しは、節の曖昧さとして sectionReason で断る）。
+		if e.boundary {
+			for level := e.info.Level; level <= 6; level++ {
+				previous[level] = i
+			}
 		}
 		if e.info.Reason != "" {
 			continue
@@ -304,7 +307,7 @@ func (h *headingMapping) sibling(e *headingEntry, direction string) *headingEntr
 		return nil
 	}
 	sibling := h.entries[i]
-	if sibling.info.Level != e.info.Level || sibling.info.Reason != "" || sibling.outlineNext != sibling.next {
+	if sibling.info.Level != e.info.Level {
 		return nil
 	}
 	return sibling
@@ -321,12 +324,15 @@ func (h *headingMapping) operationReason(e *headingEntry, o headingOperation) st
 	}
 	if o.kind == "move" {
 		sibling := h.sibling(e, o.direction)
+		word := "後ろ"
+		if o.direction == "up" {
+			word = "前"
+		}
 		if sibling == nil {
-			word := "後ろ"
-			if o.direction == "up" {
-				word = "前"
-			}
 			return "同じ親の中で、" + word + "に同じレベルの見出しがありません。"
+		}
+		if sibling.info.Reason != "" {
+			return "入れ替える" + word + "の見出しは操作できないので、移動できません。"
 		}
 		return sibling.sectionReason
 	}

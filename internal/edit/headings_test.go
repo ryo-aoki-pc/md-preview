@@ -334,6 +334,17 @@ func TestHeadingSectionBoundariesAndFocus(t *testing.T) {
 	if _, err := headingRequest(t, s, h, 0, map[string]any{"type": "delete", "scope": "section"}); err != nil || disk(t, h) != "::include{file=part.md}\n\n## 次\n" {
 		t.Fatal(err, disk(t, h))
 	}
+	// 引用の中の同じレベルの見出しは兄弟にせず、前の兄弟の節が曖昧なことを理由にする。
+	s, h = testService(t, e, "## A\n\n> ## 中\n\n## B\n", nil)
+	info = getTables(t, s, h).Headings
+	if info[2].Ops["moveUp"] != headingOutlineReason || info[0].Ops["moveDown"] != headingOutlineReason || info[1].Reason == "" {
+		t.Fatal(info)
+	}
+	// 取り込んだ同じレベルの見出しとは入れ替えない。
+	s, h = testService(t, e, "::include{file=part.md}\n\n## B\n", map[string]string{"part.md": "## 境\n"})
+	if info = getTables(t, s, h).Headings; info[1].Ops["moveUp"] != "入れ替える前の見出しは操作できないので、移動できません。" {
+		t.Fatal(info)
+	}
 	for _, c := range []struct {
 		text, scope  string
 		index, focus int
