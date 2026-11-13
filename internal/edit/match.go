@@ -227,6 +227,15 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 		if positions.positionErr != nil {
 			info.Editable, info.Reason = false, positions.positionErr.Message
 		}
+		// 位置属性の無い表（生の HTML の表）は、原文と対応づけたモデルの開始行を公開の行にする。
+		if info.Start == 0 && info.Editable && t != nil && t.StartLine >= 0 {
+			if _, reason := src.Lines.Original(1); reason != "shift" {
+				line := src.Lines.Expanded(t.StartLine + 1)
+				if orig, reason := src.Lines.Original(line); reason == "" && orig == t.StartLine+1 {
+					info.Start = line
+				}
+			}
+		}
 		m.response.Tables[i] = info
 		m.response.Tables[i].Anchor, m.response.Tables[i].AnchorReason = tableAnchor(ctx, src, root, n, t, info)
 	}

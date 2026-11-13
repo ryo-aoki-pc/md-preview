@@ -122,7 +122,7 @@ func TestApplyChangeKeep(t *testing.T) {
 	}{
 		{"段落", "前\n\n本文\n\n後\n", `{"range":"3:1-3:6","text":"変更"}`, []lineKeep{{1, 1, 2}, {4, 4, 2}}},
 		{"ブロック追加", "前\n\n後\n", `{"insert":{"anchor":"1:1-1:3","side":"after"},"text":"追加"}`, []lineKeep{{1, 1, 2}, {3, 5, 1}}},
-		{"範囲の削除", "前\n\n本文\n削除\n\n後\n", `{"range":"3:1-4:6","text":"本文"}`, []lineKeep{{1, 1, 3}, {5, 4, 2}}},
+		{"範囲の削除", "前\n\n本文\n削除\n\n後\n", `{"range":"3:1-4:6","text":"本文"}`, []lineKeep{{1, 1, 2}, {5, 4, 2}}},
 		{"CRLF", "前\r\n\r\n本文\r\n\r\n後\r\n", `{"range":"3:1-3:6","text":"変更"}`, []lineKeep{{1, 1, 2}, {4, 4, 2}}},
 		{"最後の行に改行なし", "前\n\n本文\n\n後", `{"range":"3:1-3:6","text":"変更"}`, []lineKeep{{1, 1, 2}, {4, 4, 2}}},
 		{"チェックボックス", "前\n\n- [ ] 項目\n\n後\n", `{"checkbox":"3:4-3:4","checked":true}`, []lineKeep{{1, 1, 2}, {4, 4, 2}}},
@@ -288,7 +288,7 @@ func TestTablePublicStart(t *testing.T) {
 		{"パイプ", pipeTable, []int{1}},
 		{"取り込み", "::include{file=part.md}\n\n" + pipeTable, []int{1, 6}},
 		{"front matter", "---\na: b\n---\n\n" + pipeTable, []int{5}},
-		{"偽の位置", strings.Replace(htmlTable, "<table>", `<table data-sourcepos="99:1-99:3">`, 1), []int{0}},
+		{"偽の位置", strings.Replace(htmlTable, "<table>", `<table data-sourcepos="99:1-99:3">`, 1), []int{1}},
 		{"行のずれ", "前\r\n\r\n" + strings.ReplaceAll(pipeTable, "\n", "\r"), []int{}},
 	} {
 		t.Run(c.name, func(t *testing.T) {

@@ -211,6 +211,8 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	var focus *headingFocus
 	var move *historyMove
 	var keep []lineKeep
+	// 範囲とチェックボックスの編集で書き換えた原文の範囲（行の対応を、その範囲の外に限る）。
+	editStart, editEnd := -1, -1
 	if r.undo || r.redo {
 		text, move, e = s.history.prepare(key, old, r.redo)
 		if e != nil {
@@ -332,6 +334,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 				replacement = normalizeNewlines(replacement, newlineAt(old, line))
 			}
 			text = old[:start] + replacement + old[end:]
+			editStart, editEnd = start, end
 			if len(text) > maxDocumentBytes {
 				return nil, fault(422, "large", "編集後の文書が 16 MiB を超えています。")
 			}
@@ -364,7 +367,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 		lines = append(append(append([]string{}, lines[:replacement.Start]...), replacement.Lines...), lines[replacement.End:]...)
 		text = strings.Join(lines, "\n") + "\n"
 		if r.kind != "heading" {
-			keep = commonKeep(old, text)
+			keep = s.editKeep(old, text, editStart, editEnd)
 		}
 		if _, e = s.source(doc, r.render); e != nil {
 			return nil, e
@@ -401,7 +404,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 		return nil, fault(500, "write", "文書を書き込めません。")
 	}
 	if move == nil && r.kind != "heading" {
-		keep = commonKeep(old, text)
+		keep = s.editKeep(old, text, editStart, editEnd)
 	}
 	change := s.textChange(src, old, text, keep)
 	if move != nil {

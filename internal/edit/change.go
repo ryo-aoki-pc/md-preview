@@ -35,13 +35,39 @@ func (s *Service) version(src session.Source, text string) string {
 // LF・CRLF も行に含めて比べる。末尾の LF の後に架空の空行を数えず、
 // 改行のない最後の行は、そのまま一致したときだけ残す。
 func commonKeep(before, after string) []lineKeep {
+	return limitedKeep(before, after, -1, -1)
+}
+
+// rangeKeep は、書き換えた範囲 before[start:end] が分かる編集の行の対応。共通の先頭と末尾を
+// その範囲の外の行に限り、同じ行が続く文書で、書き換えた行を残った行と取り違えないようにする。
+func rangeKeep(before, after string, start, end int) []lineKeep {
+	if start < 0 || end < start || end > len(before) {
+		return []lineKeep{}
+	}
+	suffix := len(headingLines(before[end:]))
+	if end > 0 && before[end-1] != '\n' && suffix > 0 {
+		suffix--
+	}
+	return limitedKeep(before, after, strings.Count(before[:start], "\n"), suffix)
+}
+
+// editKeep は、書き換えた範囲が分かれば rangeKeep、分からなければ共通の先頭と末尾で行の対応を作る。
+func (s *Service) editKeep(before, after string, start, end int) []lineKeep {
+	if start >= 0 {
+		return rangeKeep(before, after, start, end)
+	}
+	return commonKeep(before, after)
+}
+
+// limitedKeep の maxFirst・maxLast は、共通の先頭・末尾の行数の上限（負なら上限なし）。
+func limitedKeep(before, after string, maxFirst, maxLast int) []lineKeep {
 	a, b := headingLines(before), headingLines(after)
 	first := 0
-	for first < len(a) && first < len(b) && a[first] == b[first] {
+	for first < len(a) && first < len(b) && (maxFirst < 0 || first < maxFirst) && a[first] == b[first] {
 		first++
 	}
 	last := 0
-	for last < len(a)-first && last < len(b)-first && a[len(a)-1-last] == b[len(b)-1-last] {
+	for last < len(a)-first && last < len(b)-first && (maxLast < 0 || last < maxLast) && a[len(a)-1-last] == b[len(b)-1-last] {
 		last++
 	}
 	keep := []lineKeep{}
@@ -93,7 +119,7 @@ func changedInclude(lines []string, keep []lineKeep, side int) int {
 // 取り込みを変えた区間の後ろは新しい展開が不明なので返さない。
 func publicKeep(before, after string, keep []lineKeep, source pipeline.SourceMap) []lineKeep {
 	out := []lineKeep{}
-	if _, reason := source.Original(1); reason == "shift" || standaloneChangeCR(after) {
+	if _, reason := source.Original(1); reason == "shift" || standaloneChangeCR(before) || standaloneChangeCR(after) {
 		return out
 	}
 	a, b := headingLines(before), headingLines(after)
