@@ -378,7 +378,10 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 		if warnings == nil {
 			warnings = []string{}
 		}
-		result := map[string]any{"ok": true, "warnings": warnings, "change": s.textChange(src, old, text, keep)}
+		result := map[string]any{"ok": true, "warnings": warnings}
+		if change, ok := s.textChange(src, old, text, keep); ok {
+			result["change"] = change
+		}
 		if r.kind == "heading" {
 			result["focus"] = focus
 		}
@@ -406,7 +409,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	if move == nil && r.kind != "heading" {
 		keep = s.editKeep(old, text, editStart, editEnd)
 	}
-	change := s.textChange(src, old, text, keep)
+	change, changeKnown := s.textChange(src, old, text, keep)
 	if move != nil {
 		s.history.commitMove(key, move)
 	} else {
@@ -424,7 +427,10 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	if warnings == nil {
 		warnings = []string{}
 	}
-	result := map[string]any{"ok": true, "warnings": warnings, "change": change}
+	result := map[string]any{"ok": true, "warnings": warnings}
+	if changeKnown {
+		result["change"] = change
+	}
 	if r.kind == "heading" {
 		result["focus"] = focus
 	}

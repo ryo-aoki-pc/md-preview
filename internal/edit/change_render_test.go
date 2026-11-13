@@ -26,8 +26,8 @@ func TestPublicKeepAgreesWithRender(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		keep := publicKeep(before, after, commonKeep(before, after), old.Source)
-		if len(keep) == 0 {
+		keep, known := publicKeep(before, after, commonKeep(before, after), old.Source)
+		if !known || len(keep) == 0 {
 			t.Fatal("対応が空", kind)
 		}
 		for _, k := range commonKeep(before, after) {
@@ -76,9 +76,9 @@ func TestHTMLTablePublicStart(t *testing.T) {
 // 描画が追い付いていない（描画のもとと書く前の本文が違う）ときは、古い公開の位置を返さない。
 func TestTextChangeWithoutCurrentRender(t *testing.T) {
 	s, h := testService(t, testEngine(t), "前\n\n本文\n", nil)
-	c := s.textChange(h.src, "別の本文\n", "後\n", []lineKeep{{1, 1, 1}})
-	if len(c.Keep) != 0 || c.Before != s.version(h.src, "別の本文\n") {
-		t.Fatal(c)
+	c, known := s.textChange(h.src, "別の本文\n", "後\n", []lineKeep{{1, 1, 1}})
+	if known || len(c.Keep) != 0 || c.Before != s.version(h.src, "別の本文\n") {
+		t.Fatal(c, known)
 	}
 }
 

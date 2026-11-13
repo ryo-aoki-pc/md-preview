@@ -110,7 +110,8 @@ func TestCommonKeep(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			keep := commonKeep(c.before, c.after)
 			checkKeep(t, keep, c.want)
-			checkKeep(t, publicKeep(c.before, c.after, keep, pipeline.SourceMap{}), c.want)
+			got, _ := publicKeep(c.before, c.after, keep, pipeline.SourceMap{})
+			checkKeep(t, got, c.want)
 		})
 	}
 }
@@ -234,7 +235,11 @@ func TestPublicKeepIncludes(t *testing.T) {
 			if renderErr != nil {
 				t.Fatal(renderErr)
 			}
-			checkKeep(t, publicKeep(c.before, c.after, commonKeep(c.before, c.after), r.Source), c.want)
+			got, known := publicKeep(c.before, c.after, commonKeep(c.before, c.after), r.Source)
+			if known != (c.name != "単独の CR") {
+				t.Fatal("位置を決められるかの判定が違う", known)
+			}
+			checkKeep(t, got, c.want)
 		})
 	}
 	// include をまたぐ編集でも、応答・履歴の公開の位置は現在の展開から求める。

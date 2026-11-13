@@ -117,10 +117,11 @@ func changedInclude(lines []string, keep []lineKeep, side int) int {
 
 // publicKeep は描画済みの旧の対応だけから公開の行へ変換する純粋な関数。
 // 取り込みを変えた区間の後ろは新しい展開が不明なので返さない。
-func publicKeep(before, after string, keep []lineKeep, source pipeline.SourceMap) []lineKeep {
+// 位置がずれる文書（単独の CR）では公開の行を決められないので、偽を返す。
+func publicKeep(before, after string, keep []lineKeep, source pipeline.SourceMap) ([]lineKeep, bool) {
 	out := []lineKeep{}
 	if _, reason := source.Original(1); reason == "shift" || standaloneChangeCR(before) || standaloneChangeCR(after) {
-		return out
+		return out, false
 	}
 	a, b := headingLines(before), headingLines(after)
 	oldOrder, newOrder := orderedKeep(keep, 0), orderedKeep(keep, 1)
@@ -154,7 +155,7 @@ func publicKeep(before, after string, keep []lineKeep, source pipeline.SourceMap
 			public := source.Expanded(old)
 			_, reason := source.Original(public)
 			if reason == "shift" {
-				return []lineKeep{}
+				return []lineKeep{}, false
 			}
 			if reason == "frontmatter" {
 				flush()
@@ -178,7 +179,7 @@ func publicKeep(before, after string, keep []lineKeep, source pipeline.SourceMap
 		}
 		flush()
 	}
-	return out
+	return out, true
 }
 
 func standaloneChangeCR(text string) bool {
@@ -190,11 +191,15 @@ func standaloneChangeCR(text string) bool {
 	return false
 }
 
-func (s *Service) textChange(src session.Source, before, after string, keep []lineKeep) textChange {
+// textChange は、公開の行の対応を決められたときだけ真を返す。偽のときは応答に change を付けない
+// （空の keep は「全部の行が変わった」の意味で、「位置が分からない」とは区別する）。
+func (s *Service) textChange(src session.Source, before, after string, keep []lineKeep) (textChange, bool) {
 	result := textChange{Before: s.version(src, before), After: s.version(src, after), Keep: []lineKeep{}}
 	// 連続した取り消しで描画が追い付いていない場合、旧の公開の位置を信用しない。
-	if src.Text == before {
-		result.Keep = publicKeep(before, after, keep, src.Lines)
+	if src.Text != before {
+		return result, false
 	}
-	return result
+	var ok bool
+	result.Keep, ok = publicKeep(before, after, keep, src.Lines)
+	return result, ok
 }
