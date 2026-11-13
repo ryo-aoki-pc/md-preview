@@ -83,7 +83,7 @@
   // 内容の指紋（ブロック b:・生の HTML h:・セル c:）と、セルの行と列の鍵。版 1 で保存したものは空から始める。
   const fingerprintPattern = /^(?:|[bhc]:[0-9a-f]{16})$/;
   const keyPattern = /^[0-9a-f]{16}$/;
-  const versionPattern = /^(?:|[0-9a-f]{32})$/;
+  const versionPattern = /^(?:|[0-9a-f]{32})$/i;
   // 1 つの文書の分を読む。形が違えば、その文書の分だけを捨てる（ほかの文書のコメントは残す）。
   function readItems(items, version) {
     if (!Array.isArray(items) || items.length > 200) return null;
@@ -100,12 +100,16 @@
       const keys = extra.keys;
       if (typeof extra.fp !== 'string' || !fingerprintPattern.test(extra.fp) || typeof extra.version !== 'string' ||
         !versionPattern.test(extra.version) || typeof extra.skip !== 'boolean' ||
-        (keys !== undefined && (target.kind !== 'cell' || !plain(keys) || !keyPattern.test(keys.row) || !keyPattern.test(keys.col))))
+        (keys !== undefined && (target.kind !== 'cell' || !plain(keys) || !keyPattern.test(keys.row) || !keyPattern.test(keys.col) ||
+          (keys.start !== undefined && !integer(keys.start)) ||
+          (keys.dupCol !== undefined && typeof keys.dupCol !== 'boolean') || (keys.dupRow !== undefined && typeof keys.dupRow !== 'boolean'))))
         return null;
       seen.add(item.id);
       list.push({ id: item.id, target, label: item.label, text: item.text, render: item.render,
         state: item.state, stale: item.stale, error: item.error, ...(item.selection ? { selection: item.selection } : {}),
-        fp: extra.fp, ...(keys ? { keys: { row: keys.row, col: keys.col } } : {}), version: extra.version, skip: extra.skip });
+        fp: extra.fp, ...(keys ? { keys: { row: keys.row, col: keys.col, ...(keys.start !== undefined ? { start: keys.start } : {}),
+          ...(keys.dupCol !== undefined ? { dupCol: keys.dupCol } : {}), ...(keys.dupRow !== undefined ? { dupRow: keys.dupRow } : {}) } } : {}),
+        version: extra.version.toLowerCase(), skip: extra.skip });
     }
     return list;
   }
@@ -135,6 +139,10 @@
   let models = [];
   let byCell = new WeakMap();
   let infoRender = 0;
+  let versionRender = 0, currentVersion = '';
+  // このページの編集だけを保持し、再読み込みには持ち越さない。古い対応は件数と総区画数で捨てる。
+  const changes = [];
+  let keepCount = 0;
   let observedRender = preview.current()?.render;
   let tableNumber = 0;
   let tableFetching = null;
@@ -307,7 +315,8 @@
     if (!facts) { notice('選んだ対象が見つかりません。もう一度選んでください。'); return; }
     const item = { id: editing || crypto.randomUUID(), target: selected.target, label: selected.label,
       ...(selected.selection ? { selection: selected.selection } : {}), text, render: preview.current().render,
-      state: 'pending', stale: false, error: '', fp: facts.fp, ...(facts.keys ? { keys: facts.keys } : {}), version: '', skip: false };
+      state: 'pending', stale: false, error: '', fp: facts.fp, ...(facts.keys ? { keys: facts.keys } : {}),
+      version: versionRender === preview.current()?.render ? currentVersion : '', skip: false };
     const index = comments.findIndex((other) => other.id === editing);
     if (index >= 0) comments[index] = item;
     else comments.push(item);
@@ -453,9 +462,10 @@
     const row = inRow.sort((a, b) => a.col - b.col).map((item) => item.text).join('\u0001');
     const header = model.cells.find((item) => covers(item, 0, cell.col));
     const inCol = model.cells.filter((item) => item !== cell && item.col <= cell.col && cell.col < item.col + item.colspan);
-    return { fp: 'c:' + preview.digest(cell.text), keys: { row: preview.digest(row), col: preview.digest(header?.text || '') },
-      // 同じ文字のセルが同じ列（行）にあれば、並べ替え（列の入れ替え）で別のセルが同じ座標に来うる。
-      sameInCol: inCol.some((item) => item.text === cell.text), sameInRow: inRow.some((item) => item.text === cell.text) };
+    // 同じ文字のセルが同じ列（行）にあれば、並べ替え（列の入れ替え）で別のセルが同じ座標に来うる。
+    const sameInCol = inCol.some((item) => item.text === cell.text), sameInRow = inRow.some((item) => item.text === cell.text);
+    return { fp: 'c:' + preview.digest(cell.text), sameInCol, sameInRow,
+      keys: { row: preview.digest(row), col: preview.digest(header?.text || ''), start: model.start, dupCol: sameInCol, dupRow: sameInRow } };
   }
   function factsOf(target) {
     if (target.kind === 'cell') return cellFacts(target);
@@ -468,13 +478,120 @@
   // セルは、同じ文字のセルが同じ列にあれば行の鍵も、同じ行にあれば列の鍵も一致するときだけ同じセルとみなす。
   const sameFacts = (item, facts) => facts.fp === item.fp &&
     (!item.keys || ((!facts.sameInCol || item.keys.row === facts.keys.row) && (!facts.sameInRow || item.keys.col === facts.keys.col)));
-  function checkTargets(cells = false) {
+
+  // 版を再訪する取り消しもあるので、新しい開始点から、隣同士の版が一致する鎖を探す。
+  function chainFrom(version) {
+    if (!version || !currentVersion || version === currentVersion) return null;
+    for (let start = changes.length - 1; start >= 0; start--) {
+      if (changes[start].before !== version) continue;
+      let next = version;
+      const chain = [];
+      for (let i = start; i < changes.length && changes[i].before === next; i++) {
+        chain.push(changes[i]);
+        next = changes[i].after;
+        if (next === currentVersion) return chain;
+      }
+    }
+    return null;
+  }
+  const startLine = (boundary) => Number(boundary.range.split(':')[0]);
+  const endLine = (boundary) => Number(boundary.range.split('-')[1].split(':')[0]);
+  const containsLine = (spans, line) => spans.some(([start, end]) => start <= line && line <= end);
+  // keep の内側は平行移動し、外側は両隣が囲う新しい変更区間へ写す。
+  // 削除で区間が空になった場合や、節の入れ替えで境が交差する場合は候補を作らない。
+  function mapSpans(spans, change) {
+    // 空の対応は全部の行が変わったことを表す（位置が分からない編集では、サーバーが change を返さない）。
+    const keep = [...change.keep].sort((a, b) => a[0] - b[0]);
+    const newOrder = [...keep].sort((a, b) => a[1] - b[1]);
+    const overlaps = (start, end) => {
+      let low = 0, high = newOrder.length;
+      while (low < high) {
+        const mid = (low + high) >>> 1, part = newOrder[mid];
+        if (part[1] + part[2] <= start) low = mid + 1;
+        else high = mid;
+      }
+      return low < newOrder.length && newOrder[low][1] <= end;
+    };
+    const parts = [];
+    for (let i = 0; i <= keep.length; i++) {
+      const prev = keep[i - 1], next = keep[i];
+      const oldStart = prev ? prev[0] + prev[2] : 1;
+      const oldEnd = next ? next[0] - 1 : Infinity;
+      const newStart = prev ? prev[1] + prev[2] : 1;
+      const newEnd = next ? next[1] - 1 : Infinity;
+      // 新しい変更区間に、別の場所から移った keep が入っていれば対応を決められない。
+      const gapOK = oldStart <= oldEnd && newStart <= newEnd &&
+        !overlaps(newStart, newEnd);
+      for (const [start, end] of spans) {
+        if (next) {
+          const first = Math.max(start, next[0]), last = Math.min(end, next[0] + next[2] - 1);
+          if (first <= last) parts.push([first + next[1] - next[0], last + next[1] - next[0]]);
+        }
+        if (gapOK && start <= oldEnd && oldStart <= end) {
+          // 前後で行数が同じ変わった区間（見出しのレベルの変更など）は、同じ位置の行へ写し、区間の別の行へ広げない。
+          if (Number.isFinite(oldEnd) && Number.isFinite(newEnd) && oldEnd - oldStart === newEnd - newStart)
+            parts.push([newStart + Math.max(start, oldStart) - oldStart, newStart + Math.min(end, oldEnd) - oldStart]);
+          else parts.push([newStart, newEnd]);
+        }
+      }
+      if (parts.length > 4096) return [];
+    }
+    parts.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const part of parts) {
+      const last = merged.at(-1);
+      if (last && part[0] <= last[1] + 1) last[1] = Math.max(last[1], part[1]);
+      else merged.push(part);
+    }
+    return merged;
+  }
+  const mapped = (line, chain) => chain.reduce((spans, change) => mapSpans(spans, change), [[line, line]]);
+  function followTarget(item, chain) {
+    if (!item.fp) return null;
+    let candidates = [];
+    if (item.target.kind === 'block') {
+      for (const [start, end] of mapped(startLine(item.target), chain))
+        for (const block of preview.targetsInRange(start, end).blocks) {
+          const tagOK = /^h[1-6]$/.test(item.target.tag) ? /^h[1-6]$/.test(block.tag) : block.tag === item.target.tag;
+          if (tagOK) candidates.push({ kind: 'block', ...block });
+        }
+    } else if (item.target.kind === 'cell') {
+      if (!item.keys?.start || infoRender !== preview.current()?.render) return null;
+      const spans = mapped(item.keys.start, chain);
+      const tables = models.filter((model) => model.start > 0 && containsLine(spans, model.start));
+      if (tables.length !== 1) return null;
+      candidates = tables[0].cells.map((cell) => ({ kind: 'cell', table: cell.table, row: cell.row, col: cell.col }));
+    } else {
+      // 連なりの前後の境を写し、境があった側は、写した区間に候補の境があるものだけにする。
+      const prev = item.target.prev ? mapped(endLine(item.target.prev), chain) : null;
+      const next = item.target.next ? mapped(startLine(item.target.next), chain) : null;
+      candidates = preview.targetsInRange(1, Infinity).html.filter((target) =>
+        (!prev || (target.prev && containsLine(prev, endLine(target.prev)))) &&
+        (!next || (target.next && containsLine(next, startLine(target.next)))));
+    }
+    // 同じ位置が複数の区間から得られても候補は一つとして数える。
+    let matches = [...new Map(candidates.map((target) => [JSON.stringify(target), { target, facts: factsOf(target) }])).values()]
+      .filter(({ facts }) => facts?.fp === item.fp);
+    if (item.target.kind === 'cell') {
+      // 付けたときに同じ列（行）に同じ文字があれば、行（列）の鍵が合うセルだけにする。
+      // 行と列の鍵がどちらも変わったセルへは移さない（別の行・列にある同じ文字のセル）。
+      const rowOK = (facts) => item.keys.row === facts.keys.row, colOK = (facts) => item.keys.col === facts.keys.col;
+      matches = matches.filter(({ facts }) => (!item.keys.dupCol || rowOK(facts)) && (!item.keys.dupRow || colOK(facts)) &&
+        (rowOK(facts) || colOK(facts)));
+      if (matches.length > 1) matches = matches.filter(({ facts }) => rowOK(facts) && colOK(facts));
+    }
+    return matches.length === 1 ? matches[0] : null;
+  }
+  function checkTargets() {
+    // 先に描画が届いても、応答の鎖と描画の版が揃うまで前の状態を保つ。
+    if (window.gpEditMode?.writing?.() || versionRender !== preview.current()?.render) return;
     let changed = false, lost = false;
     for (const item of comments) {
-      if ((item.target.kind === 'cell') !== cells) continue;
-      const facts = factsOf(item.target);
+      const chain = chainFrom(item.version);
+      const match = chain ? followTarget(item, chain) : null;
+      const facts = chain ? match?.facts : factsOf(item.target);
       let ok = Boolean(facts);
-      if (ok && item.fp) ok = sameFacts(item, facts);
+      if (ok && item.fp) ok = chain ? facts.fp === item.fp : sameFacts(item, facts);
       else if (ok) {
         // 版 1 で保存したコメントは、読み込んだときに要確認でなかったものだけ、最初に確かめた内容を指紋にする。
         ok = adoptable.has(item.id);
@@ -484,6 +601,23 @@
           if (facts.keys) item.keys = facts.keys;
           changed = true;
         }
+      }
+      if (ok) {
+        if (match) {
+          if (!sameTarget(item.target, match.target)) {
+            const wasSelected = selected && sameTarget(selected.target, item.target);
+            item.target = match.target;
+            if (item.target.kind === 'cell') item.label = '表 ' + (item.target.table + 1) + ' の ' +
+              (item.target.row + 1) + ' 行 ' + (item.target.col + 1) + ' 列';
+            if (wasSelected) selected = { ...selected, target: item.target, label: item.label };
+            changed = true;
+          }
+          if (facts.keys && JSON.stringify(item.keys) !== JSON.stringify(facts.keys)) { item.keys = facts.keys; changed = true; }
+        }
+        // 初回に位置だけで照合した古い保存にも、表の開始行を補う。
+        if (facts.keys && item.keys?.start !== facts.keys.start) { item.keys = facts.keys; changed = true; }
+        // 版が分からないとき（表の情報の読み込みの失敗）は、最後に確かめた版を空で上書きしない。
+        if (currentVersion && item.version !== currentVersion) { item.version = currentVersion; changed = true; }
       }
       if (item.stale === !ok) continue;
       item.stale = !ok;
@@ -522,19 +656,23 @@
         const reason = !data.document.editable ? data.document.reason : nested ? '入れ子の表' :
           info.reason || (!shape ? '画面と原文のセルの形が違います' : '');
         for (const cell of shape?.cells || []) byCell.set(cell.element, cell);
-        return { table, cells: shape?.cells || [], reason };
+        return { table, cells: shape?.cells || [], reason, start: integer(info.start) ? info.start : 0 };
       });
       infoRender = render;
+      versionRender = render;
+      currentVersion = typeof data.version === 'string' && /^[0-9a-f]{32}$/i.test(data.version) ? data.version.toLowerCase() : '';
       layer.dataset.render = String(render);
-      checkTargets(true);
+      checkTargets();
       refreshFrames();
     } catch (error) {
       if (number !== tableNumber || error.name === 'AbortError') return;
       models = [];
       byCell = new WeakMap();
       infoRender = 0;
+      versionRender = render;
+      currentVersion = '';
       // 表とセルを確かめられないので、セルのコメントは要確認にする。
-      checkTargets(true);
+      checkTargets();
       if (mode) notice(error.message);
     } finally {
       if (number === tableNumber) tableFetching = null;
@@ -544,14 +682,14 @@
     if (locked()) return;
     const sent = comments.filter((item) => item.state === 'pending' && !item.skip);
     if (!sent.length) return;
-    // 描画の直後で表の情報がまだ届いていなければ、セルを確かめられないので待ってもらう。
-    if (sent.some((item) => item.target.kind === 'cell') && infoRender !== preview.current()?.render) {
+    // 描画の版と、セルを含む場合は表の情報も揃うまで待ってもらう。
+    if (window.gpEditMode?.writing?.() || versionRender !== preview.current()?.render ||
+      sent.some((item) => item.target.kind === 'cell') && infoRender !== preview.current()?.render) {
       notice('表の情報を読み込んでいます。少し待ってから依頼文を作ってください。');
       return;
     }
     // 送る直前に、今の描画で対象と内容を確かめ直す。
     checkTargets();
-    checkTargets(true);
     const stale = sent.filter((item) => item.stale);
     if (stale.length) {
       notice('要確認のコメントが ' + stale.length + ' 件あります。「直す」で対象を選び直すか、「今回は送らない」にしてから依頼文を作ってください。');
@@ -659,13 +797,24 @@
       preparing?.abort();
       preparing = null;
       discardPrompt();
-      checkTargets();
     }
+    versionRender = 0;
+    currentVersion = '';
     observedRender = render;
     if (!allowed()) setMode(false);
     draw();
     refreshFrames();
     void loadTables();
+  });
+  document.addEventListener('gp:edited', (event) => {
+    const change = event.detail?.change;
+    if (change) {
+      changes.push({ before: change.before.toLowerCase(), after: change.after.toLowerCase(), keep: change.keep });
+      keepCount += change.keep.length;
+      while (changes.length > 128 || keepCount > 32768) keepCount -= changes.shift().keep.length;
+    }
+    checkTargets();
+    refreshFrames();
   });
   document.addEventListener('gp:stop', () => {
     stopped = true;
@@ -683,5 +832,5 @@
   close.title = 'コメントの入力中の文は、このページを開いている間は残ります';
   output.hidden = panel.hidden = layer.hidden = status.hidden = true;
   draw();
-  if (observedRender) { checkTargets(); void loadTables(); }
+  if (observedRender) void loadTables();
 })();

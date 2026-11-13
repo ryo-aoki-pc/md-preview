@@ -1026,6 +1026,346 @@ async function editIdle(page) {
     Number(document.querySelector('#gp-edit-layer').dataset.render) === window.gpPreview.current().render);
 }
 
+test('画面の編集にコメントを追従させる', { skip, timeout: 240000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const setup = (t, text) => editablePage(t, browser, text, { review: true });
+  const items = (page) => page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current);
+  const add = async (page, target, text) => {
+    if (await page.locator('#gp-review-toggle').getAttribute('aria-pressed') !== 'true')
+      await page.locator('#gp-review-toggle').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render));
+    await target.click();
+    await page.locator('#gp-review-input').fill(text);
+    await page.locator('#gp-review-add').click();
+  };
+  const editing = async (page) => {
+    if (await page.locator('#gp-edit-toggle').getAttribute('aria-pressed') !== 'true') await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+  };
+  const send = async (page, action) => {
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await action();
+    const result = await response;
+    assert.equal(result.status(), 200, await result.text());
+    await editIdle(page);
+    await page.waitForFunction(() => !window.gpEditMode.writing());
+    return result.json();
+  };
+  const replace = async (page, target, text) => {
+    await target.dblclick();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+    await page.locator('#gp-edit-input').fill(text);
+    return send(page, () => page.keyboard.press('Control+Enter'));
+  };
+  const insert = async (page, text) => {
+    await page.locator('#gp-edit-add').click();
+    await page.locator('#gp-edit-document-start').click();
+    await page.locator('#gp-edit-input').fill(text);
+    return send(page, () => page.keyboard.press('Control+Enter'));
+  };
+  const settled = async (page, stale = false) => page.waitForFunction((stale) => {
+    const list = JSON.parse(sessionStorage.getItem('gitlab-preview-review'))?.docs.current;
+    return !window.gpEditMode.writing() && document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render) &&
+      list?.length && list.every((item) => item.stale === stale);
+  }, stale);
+  const external = async ({ page, server, file }, text, rev) => {
+    writeFileSync(file, text);
+    const oldRender = await page.evaluate(() => window.gpPreview.current().render);
+    const response = page.waitForResponse((r) => r.url().includes('/_/review/tables') && new URL(r.url()).searchParams.get('render') !== String(oldRender));
+    await server.setDocument({ path: file, text, rev });
+    await response;
+    await page.waitForFunction((rev) => window.gpPreview.current().rev === rev &&
+      document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render), rev);
+  };
+
+  await t.test('前への追加で段落と HTML の連なりを移し、指紋と版を保存する', async (t) => {
+    const { page } = await setup(t, '# 題\n\n前。\n\n<div>HTML の対象</div>\n\n後。\n');
+    await add(page, page.locator('#gp-content > p').last(), '段落へ');
+    await add(page, page.locator('#gp-content > div').last(), 'HTML へ');
+    const before = await items(page);
+    assert.match(before[0].version, /^[0-9a-f]{32}$/);
+    await editing(page);
+    const data = await insert(page, '新しい段落。');
+    await settled(page);
+    const after = await items(page);
+    assert.notEqual(after[0].target.range, before[0].target.range);
+    assert.notDeepEqual(after[1].target, before[1].target);
+    assert.deepEqual(after.map((item) => item.fp), before.map((item) => item.fp));
+    assert.ok(after.every((item) => item.version === data.change.after));
+    await page.locator('#gp-review-toggle').click();
+    await page.locator('#gp-review-prepare').click();
+    await page.waitForFunction(() => !document.querySelector('#gp-review-output').hidden);
+    assert.match(await page.locator('#gp-review-prompt').inputValue(), /後。/);
+  });
+
+  await t.test('対象を書き換えると要確認にし、取り消しで戻り、やり直しで再判定する', async (t) => {
+    const { page } = await setup(t, '# 題\n\n対象の段落。\n\n後。\n');
+    await add(page, page.locator('#gp-content > p').first(), '対象へ');
+    const [before] = await items(page);
+    await editing(page);
+    await replace(page, page.locator('#gp-content > p').first(), '書き換えた段落。');
+    await settled(page, true);
+    const [lost] = await items(page);
+    assert.deepEqual([lost.target, lost.fp, lost.version], [before.target, before.fp, before.version]);
+    await send(page, () => page.locator('#gp-edit-undo').click());
+    await settled(page);
+    await send(page, () => page.locator('#gp-edit-redo').click());
+    await settled(page, true);
+  });
+
+  await t.test('節の移動と見出しのレベル変更を続けても見出しと本文を移す', async (t) => {
+    const { page } = await setup(t, '# 題\n\n## 前\n\n前本文。\n\n## 対象\n\n対象本文。\n\n## 後\n\n後本文。\n');
+    await add(page, page.locator('#gp-content h2').nth(1), '見出しへ');
+    await add(page, page.locator('#gp-content p').nth(1), '本文へ');
+    await editing(page);
+    const outline = page.locator('#gp-outline a').filter({ hasText: '対象' }).first();
+    await outline.focus();
+    await send(page, () => page.keyboard.press('Alt+ArrowUp'));
+    await settled(page);
+    await outline.focus();
+    await send(page, () => page.keyboard.press('Alt+ArrowRight'));
+    await settled(page);
+    const list = await items(page);
+    assert.equal(list[0].target.tag, 'h3');
+    assert.equal(list[0].target.range.split(':')[0], '3');
+    assert.equal(list[1].target.range.split(':')[0], '5');
+  });
+
+  await t.test('setext 見出しを書き換えた区間から同じ見出しを見つける', async (t) => {
+    const { page } = await setup(t, '# 題\n\n対象\n----\n\n対象本文。\n');
+    await add(page, page.locator('#gp-content h2'), '見出しへ');
+    await add(page, page.locator('#gp-content p'), '本文へ');
+    await editing(page);
+    await page.locator('#gp-outline a').filter({ hasText: '対象' }).first().focus();
+    await send(page, () => page.keyboard.press('Alt+ArrowRight'));
+    await settled(page);
+    assert.equal((await items(page))[0].target.tag, 'h3');
+  });
+
+  await t.test('版の取得が追い付かない間の二手を順に写し、外の変更で切れた鎖は使わない', async (t) => {
+    const fixture = await setup(t, '# 題\n\n対象。\n');
+    const { page } = fixture;
+    await add(page, page.locator('#gp-content p'), '二手の対象へ');
+    await editing(page);
+    await page.route('**/_/review/tables*', (route) => route.fulfill({ status: 409, json: { error: { message: '古い描画' } } }));
+    await insert(page, '追加一。');
+    await insert(page, '追加二。');
+    assert.equal((await items(page))[0].target.range.split(':')[0], '3');
+    assert.equal((await items(page))[0].stale, false);
+    await page.unroute('**/_/review/tables*');
+    await page.locator('#gp-review-toggle').click();
+    await settled(page);
+    assert.equal((await items(page))[0].target.range.split(':')[0], '7');
+    await external(fixture, '外の追加。\n\n追加二。\n\n追加一。\n\n# 題\n\n対象。\n', 30);
+    await settled(page, true);
+    await editing(page);
+    await insert(page, '画面の追加。');
+    await settled(page, true);
+    assert.equal((await items(page))[0].target.range.split(':')[0], '7');
+  });
+
+  await t.test('同じ文の前の段落を消しても後ろの段落には付け替えない', async (t) => {
+    const { page } = await setup(t, '# 題\n\n同じ段落。\n\n同じ段落。\n\n末尾。\n');
+    await add(page, page.locator('#gp-content p').first(), '前の段落へ');
+    await editing(page);
+    await replace(page, page.locator('#gp-content p').first(), '');
+    await settled(page, true);
+    assert.equal((await items(page))[0].target.range.split(':')[0], '3');
+  });
+
+  await t.test('表の行の挿入・並べ替え・列の挿入で同じセルを探す', async (t) => {
+    const { page } = await setup(t, '| 鍵 | 内容 |\n| --- | --- |\n| 2 | 二 |\n| 1 | 一 |\n');
+    await add(page, page.locator('#gp-content td').nth(1), '二のセルへ');
+    assert.equal((await items(page))[0].keys.start, 1);
+    await editing(page);
+    await page.locator('#gp-content td').first().click();
+    await page.locator('#gp-edit-rows').click();
+    await send(page, () => page.locator('#gp-edit-row-before').click());
+    await settled(page);
+    assert.equal((await items(page))[0].target.row, 2);
+    await page.locator('#gp-content td').filter({ hasText: /^2$/ }).click();
+    await page.locator('#gp-edit-cols').click();
+    await send(page, () => page.locator('#gp-edit-col-sort-asc').click());
+    await settled(page);
+    assert.equal((await items(page))[0].target.row, 2);
+    await page.locator('#gp-content td').filter({ hasText: /^二$/ }).click();
+    await page.locator('#gp-edit-cols').click();
+    await send(page, () => page.locator('#gp-edit-col-before').click());
+    await settled(page);
+    assert.equal((await items(page))[0].target.col, 2);
+  });
+
+  await t.test('同じ値のセルは行と列の鍵で絞り、区別できなければ要確認にする', async (t) => {
+    for (const unique of [true, false]) {
+      const { page } = await setup(t, '| 鍵 | 内容 |\n| --- | --- |\n| 2 | 同じ |\n| ' + (unique ? '1' : '2') + ' | 同じ |\n');
+      await add(page, page.locator('#gp-content td').nth(1), '重なる値へ');
+      await editing(page);
+      await page.locator('#gp-content td').first().click();
+      await page.locator('#gp-edit-rows').click();
+      await send(page, () => page.locator('#gp-edit-row-before').click());
+      await settled(page, !unique);
+      if (unique) assert.equal((await items(page))[0].target.row, 2);
+    }
+  });
+
+  await t.test('外の変更は同じ位置だけを確かめ、前に段落が増えても移さない', async (t) => {
+    const fixture = await setup(t, '# 題\n\n対象。\n\n後。\n');
+    const { page } = fixture;
+    await add(page, page.locator('#gp-content p').first(), '外の変更へ');
+    const [before] = await items(page);
+    await external(fixture, '# 題\n\n対象。\n\n書き換え。\n', 2);
+    await settled(page);
+    assert.equal((await items(page))[0].target.range, before.target.range);
+    await external(fixture, '# 題\n\n追加。\n\n対象。\n\n書き換え。\n', 3);
+    await settled(page, true);
+    assert.equal((await items(page))[0].target.range, before.target.range);
+  });
+
+  await t.test('応答より先に描画が届いても途中で要確認を出さない', async (t) => {
+    const { page } = await setup(t, '# 題\n\n対象。\n');
+    await add(page, page.locator('#gp-content p'), '応答待ちへ');
+    await editing(page);
+    let release, arrived;
+    const received = new Promise((resolve) => { arrived = resolve; });
+    const gate = new Promise((resolve) => { release = resolve; });
+    await page.route('**/_/edit', async (route) => {
+      const response = await route.fetch();
+      arrived();
+      await gate;
+      await route.fulfill({ response });
+    });
+    t.after(() => release());
+    await page.evaluate(() => {
+      window.reviewLost = false;
+      new MutationObserver(() => { window.reviewLost ||= /要確認/.test(document.querySelector('#gp-review-cards').textContent); })
+        .observe(document.querySelector('#gp-review-cards'), { subtree: true, childList: true, characterData: true });
+    });
+    const oldRender = await page.evaluate(() => window.gpPreview.current().render);
+    await page.locator('#gp-edit-add').click();
+    await page.locator('#gp-edit-document-start').click();
+    await page.locator('#gp-edit-input').fill('追加。');
+    await page.keyboard.press('Control+Enter');
+    await received;
+    await page.waitForFunction((old) => window.gpPreview.current().render > old &&
+      document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render), oldRender);
+    assert.equal(await page.evaluate(() => window.gpEditMode.writing()), true);
+    assert.equal((await items(page))[0].stale, false);
+    release();
+    await editIdle(page);
+    await settled(page);
+    assert.equal(await page.evaluate(() => window.reviewLost), false);
+    assert.equal((await items(page))[0].target.range.split(':')[0], '5');
+  });
+
+  await t.test('読み直しで鎖が失われたときは保存した位置と指紋だけで判定する', async (t) => {
+    const fixture = await setup(t, '# 題\n\n対象。\n\n後。\n');
+    const { page } = fixture;
+    await add(page, page.locator('#gp-content p').first(), '読み直しへ');
+    const saved = await page.evaluate(() => sessionStorage.getItem('gitlab-preview-review'));
+    await external(fixture, '# 題\n\n対象。\n\n後を変更。\n', 2);
+    await page.evaluate((saved) => sessionStorage.setItem('gitlab-preview-review', saved), saved);
+    await page.reload();
+    await page.waitForSelector('#gp-review-toggle');
+    await settled(page);
+    assert.notEqual((await items(page))[0].version, JSON.parse(saved).docs.current[0].version);
+    await editing(page);
+    await insert(page, '追加。');
+    await page.evaluate((saved) => sessionStorage.setItem('gitlab-preview-review', saved), saved);
+    await page.reload();
+    await page.waitForSelector('#gp-review-toggle');
+    await settled(page, true);
+    assert.equal((await items(page))[0].target.range.split(':')[0], '3');
+  });
+
+  await t.test('成功・変更なし・拒否・通信失敗で通知し、不正な行対応を受けない', async (t) => {
+    const { page } = await setup(t, '| 列 |\n| --- |\n| 一 |\n| 二 |\n');
+    await page.evaluate(() => {
+      window.editedEvents = [];
+      document.addEventListener('gp:edited', (event) => window.editedEvents.push({ detail: event.detail, writing: window.gpEditMode.writing() }));
+    });
+    const changed = await replace(page, page.locator('#gp-content td').last(), '二つ');
+    assert.deepEqual(await page.evaluate(() => window.editedEvents), [{ detail: { change: changed.change }, writing: false }]);
+    await page.locator('#gp-content td').first().click();
+    await page.locator('#gp-edit-cols').click();
+    const unchanged = await send(page, () => page.locator('#gp-edit-col-sort-asc').click());
+    assert.equal(unchanged.unchanged, true);
+    assert.deepEqual(await page.evaluate(() => window.editedEvents.at(-1)), { detail: { change: null }, writing: false });
+    const valid = { before: 'a'.repeat(32), after: 'b'.repeat(32), keep: [[1, 2, 3]] };
+    const invalid = [null, { ...valid, before: 'g'.repeat(32) }, { ...valid, after: 123 },
+      ...[null, [[0, 1, 1]], [[1, -1, 1]], [[1, 1, 0]], [[1, 1, 1.5]], [[1, 1]],
+        [[1, 1, 10000001]], Array.from({ length: 4097 }, (_, i) => [i + 1, i + 1, 1]), [[1, 1, 2], [2, 4, 1]]]
+        .map((keep) => ({ ...valid, keep }))];
+    // 行の対応の形は成功の応答で確かめる。断られた応答の change は、形が正しくても積まない。
+    const cases = [...invalid.map((change) => [200, change, null]), [200, valid, valid], [422, valid, null], ['通信失敗', null, null]];
+    for (const [index, [status, change, expected]] of cases.entries()) {
+      await page.route('**/_/edit', (route) => status === '通信失敗' ? route.abort('failed') :
+        route.fulfill({ status, json: status === 200 ? { ok: true, unchanged: true, warnings: [], change } : { error: { message: '試験用の拒否' }, change } }));
+      await page.locator('#gp-edit-cols').click();
+      await page.locator('#gp-edit-col-sort-asc').click();
+      await page.waitForFunction((count) => window.editedEvents.length === count, index + 3);
+      const event = await page.evaluate(() => window.editedEvents.at(-1));
+      assert.deepEqual(event, { detail: { change: expected }, writing: false });
+      await page.unroute('**/_/edit');
+      await editIdle(page);
+    }
+  });
+
+  await t.test('同じ値のセルが同じ列にあれば、行が消えても残った方へ付け替えない', async (t) => {
+    const { page } = await setup(t, '| 鍵 | 内容 |\n| --- | --- |\n| 2 | 同じ |\n| 1 | 同じ |\n');
+    await add(page, page.locator('#gp-content td').nth(1), '上の行の値へ');
+    await editing(page);
+    await page.locator('#gp-content td').first().click();
+    await page.locator('#gp-edit-rows').click();
+    await send(page, () => page.locator('#gp-edit-row-delete').click());
+    await settled(page, true);
+  });
+
+  await t.test('書き換えたセルの値が別の行と列に移っても、そこへは付け替えない', async (t) => {
+    const { page } = await setup(t, '| 鍵 | 内容 |\n| --- | --- |\n| 2 | 二 |\n| 1 | 一 |\n');
+    await add(page, page.locator('#gp-content td').nth(1), '二のセルへ');
+    await editing(page);
+    await replace(page, page.locator('#gp-content td').nth(1), '三');
+    await settled(page, true);
+    await replace(page, page.locator('#gp-content td').nth(2), '二');
+    await settled(page, true);
+  });
+
+  await t.test('行数の変わらない書き換えの区間では、同じ位置の行だけを探す', async (t) => {
+    const { page } = await setup(t, '> 同じ。\n>\n> 同じ。\n\n後。\n');
+    await add(page, page.locator('#gp-content blockquote p').first(), '前の段落へ');
+    await editing(page);
+    const loaded = page.waitForResponse((response) => response.url().includes('/_/edit/source'));
+    await page.locator('#gp-content blockquote p').first().click({ button: 'right' });
+    await loaded;
+    await page.locator('#gp-edit-block-outer').click();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value === '> 同じ。\n>\n> 同じ。');
+    await page.locator('#gp-edit-input').fill('> 別。\n>\n> 同じ。');
+    await send(page, () => page.keyboard.press('Control+Enter'));
+    await settled(page, true);
+    assert.equal((await items(page))[0].target.range.split(':')[0], '1');
+  });
+
+  await t.test('表の情報を読めなかった描画では版を消さず、次の描画で鎖をたどる', async (t) => {
+    const { page } = await setup(t, '同じ。\n\n同じ。\n');
+    await add(page, page.locator('#gp-content p').nth(1), '後ろの段落へ');
+    await editing(page);
+    let failed = false;
+    await page.route('**/_/review/tables?*', (route) => {
+      if (failed) return route.continue();
+      failed = true;
+      return route.fulfill({ status: 500, json: { error: { message: '試験用の失敗' } } });
+    });
+    const failure = page.waitForResponse((response) => response.url().includes('/_/review/tables') && response.status() === 500);
+    await insert(page, '前。');
+    await failure;
+    assert.equal((await items(page))[0].version.length, 32, '読めなかった描画で版を消さない');
+    await insert(page, '後。');
+    await settled(page);
+    assert.equal((await items(page))[0].target.range.split(':')[0], '7');
+  });
+});
+
 test('見出しの操作の画面・キー・送信とフォーカス', { skip, timeout: 240000 }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
