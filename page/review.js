@@ -332,6 +332,7 @@
     return { target, label: 'HTML のブロック' };
   }
   const ignored = (element) => !element?.closest || window.__mdTableSticky?.picking ||
+    element.closest('copy-code') ||
     element.closest('#gp-controls, #gp-header, #gp-notices, #gp-outline, #gp-outline-resizer, #gp-review-panel, #gp-review-layer, #gp-review-status, [data-md-table-sticky-bar], [data-md-table-sticky-search], [data-md-table-sticky-columns]') ||
     (!element.closest('td, th') && element.closest('input, textarea, select, button, [contenteditable]'));
   function selectTarget(point) {

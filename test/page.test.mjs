@@ -104,11 +104,192 @@ test('PlantUML の画像・失敗時の原文・読み込み済み画像の使�
   assert.deepEqual(outside, []);
 });
 
+test('コードのコピーと差分更新・編集・コメントの共存を確かめる', { skip, timeout: 120000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const text = '\tconst text = "&<>日本語";  \n\n  // 末尾\t ';
+  const source = '```js\n' + text + '\n```\n\n後ろの段落。\n';
+  const setup = (t, markdown = source, options = {}) => fixturePage(t, browser, undefined,
+    (root) => writeFileSync(join(root, 'README.md'), markdown), { live: true, jump: true, ...options });
+  const copyButton = (page) => page.locator('#gp-content copy-code button');
+  const allowClipboard = (page) => page.context().grantPermissions(['clipboard-read', 'clipboard-write'],
+    { origin: new URL(page.url()).origin });
+
+  await t.test('原文の文字・空行・タブ・末尾の空白を保ち、Tab と印刷の表示を切り替える', async (t) => {
+    const { page, jumpRequests } = await setup(t);
+    await allowClipboard(page);
+    const host = page.locator('#gp-content copy-code');
+    const button = copyButton(page);
+    await button.waitFor();
+    assert.equal(await page.locator('#gp-content pre > code').textContent(), text);
+    assert.equal(await host.evaluate((el) => el.childNodes.length), 0);
+    await page.mouse.move(0, 0);
+    assert.equal(await host.evaluate((el) => getComputedStyle(el).opacity), '0');
+    await page.locator('#gp-width').focus();
+    await page.keyboard.press('Tab');
+    assert.equal(await button.evaluate((el) => el === el.getRootNode().activeElement), true);
+    assert.equal(await host.evaluate((el) => getComputedStyle(el).opacity), '1');
+    await page.evaluate(() => {
+      window.copyArguments = [];
+      const writeText = navigator.clipboard.writeText.bind(navigator.clipboard);
+      navigator.clipboard.writeText = (text) => { window.copyArguments.push(text); return writeText(text); };
+    });
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.querySelector('copy-code').shadowRoot.querySelector('button').textContent === 'コピーしました');
+    assert.deepEqual(await page.evaluate(() => window.copyArguments), [text]);
+    // Windows のクリップボードが返す CRLF だけをそろえ、空白などは削らない。
+    assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'), text);
+    await page.waitForFunction(() => document.querySelector('copy-code').shadowRoot.querySelector('button').textContent === 'コピー');
+    await page.locator('#gp-width').focus();
+    assert.equal(await host.evaluate((el) => getComputedStyle(el).opacity), '0');
+    await page.locator('#gp-content pre').hover();
+    assert.equal(await host.evaluate((el) => getComputedStyle(el).opacity), '1');
+    await button.dblclick();
+    await page.waitForTimeout(100);
+    assert.deepEqual(jumpRequests, [], 'コピーのダブルクリックでは行へ移らない');
+    assert.equal(await page.locator('#gp-content insert-code-snippet').isVisible(), false);
+    await page.emulateMedia({ media: 'print' });
+    assert.equal(await button.isVisible(), false);
+  });
+
+  await t.test('別の段落の差分更新でも囲みとボタンを同じ節点で保ち、再読込で二重定義しない', async (t) => {
+    const { page, server } = await setup(t);
+    await copyButton(page).waitFor();
+    await page.evaluate(() => {
+      window.savedCopyWrapper = document.querySelector('.markdown-code-block');
+      window.savedCopyHost = document.querySelector('copy-code');
+      window.savedCopyButton = window.savedCopyHost.shadowRoot.querySelector('button');
+    });
+    await server.setDocument({ name: 'README.md', text: source.replace('後ろの段落。', '直した段落。'), rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current().rev === 2);
+    assert.deepEqual(await page.evaluate(() => [
+      window.savedCopyWrapper === document.querySelector('.markdown-code-block'),
+      window.savedCopyHost === document.querySelector('copy-code'),
+      window.savedCopyButton === document.querySelector('copy-code').shadowRoot.querySelector('button'),
+      document.querySelector('copy-code').childNodes.length,
+    ]), [true, true, true, 0]);
+    await page.addScriptTag({ url: new URL('_/copy-code.js', server.url).href });
+    assert.equal(await copyButton(page).count(), 1);
+  });
+
+  await t.test('囲みが二つあっても押した囲みの文字を写し、囲みの中身だけの差分更新の後は新しい文字を写す', async (t) => {
+    const two = '```sh\n一つ目\n```\n\n```powershell\n二つ目\n```\n';
+    const { page, server } = await setup(t, two);
+    await allowClipboard(page);
+    const blocks = page.locator('#gp-content .markdown-code-block');
+    await blocks.nth(1).locator('copy-code button').waitFor();
+    const waitLabel = (index, text) => page.waitForFunction(([index, text]) =>
+      document.querySelectorAll('#gp-content copy-code')[index].shadowRoot.querySelector('button').textContent === text, [index, text]);
+    const copyAt = async (index, expected) => {
+      await waitLabel(index, 'コピー');
+      await blocks.nth(index).hover();
+      await blocks.nth(index).locator('copy-code button').click();
+      await waitLabel(index, 'コピーしました');
+      assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'), expected);
+    };
+    await copyAt(1, '二つ目');
+    await copyAt(0, '一つ目');
+    await server.setDocument({ name: 'README.md', text: two.replace('二つ目', '直した二つ目'), rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current().rev === 2);
+    await copyAt(1, '直した二つ目');
+  });
+
+  await t.test('提案の囲みには出さず、数式と mermaid の描画後はボタンを残さない', async (t) => {
+    const { page } = await setup(t, '```suggestion\n提案\n```\n\n```math\nx^2\n```\n\n```mermaid\ngraph TD; A-->B\n```\n');
+    await page.waitForSelector('.katex');
+    await page.waitForSelector('.gp-mermaid svg');
+    assert.equal(await page.locator('#gp-content pre.language-suggestion').count(), 1);
+    assert.equal(await page.locator('#gp-content copy-code').count(), 0);
+  });
+
+  await t.test('クリップボード API が無い場合と拒否された場合は本文の外でコピーし、失敗も知らせる', async (t) => {
+    const { page } = await setup(t);
+    await allowClipboard(page);
+    await page.locator('#gp-content pre').hover();
+    for (const rejected of [false, true]) {
+      await page.evaluate((rejected) => {
+        window.copyFallbackCalls = [];
+        window.copyAPI = navigator.clipboard;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: rejected ? {
+          writeText: () => Promise.reject(new Error('試験用の拒否')),
+        } : undefined });
+        const original = document.execCommand.bind(document);
+        document.execCommand = (command) => {
+          const textarea = document.activeElement;
+          window.copyFallbackCalls.push({ command, text: textarea.value, outside: !document.querySelector('#gp-content').contains(textarea) });
+          return original(command);
+        };
+      }, rejected);
+      await copyButton(page).click();
+      await page.waitForFunction(() => document.querySelector('copy-code').shadowRoot.querySelector('button').textContent === 'コピーしました');
+      assert.equal((await page.evaluate(() => window.copyAPI.readText())).replace(/\r\n/g, '\n'), text);
+      assert.deepEqual(await page.evaluate(() => window.copyFallbackCalls), [{ command: 'copy', text, outside: true }]);
+      assert.equal(await page.locator('textarea').count(), 0);
+      assert.equal(await copyButton(page).evaluate((el) => el === el.getRootNode().activeElement), true);
+      await page.reload();
+      await page.locator('#gp-content pre').hover();
+    }
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+      document.execCommand = () => false;
+    });
+    await copyButton(page).click();
+    assert.equal(await copyButton(page).textContent(), 'コピーできませんでした');
+    assert.equal(await page.locator('textarea').count(), 0);
+  });
+
+  for (const mode of ['編集', 'コメント']) await t.test(mode + 'モードでもコピーから対象を選ばず、原文を開かない', async (t) => {
+    const { page } = await setup(t, source, { edit: 'file', review: true });
+    await allowClipboard(page);
+    await page.locator(mode === '編集' ? '#gp-edit-toggle' : '#gp-review-toggle').click();
+    await page.waitForFunction((mode) => Number(document.querySelector(mode === '編集' ? '#gp-edit-layer' : '#gp-review-layer').dataset.render) > 0, mode);
+    const target = mode === 'コメント' ? await page.locator('#gp-review-target').textContent() : '';
+    await page.locator('#gp-content pre').hover();
+    await copyButton(page).click();
+    await page.waitForFunction(() => document.querySelector('copy-code').shadowRoot.querySelector('button').textContent === 'コピーしました');
+    assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'), text);
+    await copyButton(page).dblclick();
+    await page.waitForTimeout(100);
+    assert.equal(await page.locator('#gp-edit-input').isVisible(), false);
+    if (mode === 'コメント') assert.equal(await page.locator('#gp-review-target').textContent(), target);
+  });
+
+  await t.test('公式 CSS のコピー用の規則があっても右上に出し、内部のボタンに規則を漏らさない', async (t) => {
+    const f = assetFixture(t, { 'app.css': '.md .markdown-code-block copy-code{display:none!important;position:static;inset:0;visibility:hidden;opacity:0}.md copy-code button{display:none}' });
+    f.save();
+    const server = await startGoPageServer(t, { live: true, assetsDir: f.directory, assetsLock: readFileSync(f.lockPath, 'utf8') });
+    await server.setDocument({ name: 'README.md', text: source, rev: 1 });
+    const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    t.after(() => context.close());
+    const page = await context.newPage();
+    await page.goto(server.url);
+    await page.waitForFunction(() => document.documentElement.dataset.style === 'official');
+    await page.locator('#gp-content pre').hover();
+    const host = page.locator('#gp-content copy-code');
+    assert.deepEqual(await host.evaluate((el) => {
+      const css = getComputedStyle(el);
+      return [css.display, css.position, css.top, css.right, css.visibility, css.opacity];
+    }), ['block', 'absolute', '8px', '8px', 'visible', '1']);
+    for (const theme of ['light', 'dark']) {
+      await page.selectOption('#gp-theme', theme);
+      await page.locator('#gp-content pre').hover();
+      await copyButton(page).click();
+      await page.waitForFunction(() => document.querySelector('copy-code').shadowRoot.querySelector('button').textContent === 'コピーしました');
+      assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'), text);
+      assert.equal(await copyButton(page).evaluate((el) => getComputedStyle(el).color),
+        await page.locator('body').evaluate((el) => getComputedStyle(el).color));
+    }
+    await page.emulateMedia({ media: 'print' });
+    assert.equal(await copyButton(page).isVisible(), false);
+  });
+});
+
 test('書き出した単一 HTML を file:// で開き、数式と図を外部要求と CSP 違反なしで描く', { skip }, async (t) => {
   const root = temp(t),
     file = join(root, 'sample.md'),
     output = join(root, 'out.html');
-  writeFileSync(file, '# 書き出し\n\n$`x^2`$\n\n```mermaid\ngraph TD; A-->B\n```\n');
+  const code = '\tconst text = "&<>日本語";  \n\n  // 末尾\t ';
+  writeFileSync(file, '# 書き出し\n\n$`x^2`$\n\n```mermaid\ngraph TD; A-->B\n```\n\n```js\n' + code + '\n```\n');
   await renderGoPageDocument({ file, root, output });
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
@@ -135,6 +316,24 @@ test('書き出した単一 HTML を file:// で開き、数式と図を外部�
   await page.goto(pathToFileURL(output).href);
   await page.waitForSelector('.katex');
   await page.waitForSelector('.gp-mermaid svg');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.locator('#gp-content pre').hover();
+  const copy = page.locator('#gp-content copy-code button');
+  assert.equal(await copy.count(), 1, '図の描画後は通常のコードのボタンだけ残る');
+  await copy.click();
+  await page.waitForFunction(() => document.querySelector('copy-code').shadowRoot.querySelector('button').textContent === 'コピーしました');
+  assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'), code);
+  // file:// で API が使えないブラウザー向けの代替経路も、本物のクリップボードへ書く。
+  await page.evaluate(() => {
+    window.exportClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+  });
+  await copy.click();
+  await page.waitForFunction(() => document.querySelector('copy-code').shadowRoot.querySelector('button').textContent === 'コピーしました');
+  assert.equal((await page.evaluate(() => window.exportClipboard.readText())).replace(/\r\n/g, '\n'), code);
+  await page.emulateMedia({ media: 'print' });
+  assert.equal(await copy.isVisible(), false);
+  await page.emulateMedia({ media: 'screen' });
   await page.evaluate(() => document.fonts.ready);
   assert.deepEqual(violations, []);
   assert.deepEqual(outside, []);
@@ -144,6 +343,18 @@ test('書き出した単一 HTML を file:// で開き、数式と図を外部�
   await page.waitForSelector('.gp-mermaid svg');
   assert.deepEqual(violations, []);
   assert.deepEqual(outside, []);
+  // 数式も図もない書き出しでも、コピーだけのスクリプトで動く。
+  writeFileSync(file, '```js\n' + code + '\n```\n');
+  await renderGoPageDocument({ file, root, output });
+  await page.goto(pathToFileURL(output).href);
+  assert.equal(await page.locator('.katex, .gp-mermaid').count(), 0);
+  await page.locator('#gp-content pre').hover();
+  await copy.click();
+  await page.waitForFunction(() => document.querySelector('copy-code').shadowRoot.querySelector('button').textContent === 'コピーしました');
+  assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'), code);
+  assert.deepEqual(violations, []);
+  assert.deepEqual(outside, []);
+  assert.deepEqual(errors, []);
 });
 
 test('小さな公式 CSS の読み込み・配色と失敗時の同梱スタイルへの復帰', { skip }, async (t) => {

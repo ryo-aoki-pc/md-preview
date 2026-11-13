@@ -127,7 +127,7 @@ func TestPageScripts(t *testing.T) {
 	}
 	previous := -1
 	for _, script := range []struct{ name, body string }{
-		{"preview.js", p.JS}, {"edit-grid.js", p.EditGridJS}, {"edit-targets.js", p.EditTargetsJS},
+		{"preview.js", p.JS}, {"copy-code.js", p.CopyCodeJS}, {"edit-grid.js", p.EditGridJS}, {"edit-targets.js", p.EditTargetsJS},
 		{"edit.js", p.EditJS}, {"review.js", p.ReviewJS},
 	} {
 		index := strings.Index(p.HTML, `<script src="_/`+script.name+`" defer></script>`)

@@ -1440,7 +1440,7 @@
     const element = event.target instanceof Element ? event.target : event.target.parentElement;
     if (
       !element ||
-      element.closest('summary, input, button, video, audio') ||
+      element.closest('summary, input, button, copy-code, video, audio') ||
       (element.closest('a') && !element.closest('a[data-diagram="plantuml"]'))
     )
       return;

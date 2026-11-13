@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { temp } from './helpers.mjs';
 
-export function assetFixture(t) {
+export function assetFixture(t, overrides = {}) {
   const directory = temp(t);
   const bodies = {
     'app.css': ':root{--official-fixture:1}',
@@ -14,6 +14,7 @@ export function assetFixture(t) {
     'icons.svg': '<svg xmlns="http://www.w3.org/2000/svg"/>',
     'font.woff2': Buffer.from([97, 0, 98, 255, 10]),
     'licenses/MIT.txt': '試験用の原文',
+    ...overrides,
   };
   const files = Object.fromEntries(
     Object.entries(bodies).map(([path, body]) => [

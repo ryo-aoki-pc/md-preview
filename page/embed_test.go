@@ -36,7 +36,7 @@ func TestEmbeddedFiles(t *testing.T) {
 		}
 	}
 	expected := map[string]bool{"lib/lock.json": true}
-	for _, name := range []string{"index.html", "preview.js", "edit-grid.js", "edit-targets.js", "edit.js", "review.js", "preview.css", "fallback.css"} {
+	for _, name := range []string{"index.html", "preview.js", "copy-code.js", "edit-grid.js", "edit-targets.js", "edit.js", "review.js", "preview.css", "fallback.css"} {
 		expected[name] = true
 		got, err := Files.ReadFile(name)
 		if err != nil {

@@ -2094,6 +2094,7 @@
 
   // ページと md-table-sticky の操作欄、本文の入力の部品は触らない。対象外の表の中の入力は、セルの操作として扱う。
   const ignored = (element) => !element || window.__mdTableSticky?.picking ||
+    element.closest('copy-code') ||
     element.closest('#gp-controls, #gp-header, #gp-notices, #gp-outline, #gp-outline-resizer, [data-md-table-sticky-bar], [data-md-table-sticky-search], [data-md-table-sticky-columns]') ||
     (!element.closest('td, th') && element.closest('input, textarea, select, button, [contenteditable]'));
   let down = null;

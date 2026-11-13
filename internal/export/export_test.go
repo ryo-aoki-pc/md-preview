@@ -18,6 +18,7 @@ import (
 	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
 	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
 	"github.com/ryo-aoki-pc/md-tools/internal/sanitize"
+	"github.com/ryo-aoki-pc/md-tools/page"
 	"golang.org/x/net/html"
 )
 
@@ -149,7 +150,7 @@ func TestExtrasAndCSP(t *testing.T) {
 			count++
 		}
 		if c.diagram {
-			count++
+			count += 2 // 図のライブラリと、描画前の囲みにあるコピーのスクリプト。
 		}
 		if len(p.scripts) != count || strings.Count(p.csp, "sha256-") != count {
 			t.Fatal("スクリプトと CSP の数が一致しません")
@@ -162,6 +163,43 @@ func TestExtrasAndCSP(t *testing.T) {
 			t.Fatal("不要な資産を埋め込みました")
 		}
 		mustNotContain(t, r.HTML, "url(fonts/", "<script src=", "<link", o.Root, filepath.ToSlash(o.Root), "127.0.0.1", "?token=", "/_/assets/")
+	}
+}
+func TestCodeCopyScriptsAndCSP(t *testing.T) {
+	source, err := page.Files.ReadFile("copy-code.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, text string
+		copy       bool
+	}{
+		{"囲み", "```js\nconst n = 1;\n```\n", true},
+		{"字下げ", "    日本語のコード\n", true},
+		{"front matter", "---\ntitle: 文書\n---\n\n本文\n", true},
+		{"本文", "本文と `行の中のコード`\n", false},
+		{"提案", "```suggestion\n提案の文字\n```\n", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := exported(t, fixture(t, c.text))
+			p := inspect(t, r.HTML)
+			if !c.copy {
+				if len(p.scripts) != 0 {
+					t.Fatal("コピーする囲みがない文書にスクリプトがあります")
+				}
+				mustContain(t, p.csp, "script-src 'none'")
+				return
+			}
+			if len(p.scripts) != 1 || p.scripts[0] != string(source) {
+				t.Fatal("コピーのスクリプトがページと同じ原文ではありません")
+			}
+			sum := sha256.Sum256(source)
+			mustContain(t, p.csp, "'sha256-"+base64.StdEncoding.EncodeToString(sum[:])+"'")
+			if strings.Count(p.csp, "sha256-") != 1 {
+				t.Fatal("コピーだけの文書に余分なスクリプトの許可があります")
+			}
+			mustNotContain(t, r.HTML, "var __esbuild_esm_mermaid_nm", "data:font/woff2;base64,")
+		})
 	}
 }
 func TestIncludesAndNotices(t *testing.T) {

@@ -142,11 +142,33 @@ body {
   scroll-margin-top: calc(var(--gp-toolbar-height) + 8px);
 }
 
-/* GitLab 本体の操作用要素は、このページでは初期化しない。 */
-#gp-content copy-code,
+/* GitLab 本体の操作用要素のうち、このページで初期化しないもの。 */
 #gp-content task-button,
 #gp-content insert-code-snippet {
   display: none;
+}
+
+/* 公式スタイルに操作用要素の規則があっても、同じ位置と表示にする。 */
+#gp-content .markdown-code-block {
+  position: relative;
+}
+#gp-content .markdown-code-block > copy-code {
+  all: initial !important;
+  display: block !important;
+  position: absolute !important;
+  top: 8px !important;
+  right: 8px !important;
+  z-index: 1 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+#gp-content .markdown-code-block:hover > copy-code,
+#gp-content .markdown-code-block > copy-code:focus-within {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+@media print {
+  #gp-content .markdown-code-block > copy-code { display: none !important; }
 }
 
 #gp-content .gp-math-display,
