@@ -36,6 +36,7 @@ type positionAttribute struct {
 }
 
 type blockMapping struct {
+	headings       *headingMapping
 	html           []*htmlRun
 	htmlReady      bool
 	corrected      map[positionAttribute]Range
