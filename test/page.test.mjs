@@ -1648,12 +1648,13 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     const { page, file } = await editablePage(t, browser, text);
     const menu = page.locator('#gp-edit-menu-block');
     const item = (id) => page.locator('#gp-edit-block-' + id);
-    const loaded = () => page.waitForFunction(() => document.querySelector('#gp-edit-block-source').getAttribute('aria-disabled') === 'false');
     const openOn = async (locator) => {
       const box = await locator.boundingBox();
+      const loaded = page.waitForResponse((response) => response.url().includes('/_/edit/source'));
       await page.mouse.click(box.x + Math.min(40, box.width / 2), box.y + box.height / 2, { button: 'right' });
       await menu.waitFor({ state: 'visible' });
-      await loaded();
+      await loaded;
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
       return box;
     };
     // 段落: 指した位置に開き、外側が無いので「外側を編集」は理由付きで無効。
@@ -1719,6 +1720,42 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     // 編集モードの外では、ブラウザーの既定のメニューのまま。
     await page.locator('#gp-edit-toggle').click();
     assert.equal(await prevented('#gp-content p'), false);
+  });
+
+  await t.test('数式・図の上でも右クリックでブロックのメニューを開き、キーで原文を開く', async (t) => {
+    const sources = ['```math\na^2\n```', '```mermaid\ngraph TD; A-->B\n```', '```plantuml\nA -> B\n```'];
+    const text = sources.join('\n\n') + '\n\n' + Array.from({ length: 40 }, (_, i) => '段落 ' + i).join('\n\n') + '\n';
+    const { page } = await editablePage(t, browser, text, { plantuml: true });
+    await page.waitForSelector('.gp-math-display');
+    await page.waitForSelector('.gp-mermaid svg');
+    await page.waitForFunction(() => document.querySelector('img.gp-plantuml')?.naturalWidth > 0);
+    const menu = page.locator('#gp-edit-menu-block');
+    const openOn = async (selector) => {
+      const box = await page.locator(selector).first().boundingBox();
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+      await menu.waitFor({ state: 'visible' });
+    };
+    const opened = [];
+    page.context().on('page', (other) => opened.push(other));
+    for (const [i, selector] of ['.gp-math-display', '.gp-mermaid', 'img.gp-plantuml'].entries()) {
+      await openOn(selector);
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'gp-edit-block-source');
+      await page.keyboard.press('ArrowDown');
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'gp-edit-block-outer');
+      await page.keyboard.press('ArrowUp');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction((source) => document.querySelector('#gp-edit-input').value === source, sources[i]);
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => document.querySelector('#gp-edit-input').hidden || !document.querySelector('#gp-edit-input').value);
+    }
+    assert.deepEqual(opened, [], 'PlantUML の図の右クリックで SVG のリンクを開かない');
+    // Esc とスクロールで閉じる。
+    await openOn('.gp-math-display');
+    await page.keyboard.press('Escape');
+    assert.equal(await menu.isVisible(), false);
+    await openOn('.gp-math-display');
+    await page.mouse.wheel(0, 300);
+    await menu.waitFor({ state: 'hidden' });
   });
 
   await t.test('固定行列と横スクロールでは範囲を四つに分け、Esc はメニュー・範囲・全幅の順に解く', async (t) => {

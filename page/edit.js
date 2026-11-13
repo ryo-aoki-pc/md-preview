@@ -1335,6 +1335,8 @@
     const context = blockMenu;
     if (!context || context.render !== preview.current()?.render || !findBlock(context.target))
       return '対象が見つかりません。もう一度右クリックしてください';
+    // 「原文を編集」はダブルクリックと同じ手順で開く（範囲を決められないときの外側への切り替えも同じ）。
+    if (action === 'block-source') return '';
     if (context.loading) return '原文の情報を読み込んでいます';
     if (context.error) return context.error;
     if (action === 'block-outer' && !context.data.outer.length) return '外側に編集できるブロックがありません';
@@ -1548,7 +1550,8 @@
       if (data.render !== context.render || typeof data.range !== 'string' || !rangePattern.test(data.range))
         throw new Error('原文の応答の形が正しくありません');
       context.data = { outer: Array.isArray(data.outer) ? data.outer : [],
-        anchor: Boolean(data.anchor && typeof data.anchor.tag === 'string' && rangePattern.test(data.anchor.actual || '')) };
+        anchor: Boolean(data.anchor && typeof data.anchor.tag === 'string' && rangePattern.test(data.anchor.range || '') &&
+          rangePattern.test(data.anchor.actual || '')) };
     } catch (error) {
       if (blockMenu !== context || context.number !== blockMenuNumber) return;
       context.error = error.message || '原文を読み込めませんでした';
@@ -1558,15 +1561,18 @@
   }
   function openBlockMenu(event) {
     // 文字を選んでいる・リンクや動画の上・Shift を押しながら・変換中は、ブラウザーの既定のメニュー（コピーなど）を残す。
+    // PlantUML の図は SVG へのリンクで包まれているが、ダブルクリックと同じく図の原文の対象にする。
     if (event.shiftKey || composing || ignored(event.target) || layer.contains(event.target) ||
-      event.target.closest?.('a[href], video, audio')) return;
+      event.target.closest?.('a[href]:not([data-diagram="plantuml"]), video, audio')) return;
     const block = blockOf(event.target);
     const raw = block ? null : rawBlockOf(event.target);
-    const element = block || (raw && findBlock(raw));
+    // 生の HTML の連なりは、どの要素の上の選択でも既定のメニューを残す。
+    const elements = block ? [block] : raw ? preview.findHTML(raw) : [];
     const target = block ? preview.sourceOf(block) : raw;
-    if (!element || !target) return;
+    if (!elements.length || !target) return;
     const selection = document.getSelection();
-    if (selection && !selection.isCollapsed && selection.rangeCount && selection.getRangeAt(0).intersectsNode(element)) return;
+    if (selection && !selection.isCollapsed && selection.rangeCount &&
+      elements.some((element) => selection.getRangeAt(0).intersectsNode(element))) return;
     event.preventDefault();
     event.stopPropagation();
     blockMenu = { target, render: preview.current()?.render, number: ++blockMenuNumber, loading: true, data: null, error: '' };
