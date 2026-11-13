@@ -80,8 +80,12 @@
   const length = (value) => Array.from(value).length;
   const textOK = (value) => typeof value === 'string' && value.trim() !== '' && length(value) <= 2000 && !controlPattern.test(value);
   const shortOK = (value, max) => typeof value === 'string' && length(value) <= max && !controlPattern.test(value);
+  // 内容の指紋（ブロック b:・生の HTML h:・セル c:）と、セルの行と列の鍵。版 1 で保存したものは空から始める。
+  const fingerprintPattern = /^(?:|[bhc]:[0-9a-f]{16})$/;
+  const keyPattern = /^[0-9a-f]{16}$/;
+  const versionPattern = /^(?:|[0-9a-f]{32})$/;
   // 1 つの文書の分を読む。形が違えば、その文書の分だけを捨てる（ほかの文書のコメントは残す）。
-  function readItems(items) {
+  function readItems(items, version) {
     if (!Array.isArray(items) || items.length > 200) return null;
     const seen = new Set();
     const list = [];
@@ -92,21 +96,28 @@
         !['pending', 'copied'].includes(item.state) || typeof item.stale !== 'boolean' || !shortOK(item.error, 500) ||
         (item.selection !== undefined && !textOK(item.selection)))
         return null;
+      const extra = version === 2 ? item : { fp: '', version: '', skip: false };
+      const keys = extra.keys;
+      if (typeof extra.fp !== 'string' || !fingerprintPattern.test(extra.fp) || typeof extra.version !== 'string' ||
+        !versionPattern.test(extra.version) || typeof extra.skip !== 'boolean' ||
+        (keys !== undefined && (target.kind !== 'cell' || !plain(keys) || !keyPattern.test(keys.row) || !keyPattern.test(keys.col))))
+        return null;
       seen.add(item.id);
       list.push({ id: item.id, target, label: item.label, text: item.text, render: item.render,
-        state: item.state, stale: item.stale, error: item.error, ...(item.selection ? { selection: item.selection } : {}) });
+        state: item.state, stale: item.stale, error: item.error, ...(item.selection ? { selection: item.selection } : {}),
+        fp: extra.fp, ...(keys ? { keys: { row: keys.row, col: keys.col } } : {}), version: extra.version, skip: extra.skip });
     }
     return list;
   }
   function readStorage() {
-    const empty = () => ({ version: 1, docs: Object.create(null) });
+    const empty = () => ({ version: 2, docs: Object.create(null) });
     try {
       const saved = JSON.parse(sessionStorage.getItem(storageKey));
-      if (!plain(saved) || saved.version !== 1 || !plain(saved.docs)) return empty();
+      if (!plain(saved) || ![1, 2].includes(saved.version) || !plain(saved.docs)) return empty();
       const result = empty();
       for (const [key, items] of Object.entries(saved.docs).slice(0, 100)) {
         if (!shortOK(key, 2100)) continue;
-        const list = readItems(items);
+        const list = readItems(items, saved.version);
         if (list) result.docs[key] = list;
       }
       return result;
@@ -114,6 +125,9 @@
   }
   const saved = readStorage();
   let comments = saved.docs[documentKey] || [];
+  // 版 1 から移した項目のうち、読み込んだときに要確認でなかったもの。最初に確かめた内容を指紋にしてよい
+  // （途中で表の情報が読めず一度要確認になっても、内容が見つかれば戻す）。
+  const adoptable = new Set(comments.filter((item) => !item.fp && !item.stale).map((item) => item.id));
   let selected = null;
   let editing = null;
   let mode = false;
@@ -176,7 +190,7 @@
       !selected ? '本文のブロックか表のセルを選んでください' : !input.value.trim() ? 'コメントを入力してください' : '';
     add.disabled = Boolean(reason);
     add.title = reason;
-    prepare.disabled = locked() || !preview.current()?.render || !comments.some((item) => item.state === 'pending');
+    prepare.disabled = locked() || !preview.current()?.render || !comments.some((item) => item.state === 'pending' && !item.skip);
     clearCopied.disabled = locked() || !comments.some((item) => item.state === 'copied');
     copy.disabled = launch.disabled = locked() || !prepared;
     output.hidden = !prepared;
@@ -188,8 +202,13 @@
       make('h3', '', card, item.label);
       if (item.selection) make('p', '', card, '選んだ文字: ' + item.selection);
       make('p', '', card, item.text);
-      const state = make('p', '', card, item.error ? '誤り: ' + item.error : item.stale ? '要確認' : item.state === 'copied' ? 'コピー済み' : '未コピー');
+      const state = make('p', '', card, (item.error ? '誤り: ' + item.error : item.stale ? '要確認' : item.state === 'copied' ? 'コピー済み' : '未コピー') +
+        (item.state === 'pending' && item.skip ? '（今回は送らない）' : ''));
       state.className = 'gp-review-state';
+      if (item.stale) {
+        const hint = make('p', '', card, '対象の内容が変わったか、見つかりません。「直す」で選び直すか、「今回は送らない」にしてください。');
+        hint.className = 'gp-review-hint';
+      }
       const buttons = make('div', '', card);
       const fix = button('', buttons, '直す', () => {
         editing = item.id;
@@ -212,7 +231,16 @@
         draw();
         refreshFrames();
       });
+      fix.dataset.role = 'fix';
       fix.disabled = remove.disabled = move.disabled = locked();
+      if (item.state === 'pending') {
+        const skip = button('', buttons, item.skip ? '今回は送る' : '今回は送らない', () => {
+          item.skip = !item.skip;
+          changed();
+        });
+        skip.setAttribute('aria-pressed', String(item.skip));
+        skip.disabled = locked();
+      }
     }
   }
   function elementsOf(target) {
@@ -274,9 +302,12 @@
     if (comments.filter((item) => item.state === 'pending' && item.id !== editing).length >= 50) {
       notice('一度に依頼できるコメントは 50 件までです。依頼文をコピーしてから追加してください。'); return;
     }
+    // 今の描画で対象を確かめ、内容の指紋を取ってから保存する。見つからない対象には付けない。
+    const facts = factsOf(selected.target);
+    if (!facts) { notice('選んだ対象が見つかりません。もう一度選んでください。'); return; }
     const item = { id: editing || crypto.randomUUID(), target: selected.target, label: selected.label,
       ...(selected.selection ? { selection: selected.selection } : {}), text, render: preview.current().render,
-      state: 'pending', stale: false, error: '' };
+      state: 'pending', stale: false, error: '', fp: facts.fp, ...(facts.keys ? { keys: facts.keys } : {}), version: '', skip: false };
     const index = comments.findIndex((other) => other.id === editing);
     if (index >= 0) comments[index] = item;
     else comments.push(item);
@@ -410,13 +441,57 @@
     event.stopPropagation();
   }, true);
 
+  // セルの内容の指紋と、同じ値のセルを見分ける行と列の鍵。表の情報のセル用 Markdown から作る。
+  function cellFacts(target) {
+    if (infoRender !== preview.current()?.render) return null;
+    const model = models[target.table];
+    const cell = model?.cells.find((item) => item.row === target.row && item.col === target.col);
+    if (!cell || typeof cell.text !== 'string') return null;
+    const covers = (item, row, col) => item.row <= row && row < item.row + item.rowspan && item.col <= col && col < item.col + item.colspan;
+    // 行の鍵は、その行に掛かるほかのセル（上の行から結合で覆うセルも）の文字。列の鍵は、その列の先頭の行のセルの文字。
+    const inRow = model.cells.filter((item) => item !== cell && item.row <= cell.row && cell.row < item.row + item.rowspan);
+    const row = inRow.sort((a, b) => a.col - b.col).map((item) => item.text).join('\u0001');
+    const header = model.cells.find((item) => covers(item, 0, cell.col));
+    const inCol = model.cells.filter((item) => item !== cell && item.col <= cell.col && cell.col < item.col + item.colspan);
+    return { fp: 'c:' + preview.digest(cell.text), keys: { row: preview.digest(row), col: preview.digest(header?.text || '') },
+      // 同じ文字のセルが同じ列（行）にあれば、並べ替え（列の入れ替え）で別のセルが同じ座標に来うる。
+      sameInCol: inCol.some((item) => item.text === cell.text), sameInRow: inRow.some((item) => item.text === cell.text) };
+  }
+  function factsOf(target) {
+    if (target.kind === 'cell') return cellFacts(target);
+    if (!elementsOf(target).length) return null;
+    const fp = preview.fingerprint(target);
+    return fp ? { fp } : null;
+  }
+  // 対象が今の描画の同じ位置にあり、内容の指紋（セルは行の鍵も）が同じときだけ有効にする。
+  // 位置が同じでも内容が違えば要確認にし、別の対象へ黙って付かないようにする。描画のたびに判定し直す。
+  // セルは、同じ文字のセルが同じ列にあれば行の鍵も、同じ行にあれば列の鍵も一致するときだけ同じセルとみなす。
+  const sameFacts = (item, facts) => facts.fp === item.fp &&
+    (!item.keys || ((!facts.sameInCol || item.keys.row === facts.keys.row) && (!facts.sameInRow || item.keys.col === facts.keys.col)));
   function checkTargets(cells = false) {
-    let changed = false;
+    let changed = false, lost = false;
     for (const item of comments) {
-      if ((item.target.kind === 'cell') !== cells || item.stale || elementsOf(item.target).length) continue;
-      item.stale = true;
+      if ((item.target.kind === 'cell') !== cells) continue;
+      const facts = factsOf(item.target);
+      let ok = Boolean(facts);
+      if (ok && item.fp) ok = sameFacts(item, facts);
+      else if (ok) {
+        // 版 1 で保存したコメントは、読み込んだときに要確認でなかったものだけ、最初に確かめた内容を指紋にする。
+        ok = adoptable.has(item.id);
+        if (ok) {
+          adoptable.delete(item.id);
+          item.fp = facts.fp;
+          if (facts.keys) item.keys = facts.keys;
+          changed = true;
+        }
+      }
+      if (item.stale === !ok) continue;
+      item.stale = !ok;
+      lost ||= item.stale;
       changed = true;
     }
+    // 作った依頼文の対象が要確認になったら、その依頼文は使わない。
+    if (lost && prepared) discardPrompt();
     if (changed) { save(); draw(); }
   }
   async function loadTables() {
@@ -433,6 +508,8 @@
       const response = await fetch(request, { signal: controller.signal });
       const data = await response.json();
       if (number !== tableNumber || render !== preview.current()?.render || stopped) return;
+      // 描画が古い（409）だけなら、次の描画で読み直す。セルのコメントを要確認にしない。
+      if (response.status === 409) return;
       if (!response.ok) throw new Error(messageOf(data) || '表の情報を読み込めませんでした');
       const tables = preview.tables();
       if (data.render !== render || !Array.isArray(data.tables) || data.tables.length !== tables.length ||
@@ -465,8 +542,22 @@
   }
   async function preparePrompt() {
     if (locked()) return;
-    const sent = comments.filter((item) => item.state === 'pending');
+    const sent = comments.filter((item) => item.state === 'pending' && !item.skip);
     if (!sent.length) return;
+    // 描画の直後で表の情報がまだ届いていなければ、セルを確かめられないので待ってもらう。
+    if (sent.some((item) => item.target.kind === 'cell') && infoRender !== preview.current()?.render) {
+      notice('表の情報を読み込んでいます。少し待ってから依頼文を作ってください。');
+      return;
+    }
+    // 送る直前に、今の描画で対象と内容を確かめ直す。
+    checkTargets();
+    checkTargets(true);
+    const stale = sent.filter((item) => item.stale);
+    if (stale.length) {
+      notice('要確認のコメントが ' + stale.length + ' 件あります。「直す」で対象を選び直すか、「今回は送らない」にしてから依頼文を作ってください。');
+      cards.querySelector('[data-id="' + CSS.escape(stale[0].id) + '"] [data-role="fix"]')?.focus();
+      return;
+    }
     discardPrompt();
     const render = preview.current()?.render;
     const number = ++prepareNumber;
@@ -483,9 +574,14 @@
       if (number !== prepareNumber || stopped || render !== preview.current()?.render) return;
       if (!response.ok) {
         const message = messageOf(data) || '依頼文を作れませんでした';
-        // 前の失敗の印は消し、今回断られた 1 件（番号があるときだけ）に付け直す。
+        // 前の失敗の印は消し、今回断られた全部のカード（番号があるときだけ）に付け直す。
         for (const item of sent) item.error = '';
-        if (integer(data?.error?.index) && sent[data.error.index]) sent[data.error.index].error = message;
+        const failures = Array.isArray(data?.error?.failures) ? data.error.failures : [];
+        for (const failure of failures) {
+          if (plain(failure) && integer(failure.index) && sent[failure.index])
+            sent[failure.index].error = shortOK(failure.message, 500) && failure.message ? failure.message : message;
+        }
+        if (!failures.length && integer(data?.error?.index) && sent[data.error.index]) sent[data.error.index].error = message;
         save();
         throw new Error(message);
       }
@@ -518,6 +614,8 @@
         const item = comments.find((item) => item.id === sent.id && signature(item) === sent.signature);
         if (item) item.state = 'copied';
       }
+      // 「今回は送らない」は今回の依頼文だけの印なので、コピーできたら外す。
+      for (const item of comments) item.skip = false;
       save();
       copied = true;
       draw();

@@ -48,6 +48,14 @@ func editError(conn net.Conn, r *http.Request, e *edit.Error) {
 	if isReviewPath(r) && e.Index != nil {
 		detail["index"] = *e.Index
 	}
+	// 断った対象が複数あれば、全部の番号と理由を返す。
+	if isReviewPath(r) && len(e.Failures) > 0 {
+		failures := make([]map[string]any, 0, len(e.Failures))
+		for _, f := range e.Failures {
+			failures = append(failures, map[string]any{"index": f.Index, "code": f.Code, "message": f.Message})
+		}
+		detail["failures"] = failures
+	}
 	value := map[string]any{"error": detail}
 	if e.Outer != nil {
 		value["outer"] = e.Outer

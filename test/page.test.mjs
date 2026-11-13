@@ -522,8 +522,10 @@ test('画面のコメント', { skip, timeout: 240000 }, async (t) => {
     await enter(page);
     assert.equal(await page.locator('.gp-review-card').count(), 1);
     const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')));
-    assert.equal(saved.version, 1);
+    assert.equal(saved.version, 2);
     assert.equal(saved.docs.current[0].text, '保存するコメント');
+    assert.match(saved.docs.current[0].fp, /^b:[0-9a-f]{16}$/);
+    assert.equal(saved.docs.current[0].skip, false);
     await page.goto(server.url + '?doc=other.md');
     await page.waitForFunction(() => document.querySelector('#gp-content').textContent.includes('別の文書。'));
     await enter(page);
@@ -561,20 +563,23 @@ test('画面のコメント', { skip, timeout: 240000 }, async (t) => {
     assert.equal(await page.locator('#gp-review-prompt').evaluate((el) => el.value.length > 0 && el.textContent === ''), true);
   });
 
-  await t.test('prepare が断った対象の番号を、そのカードの誤りにする', async (t) => {
-    const { page } = await reviewPage(t, '# 見出し\n\n::include{file=part.md}\n', { files: { 'part.md': '取り込んだ段落。\n' } });
+  await t.test('prepare が断った全部の対象を、それぞれのカードの誤りにする', async (t) => {
+    const { page } = await reviewPage(t, '# 見出し\n\n::include{file=part.md}\n', { files: { 'part.md': '取り込んだ段落。\n\n二つ目の取り込み。\n' } });
     await enter(page);
     await addComment(page, page.locator('#gp-content h1'), '正しい対象');
-    await addComment(page, page.locator('#gp-content p'), '断られる対象');
+    await addComment(page, page.locator('#gp-content p').first(), '断られる対象');
+    await addComment(page, page.locator('#gp-content p').nth(1), '二つ目も断られる対象');
     const response = page.waitForResponse((value) => value.url().includes('/_/review/prepare'));
     await page.locator('#gp-review-prepare').click();
     const result = await response;
     const data = await result.json();
     assert.equal(result.status(), 422);
     assert.equal(data.error.index, 1);
-    await page.waitForFunction(() => document.querySelectorAll('.gp-review-state')[1].textContent.startsWith('誤り:'));
+    assert.deepEqual(data.error.failures.map((failure) => failure.index), [1, 2]);
+    await page.waitForFunction(() => document.querySelectorAll('.gp-review-state')[2].textContent.startsWith('誤り:'));
     assert.equal(await page.locator('.gp-review-state').first().textContent(), '未コピー');
     assert.match(await page.locator('.gp-review-state').nth(1).textContent(), /誤り:.*取り込/);
+    assert.match(await page.locator('.gp-review-state').nth(2).textContent(), /誤り:.*取り込/);
     assert.equal(await page.locator('#gp-review-output').isVisible(), false);
     assert.match(await page.locator('#gp-review-status').textContent(), /取り込/);
   });
@@ -792,6 +797,168 @@ test('画面のコメント', { skip, timeout: 240000 }, async (t) => {
     await page.locator('#gp-review-add').click();
     assert.match(await page.locator('#gp-review-status').textContent(), /保存しました/);
     assert.match(await page.locator('.gp-review-card').textContent(), /次の段落/);
+  });
+
+  await t.test('同じ位置でも内容が違えば要確認にし、元に戻れば外す', async (t) => {
+    const original = '# 題\n\n一\n\n二\n';
+    const { page, server, root } = await reviewPage(t, original);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content p').nth(1), '二へのコメント');
+    const change = async (text, rev) => {
+      writeFileSync(join(root, 'README.md'), text);
+      await server.setDocument({ path: join(root, 'README.md'), text, rev });
+    };
+    // 前に段落が増えると、もとの位置（5 行目）には同じ長さの「一」が来る。黙って「一」に付かず、要確認にする。
+    await change('# 題\n\n新\n\n一\n\n二\n', 2);
+    await page.waitForFunction(() => document.querySelector('.gp-review-state').textContent === '要確認');
+    assert.match(await page.locator('.gp-review-card').textContent(), /「直す」で選び直すか、「今回は送らない」にしてください/);
+    // 外の変更を元に戻すと、同じ位置に同じ内容が戻るので要確認を外す。
+    await change(original, 3);
+    await page.waitForFunction(() => document.querySelector('.gp-review-state').textContent === '未コピー');
+    assert.doesNotMatch(await page.locator('.gp-review-card').textContent(), /選び直す/);
+    const prompt = await prepare(page);
+    assert.ok(prompt.includes('二へのコメント') && prompt.includes('\n二\n'));
+  });
+
+  await t.test('版 1 の保存から移し、最初に確かめた内容を指紋にする', async (t) => {
+    const { page } = await reviewPage(t);
+    await enter(page);
+    const range = await page.locator('#gp-content > p').first().getAttribute('data-sourcepos');
+    const old = { id: 'v1', target: { kind: 'block', tag: 'p', range }, label: '段落: 最初', text: '版 1 のコメント',
+      render: 1, state: 'pending', stale: false, error: '' };
+    await page.evaluate((old) => sessionStorage.setItem('gitlab-preview-review', JSON.stringify({ version: 1, docs: { current: [old] } })), old);
+    await page.reload();
+    await page.waitForSelector('#gp-review-toggle');
+    await enter(page);
+    assert.equal(await page.locator('.gp-review-state').textContent(), '未コピー');
+    await page.waitForFunction(() => /^b:/.test(JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0].fp));
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).version), 2);
+  });
+
+  await t.test('指紋は token と表示の後の書き換えに左右されず、コードの改行とタスクのチェックは区別する', async (t) => {
+    const text = '# 題\n\n[相対リンク](other.md) と ![画像](pic.png)\n\n```\nfoo\nbar\n```\n\n- [ ] 作業\n';
+    const first = await reviewPage(t, text, { files: { 'other.md': '別。\n', 'pic.png': '' } });
+    const second = await reviewPage(t, text, { files: { 'other.md': '別。\n', 'pic.png': '' } });
+    const prints = (page) => page.evaluate(() => Array.from(document.querySelectorAll('#gp-content [data-sourcepos]'),
+      (element) => window.gpPreview.fingerprint({ kind: 'block', tag: element.localName, range: element.getAttribute('data-sourcepos') })));
+    // 別のサーバー（token が違う）で開いても、同じ文書のブロックは同じ指紋になる。
+    assert.deepEqual(await prints(second.page), await prints(first.page));
+    const { page, server, root } = first;
+    await enter(page);
+    await addComment(page, page.locator('#gp-content pre').first(), 'コードへ');
+    await addComment(page, page.locator('#gp-content li').first(), 'タスクへ');
+    const change = async (next, rev) => {
+      writeFileSync(join(root, 'README.md'), next);
+      await server.setDocument({ path: join(root, 'README.md'), text: next, rev });
+    };
+    // コードの改行だけを変えても、位置が同じでも要確認にする。
+    await change(text.replace('foo\nbar', 'foo bar\n'), 2);
+    await page.waitForFunction(() => document.querySelectorAll('.gp-review-state')[0].textContent === '要確認');
+    assert.equal(await page.locator('.gp-review-state').nth(1).textContent(), '未コピー');
+    // タスクのチェックだけを変えても要確認にする。
+    await change(text.replace('- [ ] 作業', '- [x] 作業'), 3);
+    await page.waitForFunction(() => document.querySelectorAll('.gp-review-state')[1].textContent === '要確認');
+    await change(text, 4);
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('.gp-review-state'), (s) => s.textContent).join() === '未コピー,未コピー');
+  });
+
+  await t.test('同じ値の列の入れ替えでは要確認にし、隣のセルだけの書き換えでは残す', async (t) => {
+    const table = (rows) => rows.map((row) => '| ' + row.join(' | ') + ' |\n').join('').replace(/\n/, '\n| --- | --- |\n');
+    const original = table([['甲', '乙'], ['1', '1'], ['x', '2']]);
+    const { page, server, root } = await reviewPage(t, original);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content td').first(), '左の 1 へ');
+    await addComment(page, page.locator('#gp-content td').nth(3), '右の 2 へ');
+    const change = async (next, rev) => {
+      writeFileSync(join(root, 'README.md'), next);
+      await server.setDocument({ path: join(root, 'README.md'), text: next, rev });
+    };
+    // 隣のセル（x）だけを書き換えても、値が列で 1 つだけの「2」のコメントは残す。
+    await change(table([['甲', '乙'], ['1', '1'], ['y', '2']]), 2);
+    await page.waitForFunction(() => document.querySelector('#gp-content').textContent.includes('y'));
+    await page.waitForTimeout(300);
+    assert.equal(await page.locator('.gp-review-state').nth(1).textContent(), '未コピー');
+    // 同じ値の列を入れ替えると、左の「1」の座標には見出しの違う列の「1」が来るので要確認にする。
+    await change(table([['乙', '甲'], ['1', '1'], ['2', 'y']]), 3);
+    await page.waitForFunction(() => document.querySelectorAll('.gp-review-state')[0].textContent === '要確認');
+  });
+
+  await t.test('表の情報が届く前は、依頼文を作らずに待ってもらう', async (t) => {
+    const text = '| 鍵 | 値 |\n| --- | --- |\n| A | 1 |\n';
+    let holding = false, release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const { page, server, root } = await reviewPage(t, text, { beforeNavigate: (page) => page.route('**/_/review/tables*', async (route) => {
+      if (holding) await held;
+      await route.continue().catch(() => {});
+    }) });
+    await enter(page);
+    await addComment(page, page.locator('#gp-content td').first(), 'セルへ');
+    let posts = 0;
+    page.on('request', (request) => { if (request.url().includes('/_/review/prepare')) posts++; });
+    // 描画を変え、表の情報の読み直しを待たせる。
+    holding = true;
+    const next = text + '\n後ろの段落。\n';
+    writeFileSync(join(root, 'README.md'), next);
+    await server.setDocument({ path: join(root, 'README.md'), text: next, rev: 2 });
+    await page.waitForFunction(() => document.querySelector('#gp-content').textContent.includes('後ろの段落'));
+    await page.locator('#gp-review-prepare').click();
+    assert.equal(await page.locator('#gp-review-status').textContent(), '表の情報を読み込んでいます。少し待ってから依頼文を作ってください。');
+    assert.equal(posts, 0);
+    release();
+    await page.waitForFunction(() => document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render));
+    await prepare(page);
+    assert.equal(posts, 1);
+  });
+
+  await t.test('表の行が入れ替わったら、同じ座標の別のセルに付かず要確認にする', async (t) => {
+    const table = (rows) => '| 鍵 | 値 |\n| --- | --- |\n' + rows.map((row) => '| ' + row.join(' | ') + ' |\n').join('');
+    for (const [name, before, after] of [
+      ['値が違う', [['A', '1'], ['B', '2']], [['B', '2'], ['A', '1']]],
+      ['値が同じで行が違う', [['A', '1'], ['B', '1']], [['B', '1'], ['A', '1']]],
+    ]) await t.test(name, async (t) => {
+      const { page, server, root } = await reviewPage(t, table(before));
+      await enter(page);
+      await addComment(page, page.locator('#gp-content td').nth(1), 'セルへのコメント');
+      const text = table(after);
+      writeFileSync(join(root, 'README.md'), text);
+      await server.setDocument({ path: join(root, 'README.md'), text, rev: 2 });
+      await page.waitForFunction(() => document.querySelector('.gp-review-state').textContent === '要確認');
+      writeFileSync(join(root, 'README.md'), table(before));
+      await server.setDocument({ path: join(root, 'README.md'), text: table(before), rev: 3 });
+      await page.waitForFunction(() => document.querySelector('.gp-review-state').textContent === '未コピー');
+    });
+  });
+
+  await t.test('「今回は送らない」のカードを外し、要確認があれば依頼文を作らない', async (t) => {
+    const { page, server, root } = await reviewPage(t, source, { beforeNavigate: (page) => clipboard(page) });
+    await enter(page);
+    await addComment(page, page.locator('#gp-content > p').first(), '残る段落へ');
+    await addComment(page, page.locator('#gp-content > p').nth(1), '消える段落へ');
+    let posts = 0;
+    page.on('request', (request) => { if (request.url().includes('/_/review/prepare')) posts++; });
+    const text = source.replace('次の段落。\n\n', '');
+    writeFileSync(join(root, 'README.md'), text);
+    await server.setDocument({ path: join(root, 'README.md'), text, rev: 2 });
+    await page.waitForFunction(() => document.querySelectorAll('.gp-review-state')[1].textContent === '要確認');
+    await page.locator('#gp-review-prepare').click();
+    assert.equal(await page.locator('#gp-review-status').textContent(),
+      '要確認のコメントが 1 件あります。「直す」で対象を選び直すか、「今回は送らない」にしてから依頼文を作ってください。');
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), '直す');
+    assert.equal(await page.evaluate(() => document.activeElement.closest('.gp-review-card').textContent.includes('消える段落へ')), true);
+    assert.equal(posts, 0);
+    const skip = card(page, '消える段落へ').getByRole('button', { name: '今回は送らない', exact: true });
+    await skip.click();
+    assert.match(await card(page, '消える段落へ').locator('.gp-review-state').textContent(), /（今回は送らない）/);
+    assert.equal(await card(page, '消える段落へ').getByRole('button', { name: '今回は送る', exact: true }).getAttribute('aria-pressed'), 'true');
+    const response = page.waitForResponse((value) => value.url().includes('/_/review/prepare'));
+    const prompt = await prepare(page);
+    assert.equal((await response).request().postDataJSON().comments.length, 1);
+    assert.ok(prompt.includes('残る段落へ') && !prompt.includes('消える段落へ'));
+    await page.locator('#gp-review-copy').click();
+    await page.waitForFunction(() => document.querySelector('.gp-review-state').textContent === 'コピー済み');
+    // 「今回は送らない」は今回の依頼文だけの印なので、コピーできたら外す。
+    assert.match(await card(page, '消える段落へ').locator('.gp-review-state').textContent(), /^要確認$/);
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current.some((item) => item.skip)), false);
   });
 
   await t.test('前の失敗の印を消し、表を確かめられないときはセルを要確認にする', async (t) => {

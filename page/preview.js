@@ -897,7 +897,7 @@
     }
     return null;
   }
-  function findSource(tag, range) {
+  function shadowSource(tag, range) {
     if (!shadow || typeof tag !== 'string' || typeof range !== 'string') return null;
     if (!sourceIndex) {
       sourceIndex = new Map();
@@ -906,7 +906,10 @@
         if (!sourceIndex.has(key)) sourceIndex.set(key, candidate);
       }
     }
-    const source = sourceIndex.get(tag + '\n' + range);
+    return sourceIndex.get(tag + '\n' + range) || null;
+  }
+  function findSource(tag, range) {
+    const source = shadowSource(tag, range);
     // 図の包みだけが写しと結び直された場合も、内側の pre・img から現在の表示へ戻れる。
     for (let node = source; node && node !== shadow; node = node.parentElement) {
       const live = liveOf.get(node);
@@ -964,8 +967,49 @@
     return run ? run.nodes.filter((n) => n.nodeType === Node.ELEMENT_NODE).map((n) => liveOf.get(n)).filter((n) => n?.isConnected) : [];
   }
 
+  // コメントの対象の内容の指紋。写し（サーバーの HTML）から作るので、数式・図・表の固定など
+  // 表示の後の書き換えに左右されない。位置・見出しのレベル・脚注の番号・token 入りの URL は含めない。
+  function hashText(text, seed) {
+    let h = seed >>> 0;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+  }
+  const digest = (text) => hashText(text, 0x811c9dc5) + hashText(text, 0x9747b28c);
+  // BASE は URL なので、文字列にしてから比べて切る（token とポートを指紋に入れない）。
+  const baseHref = BASE.href;
+  const withoutBase = (value) => typeof value === 'string' && value.startsWith(baseHref) ? value.slice(baseHref.length) : value || '';
+  function canonical(node, root) {
+    // コードの中は改行と字下げも内容なので、空白を畳まない。
+    if (node.nodeType === Node.TEXT_NODE) return node.parentElement?.closest('pre') ? node.data : node.data.replace(/\s+/g, ' ');
+    if (node.nodeType !== Node.ELEMENT_NODE || node.matches('a.anchor, a.footnote-backref')) return '';
+    // タスクのチェックは内容の違いなので、入れるかどうかだけを含める。
+    if (node.localName === 'input') return node.getAttribute('type') === 'checkbox' ? '\u0001[' + (node.hasAttribute('checked') ? 'x' : ' ') + ']' : '';
+    if (node.matches('a[data-footnote-ref]')) return '\u0001[^]';
+    const attrs = node.localName === 'img' ? ' alt=' + (node.getAttribute('alt') || '') + ' src=' + withoutBase(node.getAttribute('src'))
+      : node.localName === 'a' ? ' href=' + withoutBase(node.getAttribute('href')) : '';
+    const name = node === root && /^h[1-6]$/.test(node.localName) ? 'h' : node.localName;
+    return '\u0001<' + name + attrs + '>' + Array.from(node.childNodes, (child) => canonical(child, root)).join('') + '\u0001</>';
+  }
+  const fingerprintOf = (nodes) => digest(nodes.map((node) => canonical(node, node)).join('').trim());
+  function fingerprint(target) {
+    if (!shadow) return '';
+    if (target?.kind === 'block' && typeof target.tag === 'string' && typeof target.range === 'string') {
+      const node = shadowSource(target.tag, target.range);
+      return node ? 'b:' + fingerprintOf([node]) : '';
+    }
+    if (target?.kind === 'html') {
+      const run = htmlRuns().find((r) => sameHTMLBoundary(r.prev, target.prev) && sameHTMLBoundary(r.next, target.next));
+      return run ? 'h:' + fingerprintOf(run.nodes) : '';
+    }
+    return '';
+  }
+
   window.gpPreview = {
     config: CONFIG, base: BASE, doc: query.get('doc'), current: () => last, tables, sourceOf, findSource, htmlOf, findHTML,
+    fingerprint, digest,
     holdScroll: (hold) => { scrollHeld = Boolean(hold); },
     setEditing: (active) => { editing = Boolean(active); },
     rememberAppearance, appearance: savedAppearance,
