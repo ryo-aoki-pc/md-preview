@@ -100,7 +100,7 @@ C は `max(1, H)` から始める。固定する行に、C の境目を `colspan
 
 形の判定は `columnShape(model, texts)` で行う。各列を覆う見出しのセルについて、開始行・列、`colspan`・`rowspan`、連続する空白をまとめて前後を除いた文字を並べ、`widthShape` に持つ。`refresh` で形が変わったら、`reconcileColumnWidths` は同じ位置で形が一致する列だけ幅を残す。見出しの文字や結合の変更と、列の挿入・削除で位置がずれた列の幅を捨てる。見出しの無い表で列数が変わると、列の挿入位置を見分けられないためすべて捨てる。mdpreview の本文の差分更新で本文のセルの文字だけが変わり、見出しや列の形が同じなら幅を保つ。
 
-ドラッグ中の表は `window.__mdTableSticky.resizing`、開始位置・幅・ポインター番号などは `resizeDrag` に持つ。ドラッグ中の Esc と `pointercancel` は開始時の設定へ戻す。全幅表示の Esc の受け手は `resizing` がある間は閉じない。mdpreview の `page/edit.js` も、つまみの `pointerdown`・`click` と `resizing` 中の Esc を編集として扱わないため、セルの選択と入力中の文字を保つ。
+ドラッグ中の表は `window.__mdTableSticky.resizing`、開始位置・幅・ポインター番号などは `resizeDrag` に持つ。ドラッグ中の Esc と `pointercancel`・`lostpointercapture`（ポインターの捕捉を失ったとき）は開始時の設定へ戻す。全幅表示の Esc の受け手は `resizing` がある間は閉じない。mdpreview の `page/edit.js` も、つまみの `pointerdown`・`click` と `resizing` 中の Esc を編集として扱わないため、セルの選択と入力中の文字を保つ。
 
 ドラッグを離したときの `click` は、押したつまみと離した位置の共通の祖先へ届くため、つまみの受け手だけでは止められない。`stopResizing` は `resizeClick` を真にし、`window` の capture の受け手が次の `click` を 1 回だけ `preventDefault`・`stopImmediatePropagation` で捨てて偽に戻す。先に登録される mdpreview の編集とコメントの受け手も `resizeClick` を見て処理を譲り、入力欄の外のクリックとして確定することや、コメントの対象が変わることを防ぐ。次の `pointerdown` と、`pointerup` 後のタイマーでも待機を解除し、後の通常のクリックを妨げない。`pointercancel` の後は `click` が来ないので待機しない。
 
