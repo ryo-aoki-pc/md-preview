@@ -35,6 +35,7 @@ type cellInfo struct {
 }
 type tableInfo struct {
 	Index         int                 `json:"index"`
+	Start         int                 `json:"start"`
 	Number        int                 `json:"number"`
 	Kind          tableedit.Kind      `json:"kind"`
 	Editable      bool                `json:"editable"`
@@ -68,6 +69,7 @@ type tablesResponse struct {
 	Tables   []tableInfo   `json:"tables"`
 	Headings []headingInfo `json:"headings"`
 	Origin   string        `json:"origin"`
+	Version  string        `json:"version"`
 }
 type mapping struct {
 	response tablesResponse
@@ -180,6 +182,13 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 			return nil, fault(422, "cancelled", "表の対応の確認を取り消しました。")
 		}
 		info := tableInfo{Index: i, Reason: "原文の表と対応づけられない", Warnings: []string{}, Cells: []cellInfo{}, RowTags: []string{}, Delimiters: []string{}, Sections: []tableedit.Section{}}
+		if positions.positionReason(n, "data-sourcepos") == nil {
+			if pos, err := coordinates(Range(htmltree.Get(n, "data-sourcepos"))); err == nil {
+				if _, reason := src.Lines.Original(pos[0]); reason != "shift" {
+					info.Start = pos[0]
+				}
+			}
+		}
 		t := m.models[i]
 		if t != nil {
 			info.Number, info.Kind, info.Rows, info.Cols = t.Number, t.Kind, t.Rows, t.Cols
@@ -217,6 +226,15 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 		}
 		if positions.positionErr != nil {
 			info.Editable, info.Reason = false, positions.positionErr.Message
+		}
+		// 位置属性の無い表（生の HTML の表）は、原文と対応づけたモデルの開始行を公開の行にする。
+		if info.Start == 0 && info.Editable && t != nil && t.StartLine >= 0 {
+			if _, reason := src.Lines.Original(1); reason != "shift" {
+				line := src.Lines.Expanded(t.StartLine + 1)
+				if orig, reason := src.Lines.Original(line); reason == "" && orig == t.StartLine+1 {
+					info.Start = line
+				}
+			}
 		}
 		m.response.Tables[i] = info
 		m.response.Tables[i].Anchor, m.response.Tables[i].AnchorReason = tableAnchor(ctx, src, root, n, t, info)

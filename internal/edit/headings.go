@@ -376,7 +376,7 @@ func headingLines(text string) []string {
 func headingBlank(line string) bool { return strings.Trim(line, " \t\r\n") == "" }
 
 // headingKeep は、変わらなかった原文の行の対応 [旧の行, 新の行, 行数]（1 起点）。
-type headingKeep [3]int
+type headingKeep = lineKeep
 type headingLine struct {
 	text string
 	old  int
@@ -531,31 +531,31 @@ func moveHeadingLines(lines []headingLine, a, b *headingEntry, newline string) [
 	return slices.Replace(lines, a.first, b.sectionEnd, part...)
 }
 
-func (s *Service) editHeading(ctx context.Context, src session.Source, r request) (string, []string, *headingFocus, *Error) {
+func (s *Service) editHeading(ctx context.Context, src session.Source, r request) (headingRewrite, []string, *headingFocus, *Error) {
 	m, err := s.blocks(ctx, src)
 	if err != nil {
-		return "", nil, nil, err
+		return headingRewrite{}, nil, nil, err
 	}
 	h, err := m.headingMapping(ctx, src)
 	if err != nil {
-		return "", nil, nil, err
+		return headingRewrite{}, nil, nil, err
 	}
 	e := h.targets[positionAttribute{r.headingTag, "data-sourcepos", string(r.rangeValue)}]
 	if e == nil {
-		return "", nil, nil, blockFault("target")
+		return headingRewrite{}, nil, nil, blockFault("target")
 	}
 	if reason := h.operationReason(e, r.headingOp); reason != "" {
-		return "", nil, nil, fault(422, "excluded", reason)
+		return headingRewrite{}, nil, nil, fault(422, "excluded", reason)
 	}
 	rewritten, setext, err := rewriteHeading(src.Text, h, e, r.headingOp)
 	if err != nil {
-		return "", nil, nil, err
+		return headingRewrite{}, nil, nil, err
 	}
 	if len(rewritten.text) > maxDocumentBytes {
-		return "", nil, nil, fault(422, "large", "編集後の文書が 16 MiB を超えています。")
+		return headingRewrite{}, nil, nil, fault(422, "large", "編集後の文書が 16 MiB を超えています。")
 	}
 	warnings, focus, verifyErr := s.verifyHeadingEdit(ctx, src, h, e, r.headingOp, rewritten.text, setext)
-	return rewritten.text, warnings, focus, verifyErr
+	return rewritten, warnings, focus, verifyErr
 }
 
 // rewriteHeading は本文と行の対応を一緒に返す。描画や書き込みを行わない。

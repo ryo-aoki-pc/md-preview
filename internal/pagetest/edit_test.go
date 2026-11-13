@@ -33,7 +33,7 @@ func TestEditFixture(t *testing.T) {
 	}
 	a := &application{}
 	defer a.close("exit")
-	if err := a.start(request{Edit: "file", Live: true, Root: root}, &output{encoder: json.NewEncoder(io.Discard)}); err != nil {
+	if err := a.start(request{Edit: "file", Review: true, Live: true, Root: root}, &output{encoder: json.NewEncoder(io.Discard)}); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.live.SetDocument(session.Document{Path: path, Text: "本文", Rev: 1}); err != nil {
@@ -51,6 +51,22 @@ func TestEditFixture(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	src, _ := a.live.Source(nil)
+	var version string
+	for _, route := range []string{"edit", "review"} {
+		response, err := http.Get(a.server.URL + "_/" + route + "/tables?render=" + fmt.Sprint(src.Render))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var tables struct {
+			Version string `json:"version"`
+		}
+		err = json.NewDecoder(response.Body).Decode(&tables)
+		_ = response.Body.Close()
+		if err != nil || response.StatusCode != 200 || len(tables.Version) != 32 || version != "" && version != tables.Version {
+			t.Fatal("編集とコメントの本文の版が一致しない", route, response.Status, tables, err)
+		}
+		version = tables.Version
+	}
 	response, err := http.Get(a.server.URL + "_/edit/source?render=" + fmt.Sprint(src.Render) + "&tag=p&range=1:1-1:6")
 	if err != nil {
 		t.Fatal(err)

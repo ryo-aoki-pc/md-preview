@@ -5,6 +5,7 @@
       "name": "パイプ全体",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "pipe",
         "editable": true,
@@ -155,6 +156,7 @@
       "name": "パイプデータ行",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "pipe",
         "editable": true,
@@ -287,6 +289,7 @@
       "name": "パイプ一列",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "pipe",
         "editable": true,
@@ -418,6 +421,7 @@
       "name": "パイプ一セル",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "pipe",
         "editable": true,
@@ -540,6 +544,7 @@
       "name": "引用の中",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "pipe",
         "editable": true,
@@ -690,6 +695,7 @@
       "name": "リストの中",
       "table": {
         "index": 0,
+        "start": 3,
         "number": 1,
         "kind": "pipe",
         "editable": true,
@@ -840,6 +846,7 @@
       "name": "CRLF",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "pipe",
         "editable": true,
@@ -990,6 +997,7 @@
       "name": "HTML属性区画結合原文",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "html",
         "editable": true,
@@ -1179,6 +1187,7 @@
       "name": "HTML結合の行",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "html",
         "editable": true,
@@ -1349,6 +1358,7 @@
       "name": "HTML引用の中",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "html",
         "editable": true,
@@ -1538,6 +1548,7 @@
       "name": "HTMLリストの中",
       "table": {
         "index": 0,
+        "start": 3,
         "number": 1,
         "kind": "html",
         "editable": true,
@@ -1727,6 +1738,7 @@
       "name": "HTMLのCRLF",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "html",
         "editable": true,
@@ -1916,6 +1928,7 @@
       "name": "HTML一部の列",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "html",
         "editable": true,
@@ -2074,6 +2087,7 @@
       "name": "HTML結合を切る",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "html",
         "editable": true,
@@ -2204,6 +2218,7 @@
       "name": "写せないセル",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "pipe",
         "editable": true,
@@ -2276,6 +2291,7 @@
       "name": "写せないセルの隣",
       "table": {
         "index": 0,
+        "start": 1,
         "number": 1,
         "kind": "pipe",
         "editable": true,

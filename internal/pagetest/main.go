@@ -192,7 +192,10 @@ func (a *application) start(r request, out *output) error {
 		opts.Edit = editor
 	}
 	if r.Review {
-		opts.Review = edit.New(edit.Options{Host: a.live, Mode: edit.File})
+		if editor == nil {
+			editor = edit.New(edit.Options{Host: a.live, Mode: edit.File})
+		}
+		opts.Review = editor
 		opts.Launch = func(_ context.Context, root string) error {
 			if err := out.send(map[string]any{"type": "launch", "root": root}); err != nil {
 				return err
