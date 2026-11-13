@@ -546,6 +546,56 @@ test('画面のコメント', { skip, timeout: 240000 }, async (t) => {
     assert.match(await page.locator('#gp-review-status').textContent(), /対象が見つかりません/);
   });
 
+  await t.test('依頼文の形を送って先頭を切り替え、形を変えたら依頼文を捨てる', async (t) => {
+    const { page } = await reviewPage(t);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content > p').first(), '形を選ぶコメント');
+    const modes = page.locator('#gp-review-mode');
+    assert.deepEqual(await modes.locator('option').allTextContents(), ['/plan で計画', '日本語で計画', '直接直す']);
+    assert.equal(await modes.inputValue(), 'plan');
+    const plan = '次のレビューのコメントに沿って、`README.md` を直す計画を立ててください。\nまず計画だけを示し、承認されるまでファイルを変えないでください。\n\n';
+    let common;
+    for (const [mode, prefix] of [['plan', '/plan\n' + plan], ['plan-text', plan],
+      ['direct', '次のレビューのコメントに沿って、`README.md` を直してください。\n計画を示して承認を待つ必要はありません。\n\n']]) {
+      await modes.selectOption(mode);
+      assert.equal(await page.locator('#gp-review-output').isVisible(), false);
+      assert.equal(await page.locator('#gp-review-prompt').inputValue(), '');
+      assert.equal(await page.locator('#gp-review-copy').isDisabled(), true);
+      assert.equal(await page.locator('#gp-review-launch').isDisabled(), true);
+      const response = page.waitForResponse((value) => value.url().includes('/_/review/prepare'));
+      const prompt = await prepare(page);
+      assert.equal((await response).request().postDataJSON().mode, mode);
+      assert.ok(prompt.startsWith(prefix + '対象のファイル:'), prompt);
+      const rest = prompt.slice(prefix.length);
+      common ??= rest;
+      assert.equal(rest, common, '対象のファイルから後ろは、どの形でも同じ');
+    }
+  });
+
+  await t.test('依頼文の形は保存せず、開き直すたびに /plan で計画へ戻す', async (t) => {
+    const { page } = await reviewPage(t, source, { files: { 'other.md': '# 別の文書\n' } });
+    for (const mode of ['plan-text', 'direct']) {
+      await enter(page);
+      await page.locator('#gp-review-mode').selectOption(mode);
+      await page.reload();
+      await page.waitForSelector('#gp-review-toggle');
+      assert.equal(await page.locator('#gp-review-mode').inputValue(), 'plan');
+      assert.equal(await page.locator('#gp-review-prompt').inputValue(), '');
+      assert.equal(await page.locator('#gp-review-panel').isVisible(), false);
+    }
+    await enter(page);
+    await page.locator('#gp-review-mode').selectOption('direct');
+    const current = page.url();
+    const other = new URL(current);
+    other.searchParams.set('doc', 'other.md');
+    await page.goto(other.href);
+    await page.waitForSelector('#gp-review-toggle');
+    assert.equal(await page.locator('#gp-review-mode').inputValue(), 'plan');
+    await page.goto(current);
+    await page.waitForSelector('#gp-review-toggle');
+    assert.equal(await page.locator('#gp-review-mode').inputValue(), 'plan');
+  });
+
   await t.test('依頼文に相対パス・原文の行と抜粋・選んだ文字・コメントを入れる', async (t) => {
     const { page, root, server } = await reviewPage(t);
     await enter(page);
@@ -959,6 +1009,147 @@ test('画面のコメント', { skip, timeout: 240000 }, async (t) => {
     // 「今回は送らない」は今回の依頼文だけの印なので、コピーできたら外す。
     assert.match(await card(page, '消える段落へ').locator('.gp-review-state').textContent(), /^要確認$/);
     assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current.some((item) => item.skip)), false);
+  });
+
+  await t.test('未コピーの要確認だけをまとめて外して戻し、手で付けた印とコピー成功を扱う', async (t) => {
+    const text = '# 残る見出し\n\nコピーする段落。\n\n手で外す段落。\n\n一括の一つ目。\n\n一括の二つ目。\n';
+    const { page, server, root } = await reviewPage(t, text, { beforeNavigate: (page) => clipboard(page) });
+    await enter(page);
+    const bulk = page.locator('#gp-review-skip-stale');
+    const state = (text) => card(page, text).locator('.gp-review-state').textContent();
+    assert.equal(await bulk.isDisabled(), true);
+    assert.match(await bulk.getAttribute('title'), /要確認コメントがありません/);
+    await addComment(page, page.locator('#gp-content p').first(), '先にコピー済みにする');
+    await prepare(page);
+    await page.locator('#gp-review-copy').click();
+    await page.waitForFunction(() => document.querySelector('.gp-review-state').textContent === 'コピー済み');
+    await addComment(page, page.locator('#gp-content h1'), '今も有効なコメント');
+    await addComment(page, page.locator('#gp-content p').nth(1), '先に手で外す');
+    await addComment(page, page.locator('#gp-content p').nth(2), '一括で外す一つ目');
+    await addComment(page, page.locator('#gp-content p').nth(3), '一括で外す二つ目');
+    assert.equal(await bulk.isDisabled(), true);
+    const updated = text.replaceAll('段落。', '段落を変更。').replaceAll('目。', '目を変更。');
+    writeFileSync(join(root, 'README.md'), updated);
+    await server.setDocument({ path: join(root, 'README.md'), text: updated, rev: 2 });
+    await page.waitForFunction(() => [...document.querySelectorAll('.gp-review-state')].filter((el) => el.textContent === '要確認').length === 4);
+    await card(page, '先に手で外す').getByRole('button', { name: '今回は送らない', exact: true }).click();
+    await bulk.click();
+    assert.equal(await bulk.textContent(), 'まとめて送らないを戻す');
+    assert.equal(await state('今も有効なコメント'), '未コピー');
+    assert.equal(await state('先にコピー済みにする'), '要確認');
+    for (const text of ['先に手で外す', '一括で外す一つ目', '一括で外す二つ目'])
+      assert.equal(await state(text), '要確認（今回は送らない）');
+    await bulk.click();
+    assert.equal(await state('先に手で外す'), '要確認（今回は送らない）');
+    assert.equal(await state('一括で外す一つ目'), '要確認');
+    assert.equal(await state('一括で外す二つ目'), '要確認');
+    await bulk.click();
+    await prepare(page);
+    await bulk.click();
+    assert.equal(await page.locator('#gp-review-output').isVisible(), false);
+    assert.equal(await page.locator('#gp-review-prompt').inputValue(), '');
+    await bulk.click();
+    // 一括で付けた後でも、手で付け直した印は戻さない。
+    await card(page, '一括で外す一つ目').getByRole('button', { name: '今回は送る', exact: true }).click();
+    await card(page, '一括で外す一つ目').getByRole('button', { name: '今回は送らない', exact: true }).click();
+    await bulk.click();
+    assert.equal(await state('一括で外す一つ目'), '要確認（今回は送らない）');
+    assert.equal(await state('一括で外す二つ目'), '要確認');
+    await bulk.click();
+    await prepare(page);
+    await page.locator('#gp-review-copy').click();
+    await page.waitForFunction(() => [...document.querySelectorAll('.gp-review-state')].some((el) => el.textContent === 'コピー済み'));
+    assert.equal(await bulk.textContent(), '要確認をまとめて送らない');
+    assert.equal(await bulk.isDisabled(), false);
+    for (const text of ['先に手で外す', '一括で外す一つ目', '一括で外す二つ目']) assert.equal(await state(text), '要確認');
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current.some((item) => item.skip)), false);
+  });
+
+  await t.test('一括で外したカードの削除と文書の切り替えで、戻す記録を捨てる', async (t) => {
+    const text = '# 残る見出し\n\n変わる段落。\n\nもう一つの段落。\n';
+    const { page, server, root } = await reviewPage(t, text, { files: { 'other.md': '# 別の文書\n' } });
+    await enter(page);
+    await addComment(page, page.locator('#gp-content p').first(), '消すカード');
+    await addComment(page, page.locator('#gp-content p').nth(1), '残すカード');
+    const updated = text.replaceAll('段落。', '段落を変更。');
+    writeFileSync(join(root, 'README.md'), updated);
+    await server.setDocument({ path: join(root, 'README.md'), text: updated, rev: 2 });
+    await page.waitForFunction(() => [...document.querySelectorAll('.gp-review-state')].every((el) => el.textContent === '要確認'));
+    const bulk = page.locator('#gp-review-skip-stale');
+    await bulk.click();
+    await card(page, '消すカード').getByRole('button', { name: '消す', exact: true }).click();
+    await bulk.click();
+    assert.equal(await card(page, '残すカード').locator('.gp-review-state').textContent(), '要確認');
+    await bulk.click();
+    const current = page.url();
+    const other = new URL(current);
+    other.searchParams.set('doc', 'other.md');
+    await page.goto(other.href);
+    await page.waitForSelector('#gp-review-toggle');
+    assert.equal(await bulk.textContent(), '要確認をまとめて送らない');
+    assert.equal(await bulk.isDisabled(), true);
+    await page.goto(current);
+    await page.waitForSelector('#gp-review-toggle');
+    await enter(page);
+    assert.equal(await card(page, '残すカード').locator('.gp-review-state').textContent(), '要確認（今回は送らない）');
+    assert.equal(await bulk.textContent(), '要確認をまとめて送らない');
+    assert.equal(await bulk.isDisabled(), true, '一括の記録は文書を開き直しても復元しない');
+    await card(page, '残すカード').getByRole('button', { name: '今回は送る', exact: true }).click();
+    await bulk.click();
+    await card(page, '残すカード').getByRole('button', { name: '消す', exact: true }).click();
+    assert.equal(await bulk.textContent(), '要確認をまとめて送らない');
+    assert.equal(await bulk.isDisabled(), true, '記録したカードを全部消したら戻す記録も捨てる');
+  });
+
+  await t.test('一括で外したカードを直して保存したら戻す記録から外し、処理中と終了後は形と一括を無効にする', async (t) => {
+    const text = '# 残る見出し\n\n直す段落。\n\n残す段落。\n';
+    const { page, server, root } = await reviewPage(t, text);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content p').first(), '直すカード');
+    await addComment(page, page.locator('#gp-content p').nth(1), '残すカード');
+    const updated = text.replaceAll('段落。', '段落を変更。');
+    writeFileSync(join(root, 'README.md'), updated);
+    await server.setDocument({ path: join(root, 'README.md'), text: updated, rev: 2 });
+    await page.waitForFunction(() => [...document.querySelectorAll('.gp-review-state')].every((el) => el.textContent === '要確認'));
+    const bulk = page.locator('#gp-review-skip-stale');
+    const state = (text) => card(page, text).locator('.gp-review-state').textContent();
+    await bulk.click();
+    // 要確認のカードは、対象を選び直してから保存する。
+    await card(page, '直すカード').getByRole('button', { name: '直す', exact: true }).click();
+    await page.locator('#gp-content p').first().click();
+    await page.locator('#gp-review-input').fill('直したカード');
+    await page.locator('#gp-review-input').press('Control+Enter');
+    assert.equal(await state('直したカード'), '未コピー');
+    assert.equal(await bulk.textContent(), 'まとめて送らないを戻す', '残すカードの記録は残る');
+    await card(page, '残すカード').getByRole('button', { name: '直す', exact: true }).click();
+    await page.locator('#gp-content p').nth(1).click();
+    await page.locator('#gp-review-input').fill('残したカード');
+    await page.locator('#gp-review-input').press('Control+Enter');
+    assert.equal(await bulk.textContent(), '要確認をまとめて送らない', '直して保存したカードは戻す記録から外す');
+    assert.equal(await bulk.isDisabled(), true);
+
+    // 依頼文を作っている間は、形の選択と一括を無効にし、理由を出す。
+    const mode = page.locator('#gp-review-mode');
+    assert.equal(await mode.getAttribute('title'), '');
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    await page.route('**/_/review/prepare*', async (route) => { await held; await route.continue(); });
+    const response = page.waitForResponse((value) => value.url().includes('/_/review/prepare'));
+    await page.locator('#gp-review-prepare').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-mode').disabled);
+    assert.equal(await mode.getAttribute('title'), '処理中またはプレビューが終了しています');
+    assert.equal(await bulk.isDisabled(), true);
+    assert.equal(await bulk.getAttribute('title'), '処理中またはプレビューが終了しています');
+    release();
+    await response;
+    await page.waitForFunction(() => !document.querySelector('#gp-review-output').hidden);
+    await page.unroute('**/_/review/prepare*');
+    assert.equal(await mode.isDisabled(), false);
+    assert.equal(await mode.getAttribute('title'), '');
+    await page.evaluate(() => document.dispatchEvent(new Event('gp:stop')));
+    await page.waitForFunction(() => document.querySelector('#gp-review-mode').disabled);
+    assert.equal(await mode.getAttribute('title'), '処理中またはプレビューが終了しています');
+    assert.equal(await bulk.isDisabled(), true);
   });
 
   await t.test('前の失敗の印を消し、表を確かめられないときはセルを要確認にする', async (t) => {

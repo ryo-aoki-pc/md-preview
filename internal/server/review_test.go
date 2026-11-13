@@ -90,6 +90,54 @@ func TestReviewPrepare(t *testing.T) {
 	}
 }
 
+func TestReviewModes(t *testing.T) {
+	s, _, _ := fixture(t, func(o *Options) { o.Review = &testReviewer{} })
+	plan := "次のレビューのコメントに沿って、`docs/main.md` を直す計画を立ててください。\nまず計画だけを示し、承認されるまでファイルを変えないでください。\n\n"
+	for _, tc := range []struct {
+		name, mode, prefix string
+		status             int
+	}{
+		{"省略", "", "/plan\n" + plan, 200},
+		{"計画", `"plan"`, "/plan\n" + plan, 200},
+		{"日本語で計画", `"plan-text"`, plan, 200},
+		{"直接直す", `"direct"`, "次のレビューのコメントに沿って、`docs/main.md` を直してください。\n計画を示して承認を待つ必要はありません。\n\n", 200},
+		{"知らない値", `"other"`, "", 400},
+		{"空の値", `""`, "", 400},
+		{"大文字", `"PLAN"`, "", 400},
+		{"数値", `1`, "", 400},
+		{"真偽値", `true`, "", 400},
+		{"null", `null`, "", 400},
+		{"配列", `[]`, "", 400},
+		{"オブジェクト", `{}`, "", 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := reviewBody
+			if tc.mode != "" {
+				body = body[:len(body)-1] + `,"mode":` + tc.mode + `}`
+			}
+			r := request(t, s, "POST", "_/review/prepare", body, reviewHeaders(s))
+			if r.status != tc.status {
+				t.Fatal(r)
+			}
+			if tc.status == 400 {
+				if !strings.Contains(r.body, `"code":"invalid"`) {
+					t.Fatal(r)
+				}
+				return
+			}
+			var result struct{ ID, Prompt string }
+			if e := json.Unmarshal([]byte(r.body), &result); e != nil || !strings.HasPrefix(result.Prompt, tc.prefix+"対象のファイル:") {
+				t.Fatal(result, e)
+			}
+			entry, ok := s.reviews.get(result.ID, time.Now())
+			sum := sha256.Sum256([]byte(result.Prompt))
+			if !ok || entry.PromptHash != hex.EncodeToString(sum[:]) {
+				t.Fatal("選んだ形の依頼文を保存していない", entry, ok)
+			}
+		})
+	}
+}
+
 func TestReviewGuards(t *testing.T) {
 	s, _, _ := fixture(t, func(o *Options) { o.Review = &testReviewer{} })
 	for _, c := range []struct {
@@ -247,7 +295,7 @@ func TestReviewInput(t *testing.T) {
 			comment := b["comments"].([]any)[0].(map[string]any)
 			target := comment["target"].(map[string]any)
 			c.mutate(b, comment, target)
-			if _, _, _, e := parseReview(b); e == nil || e.Status != 400 || e.Code != "invalid" {
+			if _, _, _, _, e := parseReview(b); e == nil || e.Status != 400 || e.Code != "invalid" {
 				t.Fatal(e)
 			}
 		})
@@ -255,7 +303,7 @@ func TestReviewInput(t *testing.T) {
 	comment := original["comments"].([]any)[0].(map[string]any)
 	comment["text"], comment["selection"] = "  "+strings.Repeat("😀", 2000)+"  ", strings.Repeat("日", 2000)
 	original["comments"] = repeatComment(comment, 50)
-	if _, _, comments, e := parseReview(original); e != nil || len(comments) != 50 || comments[0].Text != strings.Repeat("😀", 2000) {
+	if _, _, comments, _, e := parseReview(original); e != nil || len(comments) != 50 || comments[0].Text != strings.Repeat("😀", 2000) {
 		t.Fatal(comments, e)
 	}
 	for _, value := range []string{
