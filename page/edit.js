@@ -90,7 +90,30 @@
   const tablePicker = layer.querySelector('#gp-edit-table-picker');
   const tableCols = layer.querySelector('#gp-edit-table-cols');
   const tableRows = layer.querySelector('#gp-edit-table-rows');
-  let tableCaret = null;
+  const insertNoteButton = make('button', 'gp-edit-insert-note', blockBar);
+  const insertCodeButton = make('button', 'gp-edit-insert-code', blockBar);
+  const insertDetailsButton = make('button', 'gp-edit-insert-details', blockBar);
+  for (const [button, label, kind] of [[insertNoteButton, '注記…', 'note'], [insertCodeButton, 'コード…', 'code'],
+    [insertDetailsButton, '折りたたみ', '']]) {
+    button.type = 'button';
+    button.textContent = label;
+    button.hidden = true;
+    if (!kind) continue;
+    button.setAttribute('aria-haspopup', 'dialog');
+    button.setAttribute('aria-controls', 'gp-edit-' + kind + '-picker');
+    button.setAttribute('aria-expanded', 'false');
+    layer.append(document.getElementById('gp-edit-' + kind + '-template').content.cloneNode(true));
+  }
+  const notePicker = layer.querySelector('#gp-edit-note-picker');
+  const noteKind = layer.querySelector('#gp-edit-note-kind');
+  const codePicker = layer.querySelector('#gp-edit-code-picker');
+  const codeLanguage = layer.querySelector('#gp-edit-code-language');
+  const insertPickers = [
+    { button: insertTableButton, form: tablePicker, field: tableCols, cancel: '#gp-edit-table-cancel' },
+    { button: insertNoteButton, form: notePicker, field: noteKind, cancel: '#gp-edit-note-cancel' },
+    { button: insertCodeButton, form: codePicker, field: codeLanguage, cancel: '#gp-edit-code-cancel' },
+  ];
+  let insertPicker = null;
   const bar = make('div', 'gp-edit-actions');
   bar.setAttribute('role', 'toolbar');
   bar.setAttribute('aria-label', '表の編集');
@@ -231,45 +254,65 @@
       version: externalVersion, original: '', value: saved?.version === externalVersion ? saved.value : '',
       outer: [], inner: [], previousHTML: preview.current().html });
   }
-  function closeTablePicker(restore = false) {
-    tablePicker.hidden = true;
-    insertTableButton.setAttribute('aria-expanded', 'false');
+  function closeInsertPicker(restore = false) {
+    if (!insertPicker) return;
+    const { form, button, caret } = insertPicker;
+    form.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
     if (restore && editor?.insert) {
       focusInput();
-      if (tableCaret) input.setSelectionRange(tableCaret.start, tableCaret.end);
+      input.setSelectionRange(caret.start, caret.end);
     }
-    tableCaret = null;
+    insertPicker = null;
   }
-  insertTableButton.addEventListener('click', () => {
+  for (const picker of insertPickers) {
+    picker.button.addEventListener('click', () => {
+      if (!editor?.insert || composing) return;
+      if (insertPicker?.form === picker.form) { closeInsertPicker(true); return; }
+      closeInsertPicker();
+      insertPicker = { ...picker, caret: { start: input.selectionStart, end: input.selectionEnd } };
+      picker.form.hidden = false;
+      picker.button.setAttribute('aria-expanded', 'true');
+      cancelAnimationFrame(animation);
+      position();
+      picker.field.focus({ preventScroll: true });
+      if (picker.field === tableCols) tableCols.select();
+    });
+    layer.querySelector(picker.cancel).addEventListener('click', () => closeInsertPicker(true));
+    picker.form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (!editor?.insert || composing || insertPicker?.form !== picker.form || !picker.form.reportValidity()) return;
+      let value;
+      try {
+        value = picker.form === tablePicker ? editGrid.emptyPipeTable(tableCols.valueAsNumber, tableRows.valueAsNumber)
+          : picker.form === notePicker ? editGrid.emptyAlert(noteKind.value) : editGrid.emptyCodeBlock(codeLanguage.value);
+      } catch (error) { notice(error.message, true); return; }
+      // 表は補った改行の末尾へ進め、注記とコードは本文へカーソルを置く。
+      insertFragment(value, insertPicker.caret, picker.form === codePicker ? value.indexOf('\n') + 1
+        : picker.form === notePicker ? value.length : null);
+    });
+  }
+  function insertFragment(value, caret, offset = value.length) {
     if (!editor?.insert || composing) return;
-    if (!tablePicker.hidden) { closeTablePicker(true); return; }
-    tableCaret = { start: input.selectionStart, end: input.selectionEnd };
-    tablePicker.hidden = false;
-    insertTableButton.setAttribute('aria-expanded', 'true');
-    cancelAnimationFrame(animation);
-    position();
-    tableCols.focus({ preventScroll: true });
-    tableCols.select();
-  });
-  layer.querySelector('#gp-edit-table-cancel').addEventListener('click', () => closeTablePicker(true));
-  tablePicker.addEventListener('submit', (event) => {
-    event.preventDefault();
-    if (!editor?.insert || !tableCaret || !tablePicker.reportValidity()) return;
-    const { start, end } = tableCaret;
-    let value;
-    try { value = editGrid.emptyPipeTable(tableCols.valueAsNumber, tableRows.valueAsNumber); }
-    catch (error) { notice(error.message, true); return; }
+    const { start, end } = caret;
     const left = input.value.slice(0, start), right = input.value.slice(end);
     const gap = (text, before) => {
       if (!text || (before ? /\n[ \t]*\n[ \t]*$/ : /^[ \t]*\n[ \t]*\n/).test(text)) return '';
       return (before ? /\n[ \t]*$/ : /^[ \t]*\n/).test(text) ? '\n' : '\n\n';
     };
-    value = gap(left, true) + value + gap(right, false);
-    input.setRangeText(value, start, end, 'end');
+    const prefix = gap(left, true);
+    input.setRangeText(prefix + value + gap(right, false), start, end, 'end');
+    if (offset !== null) {
+      const next = start + prefix.length + offset;
+      input.setSelectionRange(next, next);
+    }
     editor.resize = true;
     saveDraft();
-    closeTablePicker();
+    closeInsertPicker();
     focusInput();
+  }
+  insertDetailsButton.addEventListener('click', () => {
+    insertFragment(editGrid.detailsBlock(), { start: input.selectionStart, end: input.selectionEnd });
   });
   addButton.addEventListener('click', () => {
     if (documentEmpty) beginDocumentInsert('end');
@@ -564,7 +607,7 @@
     if (editor) drafts.set(keyOf(editor.point), { ...editor, value: input.value });
   }
   function clearSelection() {
-    closeTablePicker();
+    closeInsertPicker();
     cancelInsert();
     closeMenus();
     collapseRange();
@@ -733,10 +776,11 @@
       }
       // 表の外へ追加する入力欄は、表を固定するスクロールの包みで切らない。
       placeBox(input, editor.tableInsert ? document.getElementById('gp-content') : cell.element, rect, { width, height });
-      if (!tablePicker.hidden) {
-        const box = blockBar.getBoundingClientRect(), size = tablePicker.getBoundingClientRect();
-        tablePicker.style.left = Math.max(8, Math.min(box.left, innerWidth - size.width - 8)) + 'px';
-        tablePicker.style.top = Math.max(8, Math.min(box.bottom + 4, innerHeight - size.height - 8)) + 'px';
+      if (insertPicker) {
+        const { form } = insertPicker;
+        const box = blockBar.getBoundingClientRect(), size = form.getBoundingClientRect();
+        form.style.left = Math.max(8, Math.min(box.left, innerWidth - size.width - 8)) + 'px';
+        form.style.top = Math.max(8, Math.min(box.bottom + 4, innerHeight - size.height - 8)) + 'px';
       }
       if (input.style.visibility === 'hidden') blockBar.hidden = true;
       // 「原文」の札は、入力欄の右下の内側に重ねる（外に出すと、前後の本文やページのヘッダーに重なる）。
@@ -762,7 +806,7 @@
   }
 
   function openBlock(draft) {
-    closeTablePicker();
+    closeInsertPicker();
     cancelInsert();
     saveDraft();
     collapseRange();
@@ -771,7 +815,7 @@
     editor = { ...draft, source: true, em: 16, resize: true };
     sourceLabel.textContent = editor.insert ? '追加' : '原文';
     beforeButton.hidden = afterButton.hidden = !editor.anchor || Boolean(editor.insert);
-    insertTableButton.hidden = !editor.insert;
+    insertTableButton.hidden = insertNoteButton.hidden = insertCodeButton.hidden = insertDetailsButton.hidden = !editor.insert;
     outerButton.hidden = !editor.outer?.length;
     outerButton.textContent = outerLabels[editor.outer?.[0]?.kind] || '外側のブロックを編集';
     innerButton.hidden = !editor.inner?.length;
@@ -915,7 +959,7 @@
   }
   function endEdit(commit) {
     if (!editor) return;
-    closeTablePicker();
+    closeInsertPicker();
     const draft = { ...editor, point: { ...editor.point }, value: input.value };
     editor = null;
     composing = false;
@@ -2058,7 +2102,7 @@
   window.addEventListener('pointerdown', (event) => {
     if (event.target.closest?.('[data-md-table-sticky-resizer]')) return;
     if (!mode) return;
-    if (!tablePicker.hidden && event.target !== insertTableButton && !tablePicker.contains(event.target)) closeTablePicker();
+    if (insertPicker && event.target !== insertPicker.button && !insertPicker.form.contains(event.target)) closeInsertPicker();
     if (openMenus.length && !event.target.closest?.('.gp-edit-menu, #gp-edit-rows, #gp-edit-cols, #gp-edit-table, #gp-edit-add, #gp-edit-heading, .gp-outline-actions')) closeMenus();
     down = { x: event.clientX, y: event.clientY };
     dragged = false;
@@ -2219,8 +2263,8 @@
     if (event.key === 'Escape' && window.__mdTableSticky?.resizing) return;
     if (handleOutlineKey(event)) return;
     if (!mode || stopped && !openMenus.length) return;
-    if (!tablePicker.hidden && event.key === 'Escape' && !event.isComposing && !composing) {
-      event.preventDefault(); event.stopImmediatePropagation(); closeTablePicker(true); return;
+    if (insertPicker && event.key === 'Escape' && !event.isComposing && !composing) {
+      event.preventDefault(); event.stopImmediatePropagation(); closeInsertPicker(true); return;
     }
     if (event.isComposing || event.keyCode === 229 || composing) {
       // IME の取り消しは入力欄へ渡すが、全幅表示の Esc へは渡さない。
@@ -2320,7 +2364,7 @@
   }, true);
   window.addEventListener('input', (event) => {
     if (event.target !== input || !mode || (!selected && !blockPoint(editor?.point))) return;
-    closeTablePicker();
+    closeInsertPicker();
     if (!editor) beginEdit({ replace: true, value: input.value, composition: event.isComposing });
     if (event.isComposing) composing = true;
     editor.resize = true;
