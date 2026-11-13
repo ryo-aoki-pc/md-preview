@@ -875,7 +875,10 @@
     if (s) bind(s, newLive);
     replaced.add(newLive);
   }
-  const detailsOpen = () => Array.from(content.querySelectorAll('details'), (d) => d.open);
+  // 全幅表示で表が本文の外へ移っていても、原文の順に開閉を覚える。
+  const detailsOpen = () => shadow
+    ? Array.from(shadow.querySelectorAll('details'), (d) => Boolean(liveOf.get(d)?.open))
+    : Array.from(content.querySelectorAll('details'), (d) => d.open);
   function replaceContent(nextShadow, open = detailsOpen()) {
     for (const img of queryLive(PLANTUML_IMAGES)) collectPlantuml(img);
     for (const table of tables()) if (!content.contains(table)) table.remove();
@@ -884,7 +887,7 @@
     replaced = new WeakSet();
     content.replaceChildren(materialize(nextShadow));
     content.querySelectorAll('details').forEach((d, i) => {
-      if (open[i]) d.open = true;
+      if (i < open.length) d.open = open[i];
     });
   }
 
@@ -1030,16 +1033,256 @@
     return '';
   }
 
+  // ---- 本文の外に置く閲覧用の操作 --------------------------------------------------
+
+  const viewerStatus = document.createElement('div');
+  viewerStatus.id = 'gp-viewer-status';
+  viewerStatus.setAttribute('role', 'status');
+  viewerStatus.hidden = true;
+  document.body.append(viewerStatus);
+  let viewerTimer = 0;
+  function viewerNotice(text) {
+    clearTimeout(viewerTimer);
+    viewerStatus.textContent = text;
+    viewerStatus.hidden = !text;
+    if (text) viewerTimer = setTimeout(() => { viewerStatus.hidden = true; }, 5000);
+  }
+  // 描画の file の最後の部分。サーバーは / で区切るが、念のため \ でも区切る。無名なら空。
+  function linkFileName() {
+    const name = typeof last?.file === 'string' ? last.file.split(/[/\\]/).at(-1) : '';
+    return name === '[無名]' ? '' : name;
+  }
+  // 見出しへのリンクを作れない理由。作れるときは空。
+  function headingLinkReason(index, withFile) {
+    const link = outlineLinks.find((link) => link.index === index);
+    if (!link || last?.headings?.[index]?.id !== link.id) return '見出しの情報が古いため、リンクを作れません。開き直してください';
+    if (withFile && !linkFileName()) return '無名の文書では、ファイル名つきのリンクを作れません';
+    return '';
+  }
+  function headingLink(index, withFile) {
+    if (headingLinkReason(index, withFile)) return null;
+    const link = outlineLinks.find((link) => link.index === index);
+    const escape = (text) => encodeURIComponent(text).replace(/[()]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+    // 複数行の見出しも、貼りやすいよう 1 行の題にする。
+    const title = link.anchor.textContent.replace(/\s+/g, ' ').trim().replace(/[\\\[\]]/g, '\\$&');
+    return '[' + title + '](' + (withFile ? escape(linkFileName()) : '') + '#' + escape(link.id) + ')';
+  }
+  async function copyHeadingLink(index, withFile) {
+    const reason = headingLinkReason(index, withFile);
+    if (reason) { viewerNotice(reason); return; }
+    const text = headingLink(index, withFile);
+    let copied = false;
+    try {
+      // 権限の要求を、利用者が押した操作の中で始める。
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      }
+    } catch {
+      // API があっても許可されない場合は、一時的な欄を試す。
+    }
+    try {
+      if (!copied) {
+        const active = document.activeElement;
+        const input = document.createElement('textarea');
+        input.className = 'gp-copy-fallback';
+        input.setAttribute('aria-label', 'コピー用の一時的な欄');
+        input.value = text;
+        document.body.append(input);
+        try {
+          input.focus({ preventScroll: true });
+          input.select();
+          if (!document.execCommand('copy')) throw new Error('コピーを拒否されました');
+        } finally {
+          input.remove();
+          active?.focus({ preventScroll: true });
+        }
+      }
+      viewerNotice('リンクをコピーしました');
+    } catch {
+      viewerNotice('リンクをコピーできませんでした。ブラウザーのクリップボードの権限を確認してください');
+    }
+  }
+
+  const linkMenu = document.createElement('div');
+  linkMenu.id = 'gp-heading-link-menu';
+  linkMenu.setAttribute('role', 'menu');
+  linkMenu.setAttribute('aria-label', '見出しへのリンク');
+  linkMenu.hidden = true;
+  document.body.append(linkMenu);
+  let linkOpener = null;
+  let linkIndex = null;
+  const linkItems = [true, false].map((withFile) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'gp-heading-link-' + (withFile ? 'file' : 'fragment');
+    button.textContent = withFile ? 'リンクをコピー（ファイル名つき）' : 'リンクをコピー（#id）';
+    button.setAttribute('role', 'menuitem');
+    button.tabIndex = -1;
+    button.addEventListener('click', () => {
+      if (button.getAttribute('aria-disabled') === 'true') { viewerNotice(button.title); return; }
+      void copyHeadingLink(linkIndex, withFile);
+      closeLinkMenu(true);
+    });
+    linkMenu.append(button);
+    return button;
+  });
+  function closeLinkMenu(focus = false) {
+    linkMenu.hidden = true;
+    linkOpener?.setAttribute('aria-expanded', 'false');
+    if (focus && linkOpener?.isConnected) linkOpener.focus({ preventScroll: true });
+    linkOpener = null;
+    linkIndex = null;
+  }
+  function openLinkMenu(link, point) {
+    closeLinkMenu();
+    linkOpener = link.anchor;
+    linkIndex = link.index;
+    linkOpener.setAttribute('aria-haspopup', 'menu');
+    linkOpener.setAttribute('aria-controls', linkMenu.id);
+    linkOpener.setAttribute('aria-expanded', 'true');
+    linkItems.forEach((item, i) => {
+      const reason = headingLinkReason(link.index, i === 0);
+      item.setAttribute('aria-disabled', String(Boolean(reason)));
+      item.title = reason;
+    });
+    linkMenu.hidden = false;
+    const rect = link.anchor.getBoundingClientRect(), size = linkMenu.getBoundingClientRect();
+    linkMenu.style.left = Math.max(8, Math.min(point?.x ?? rect.left, innerWidth - size.width - 8)) + 'px';
+    linkMenu.style.top = Math.max(8, Math.min(point?.y ?? rect.bottom, innerHeight - size.height - 8)) + 'px';
+    linkItems.find((item) => item.getAttribute('aria-disabled') !== 'true')?.focus({ preventScroll: true });
+  }
+  outlineList.addEventListener('contextmenu', (event) => {
+    if (root.dataset.edit === 'on') return;
+    const link = outlineLinks.find((link) => link.anchor.contains(event.target));
+    if (!link) return;
+    event.preventDefault();
+    openLinkMenu(link, event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : null);
+  });
+  outlineList.addEventListener('keydown', (event) => {
+    if (root.dataset.edit === 'on' || event.ctrlKey || event.altKey || event.metaKey ||
+      !(event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey)) return;
+    const link = outlineLinks.find((link) => link.anchor === event.target);
+    if (!link) return;
+    event.preventDefault();
+    if (!event.repeat) openLinkMenu(link);
+  });
+  linkMenu.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' || event.key === 'Tab') {
+      if (event.key === 'Escape') event.preventDefault();
+      closeLinkMenu(true);
+    } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      const items = linkItems.filter((item) => item.getAttribute('aria-disabled') !== 'true');
+      const index = items.indexOf(document.activeElement);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+        : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[next]?.focus();
+    }
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (!linkMenu.hidden && !linkMenu.contains(event.target)) closeLinkMenu();
+  });
+  window.addEventListener('resize', () => closeLinkMenu());
+  window.addEventListener('blur', () => closeLinkMenu());
+  window.addEventListener('scroll', (event) => {
+    if (!linkMenu.contains(event.target)) closeLinkMenu();
+  }, true);
+
+  const detailsToggle = document.getElementById('gp-details-toggle');
+  function updateDetailsToggle() {
+    const details = queryLive('details');
+    detailsToggle.hidden = !details.length;
+    const text = details.some((d) => !d.open) ? 'すべて開く' : 'すべて閉じる';
+    detailsToggle.textContent = text;
+    detailsToggle.setAttribute('aria-label', '折りたたみを' + text);
+  }
+  detailsToggle.addEventListener('click', () => {
+    const details = queryLive('details');
+    const open = details.some((d) => !d.open);
+    if (!open && !document.dispatchEvent(new CustomEvent('gp:before-details-close', { cancelable: true, detail: details }))) return;
+    for (const d of details) d.open = open;
+    updateDetailsToggle();
+    buildMap();
+    markHeading();
+  });
+  document.addEventListener('toggle', (event) => {
+    if (event.target.matches?.('details') && queryLive('details').includes(event.target)) updateDetailsToggle();
+  }, true);
+
+  const imageDialog = document.createElement('dialog');
+  imageDialog.id = 'gp-image-dialog';
+  imageDialog.setAttribute('aria-label', '画像の拡大表示');
+  const imageClose = document.createElement('button');
+  imageClose.type = 'button';
+  imageClose.textContent = '閉じる';
+  const imageLarge = document.createElement('img');
+  const imageCaption = document.createElement('p');
+  imageCaption.id = 'gp-image-caption';
+  imageDialog.setAttribute('aria-describedby', imageCaption.id);
+  imageDialog.append(imageClose, imageLarge, imageCaption);
+  document.body.append(imageDialog);
+  let imageOpener = null;
+  function closeImage() {
+    if (!imageDialog.open) return;
+    imageDialog.close();
+    imageLarge.removeAttribute('src');
+    const opener = imageOpener;
+    imageOpener = null;
+    if (!opener?.isConnected) return;
+    const temporary = !opener.hasAttribute('tabindex') && opener.tabIndex < 0;
+    if (temporary) {
+      opener.tabIndex = -1;
+      opener.addEventListener('blur', () => opener.removeAttribute('tabindex'), { once: true });
+    }
+    opener.focus({ preventScroll: true });
+    if (temporary && document.activeElement !== opener) opener.removeAttribute('tabindex');
+  }
+  imageClose.addEventListener('click', closeImage);
+  imageDialog.addEventListener('cancel', (event) => { event.preventDefault(); closeImage(); });
+  // 全幅表示の表の Esc より先に、いちばん上の画像だけを閉じる。
+  window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !imageDialog.open) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    closeImage();
+  }, true);
+  // ダブルクリックの 2 回目が、開いたばかりの背景に当たっても閉じない。
+  imageDialog.addEventListener('click', (event) => { if (event.target === imageDialog && event.detail < 2) closeImage(); });
+  document.addEventListener('click', (event) => {
+    if (editing || root.dataset.edit === 'on' || root.dataset.review === 'on' || event.button !== 0 ||
+      event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
+    const img = event.target.closest?.('img');
+    if (!img || !queryLive('img').includes(img) || !img.getAttribute('src') ||
+      img.matches('[data-diagram="plantuml"], .gp-plantuml') ||
+      img.closest('a[data-diagram="plantuml"], .gp-mermaid, .js-render-mermaid, .js-render-math, .katex, .gp-math-display, .gp-math-inline')) return;
+    const anchor = img.closest('a');
+    if (anchor && (!anchor.classList.contains('no-attachment-icon') || anchor.href !== img.src)) return;
+    event.preventDefault();
+    imageOpener = anchor || img;
+    imageLarge.src = img.src;
+    imageLarge.alt = img.alt;
+    imageCaption.textContent = img.alt;
+    imageDialog.showModal();
+    imageClose.focus();
+  });
+  document.addEventListener('gp:stop', () => { closeLinkMenu(); closeImage(); });
+  window.addEventListener('pagehide', () => { closeLinkMenu(); closeImage(); });
+
   window.gpPreview = {
     config: CONFIG, base: BASE, doc: query.get('doc'), current: () => last, tables, sourceOf, findSource, htmlOf, findHTML,
     fingerprint, digest, targetsInRange,
     outline: () => outlineLinks.map((link) => ({ ...link })),
     holdScroll: (hold) => { scrollHeld = Boolean(hold); },
-    setEditing: (active) => { editing = Boolean(active); },
+    setEditing: (active) => { editing = Boolean(active); if (editing) { closeLinkMenu(); closeImage(); } },
+    headingLink, headingLinkReason, copyHeadingLink,
     rememberAppearance, appearance: savedAppearance,
   };
 
   async function render(m) {
+    closeLinkMenu();
+    closeImage();
+    viewerNotice('');
     // 導入・更新の完了後は、HTML に埋めた資産情報も読み直す。
     if (Object.hasOwn(m, 'assets_id') && m.assets_id !== pageAssetsId) {
       reloadPage();
@@ -1074,7 +1317,7 @@
 
     plantumlLoaded = new Map();
     if (!shadow || Object.hasOwn(m, 'error') || Object.hasOwn(previous, 'error') || previous.file !== m.file) {
-      replaceContent(tpl.content);
+      replaceContent(tpl.content, previous?.file === m.file ? detailsOpen() : []);
     } else {
       // 途中まで当てた後に全置換へ戻るときも、始める前の details の開閉を使う。
       const open = detailsOpen();
@@ -1089,6 +1332,7 @@
     shadow = tpl.content;
     sourceIndex = null;
     bind(shadow, content);
+    updateDetailsToggle();
     plantumlLoaded.clear();
     buildNotices(Object.hasOwn(m, 'error') ? [] : m.notices);
     buildOutline(m.headings);
@@ -1240,7 +1484,10 @@
   }
 
   // 画面の外の図も、印刷のレイアウトを作る前に読み込みを始める。
+  // 開いたままのモーダルは本文を操作できなくするので、印刷の前に拡大とメニューを閉じる。
   window.addEventListener('beforeprint', () => {
+    closeLinkMenu();
+    closeImage();
     for (const img of queryLive('img.gp-plantuml')) img.loading = 'eager';
   });
 
