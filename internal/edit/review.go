@@ -49,79 +49,41 @@ func (s *Service) Review(ctx context.Context, doc *string, render uint64, target
 		return document, nil, e
 	}
 	items := make([]ReviewItem, 0, len(targets))
+	// 対象ごとの誤りは全部集め、ページがそれぞれのカードに印を付けられるようにする。
+	var failures []Failure
+	var first *Error
 	for index, target := range targets {
-		// 対象ごとの誤りを、ページの同じカードに戻す。
-		rejected := func(err *Error) (ReviewDocument, []ReviewItem, *Error) {
-			copy := *err
-			copy.Index = &index
-			return document, nil, &copy
-		}
 		if ctx.Err() != nil {
 			return document, nil, fault(422, "cancelled", "原文の読み取りを取り消しました。")
 		}
-		var item ReviewItem
-		switch target.Kind {
-		case "block", "html":
-			m, err := s.blocks(ctx, src)
-			if err != nil {
-				return rejected(err)
+		// 一覧や表の対応を作れないのは文書全体の誤りなので、対象の番号を付けずにすぐ返す。
+		if target.Kind == "block" || target.Kind == "html" {
+			if _, err := s.blocks(ctx, src); err != nil {
+				return document, nil, err
 			}
-			var b *block
-			if target.Kind == "block" {
-				if !tagPattern.MatchString(target.Tag) {
-					return rejected(invalid())
-				}
-				if _, err = ParseSourceRange(target.Tag, string(target.Range)); err == nil {
-					b, err = m.target(target.Tag, target.Range)
-				}
-			} else {
-				if err = validateHTMLBoundaries(target.Prev, target.Next); err == nil {
-					b, err = s.htmlTarget(ctx, src, m, target.Prev, target.Next)
-				}
+		} else if target.Kind == "cell" {
+			if _, err := s.tables(ctx, src); err != nil {
+				return document, nil, err
 			}
-			if err != nil {
-				return rejected(err)
+		}
+		item, err := s.reviewTarget(ctx, src, target)
+		if err != nil && (err.Code == "cancelled" || err.Code == "render" || err.Code == "internal") {
+			return document, nil, err
+		}
+		if err != nil {
+			if first == nil {
+				copy := *err
+				copy.Index = &index
+				first = &copy
 			}
-			item, e = reviewBlock(src, b)
-			if e != nil {
-				return rejected(e)
-			}
-		case "cell":
-			m, err := s.tables(ctx, src)
-			if err != nil {
-				return rejected(err)
-			}
-			if target.Table < 0 || target.Table >= len(m.response.Tables) {
-				return rejected(fault(422, "excluded", "指定した表がありません。"))
-			}
-			t := m.response.Tables[target.Table]
-			if !t.Editable {
-				return rejected(fault(422, "excluded", t.Reason))
-			}
-			if target.Row < 0 || target.Row >= t.Rows || target.Col < 0 || target.Col >= t.Cols {
-				return rejected(fault(422, "range", "指定したセルが範囲外です。"))
-			}
-			var cell *cellInfo
-			for i := range t.Cells {
-				c := &t.Cells[i]
-				if c.Row == target.Row && c.Col == target.Col {
-					cell = c
-					break
-				}
-				if target.Row >= c.Row && target.Row < c.Row+c.Rowspan && target.Col >= c.Col && target.Col < c.Col+c.Colspan {
-					return rejected(fault(422, "merged", "結合で覆われた位置です。結合セルの左上を選んでください。"))
-				}
-			}
-			if cell == nil {
-				return rejected(fault(422, "range", "指定したセルがありません。"))
-			}
-			model := m.models[target.Table]
-			// 表の解析器は、include 展開前の原文を 0 始まりの行で数える。
-			item = ReviewItem{Kind: "表のセル", StartLine: model.StartLine + 1, EndLine: model.EndLine + 1, Excerpt: removeCR(cell.Source), Table: target.Table + 1, Row: target.Row + 1, Col: target.Col + 1}
-		default:
-			return rejected(invalid())
+			failures = append(failures, Failure{Index: index, Code: err.Code, Message: err.Message})
+			continue
 		}
 		items = append(items, item)
+	}
+	if first != nil {
+		first.Failures = failures
+		return document, nil, first
 	}
 	// 試しの描画中に外で変わった場合も、古い原文から依頼文を作らない。
 	if _, _, e = s.read(src); e != nil {
@@ -133,6 +95,67 @@ func (s *Service) Review(ctx context.Context, doc *string, render uint64, target
 	sum := sha256.Sum256([]byte(src.Text))
 	document = ReviewDocument{Root: src.Root, RelPath: filepath.ToSlash(src.File), Render: src.Render, Hash: hex.EncodeToString(sum[:])}
 	return document, items, nil
+}
+
+// reviewTarget は 1 件の対象を今の描画の一覧で確かめ、原文の行と抜粋を返す。
+func (s *Service) reviewTarget(ctx context.Context, src session.Source, target ReviewTarget) (ReviewItem, *Error) {
+	switch target.Kind {
+	case "block", "html":
+		m, err := s.blocks(ctx, src)
+		if err != nil {
+			return ReviewItem{}, err
+		}
+		var b *block
+		if target.Kind == "block" {
+			if !tagPattern.MatchString(target.Tag) {
+				return ReviewItem{}, invalid()
+			}
+			if _, err = ParseSourceRange(target.Tag, string(target.Range)); err == nil {
+				b, err = m.target(target.Tag, target.Range)
+			}
+		} else {
+			if err = validateHTMLBoundaries(target.Prev, target.Next); err == nil {
+				b, err = s.htmlTarget(ctx, src, m, target.Prev, target.Next)
+			}
+		}
+		if err != nil {
+			return ReviewItem{}, err
+		}
+		return reviewBlock(src, b)
+	case "cell":
+		m, err := s.tables(ctx, src)
+		if err != nil {
+			return ReviewItem{}, err
+		}
+		if target.Table < 0 || target.Table >= len(m.response.Tables) {
+			return ReviewItem{}, fault(422, "excluded", "指定した表がありません。")
+		}
+		t := m.response.Tables[target.Table]
+		if !t.Editable {
+			return ReviewItem{}, fault(422, "excluded", t.Reason)
+		}
+		if target.Row < 0 || target.Row >= t.Rows || target.Col < 0 || target.Col >= t.Cols {
+			return ReviewItem{}, fault(422, "range", "指定したセルが範囲外です。")
+		}
+		var cell *cellInfo
+		for i := range t.Cells {
+			c := &t.Cells[i]
+			if c.Row == target.Row && c.Col == target.Col {
+				cell = c
+				break
+			}
+			if target.Row >= c.Row && target.Row < c.Row+c.Rowspan && target.Col >= c.Col && target.Col < c.Col+c.Colspan {
+				return ReviewItem{}, fault(422, "merged", "結合で覆われた位置です。結合セルの左上を選んでください。")
+			}
+		}
+		if cell == nil {
+			return ReviewItem{}, fault(422, "range", "指定したセルがありません。")
+		}
+		model := m.models[target.Table]
+		// 表の解析器は、include 展開前の原文を 0 始まりの行で数える。
+		return ReviewItem{Kind: "表のセル", StartLine: model.StartLine + 1, EndLine: model.EndLine + 1, Excerpt: removeCR(cell.Source), Table: target.Table + 1, Row: target.Row + 1, Col: target.Col + 1}, nil
+	}
+	return ReviewItem{}, invalid()
 }
 
 func reviewBlock(src session.Source, b *block) (ReviewItem, *Error) {

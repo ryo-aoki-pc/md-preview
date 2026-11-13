@@ -149,6 +149,19 @@ func TestReviewRejectedIndex(t *testing.T) {
 		if err == nil || err.Index == nil || *err.Index != 2 {
 			t.Fatalf("対象の番号を戻していない: %+v", err)
 		}
+		if len(err.Failures) != 1 || err.Failures[0].Index != 2 || err.Failures[0].Code != err.Code || err.Failures[0].Message != err.Message {
+			t.Fatalf("断った対象の一覧が最初の誤りと合わない: %+v", err.Failures)
+		}
+	}
+	// 断る対象が複数あれば、全部の番号と理由を返す。最初の 1 件は今までどおり Index と Code・Message に入れる。
+	_, _, err := s.Review(context.Background(), nil, h.src.Render, []ReviewTarget{
+		{Kind: "block", Tag: "p", Range: "1:1-1:3"}, valid, {Kind: "cell", Table: 3}})
+	if err == nil || err.Index == nil || *err.Index != 0 || err.Code != "target" {
+		t.Fatalf("最初の誤りが違う: %+v", err)
+	}
+	if len(err.Failures) != 2 || err.Failures[0].Index != 0 || err.Failures[0].Code != "target" ||
+		err.Failures[1].Index != 2 || err.Failures[1].Code != "excluded" || err.Failures[1].Message != "指定した表がありません。" {
+		t.Fatalf("断った対象の全部を返していない: %+v", err.Failures)
 	}
 }
 

@@ -47,6 +47,14 @@ type Error struct {
 	Code, Message string
 	Outer         []OuterBlock
 	Index         *int
+	// Failures はコメントの依頼文で断った対象の全部。Index と Code・Message は最初の 1 件と同じにする。
+	Failures []Failure
+}
+
+// Failure はコメントの依頼文で断った 1 件の対象（0 始まりの番号）と理由。
+type Failure struct {
+	Index         int
+	Code, Message string
 }
 
 func (e *Error) Error() string { return e.Message }

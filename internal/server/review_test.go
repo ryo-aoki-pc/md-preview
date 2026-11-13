@@ -321,7 +321,8 @@ func TestReviewErrors(t *testing.T) {
 
 func TestReviewErrorIndex(t *testing.T) {
 	index := 0
-	rejected := &edit.Error{Status: 422, Code: "target", Message: "対象がありません。", Index: &index}
+	rejected := &edit.Error{Status: 422, Code: "target", Message: "対象がありません。", Index: &index,
+		Failures: []edit.Failure{{Index: 0, Code: "target", Message: "対象がありません。"}, {Index: 2, Code: "range", Message: "指定したセルが範囲外です。"}}}
 	s, _, _ := fixture(t, func(o *Options) {
 		o.Review = &testReviewer{review: func(*string, uint64, []edit.ReviewTarget) (edit.ReviewDocument, []edit.ReviewItem, *edit.Error) {
 			return edit.ReviewDocument{}, nil, rejected
@@ -334,18 +335,26 @@ func TestReviewErrorIndex(t *testing.T) {
 		r := request(t, s, "POST", route, reviewBody, reviewHeaders(s))
 		var value struct {
 			Error struct {
-				Index *int `json:"index"`
+				Index    *int `json:"index"`
+				Failures []struct {
+					Index   int    `json:"index"`
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"failures"`
 			} `json:"error"`
 		}
 		if r.status != 422 || json.Unmarshal([]byte(r.body), &value) != nil {
 			t.Fatal(r)
 		}
 		if route == "_/edit" {
-			if value.Error.Index != nil {
+			if value.Error.Index != nil || value.Error.Failures != nil {
 				t.Fatal("編集の応答にコメントの番号がある", r.body)
 			}
 		} else if value.Error.Index == nil || *value.Error.Index != 0 {
 			t.Fatal("0 番目のコメントの誤りを返していない", r.body)
+		} else if len(value.Error.Failures) != 2 || value.Error.Failures[1].Index != 2 || value.Error.Failures[1].Code != "range" ||
+			value.Error.Failures[1].Message != "指定したセルが範囲外です。" {
+			t.Fatal("断った対象の全部を返していない", r.body)
 		}
 	}
 }
