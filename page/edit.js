@@ -62,6 +62,7 @@
   headingButton.textContent = '見出し…';
   headingButton.setAttribute('aria-haspopup', 'menu');
   headingButton.setAttribute('aria-controls', 'gp-edit-menu-heading');
+  headingButton.setAttribute('aria-expanded', 'false');
   headingButton.hidden = true;
   const insertTableButton = make('button', 'gp-edit-insert-table', blockBar);
   insertTableButton.type = 'button';
@@ -967,7 +968,7 @@
     }
     for (const item of discarded.reverse()) if (checkboxElement(item)?.isConnected) item.checkbox.checked = item.originalChecked;
   }
-  function discardTableInputs() {
+  function discardTableInputs(heading = false) {
     let discarded = false;
     const items = queue.filter((item) => item.op);
     for (let i = queue.length - 1; i >= 0; i--) if (queue[i].op) queue.splice(i, 1);
@@ -985,7 +986,8 @@
       layer.dataset.typing = 'off';
       discarded = true;
     }
-    if (discarded) notice('行・列が変わったので、並んでいた入力は送らずに下書きへ戻しました。もう一度操作してください', true);
+    if (discarded) notice((heading ? '見出しを変えたので' : '行・列が変わったので') +
+      '、並んでいた入力は送らずに下書きへ戻しました。もう一度操作してください', true);
   }
   function finishSend(changed = false, ready = false) {
     if (!busy) return;
@@ -994,7 +996,7 @@
     clearTimeout(busy.timer);
     item.mask?.remove();
     if (item.structural && changed) {
-      discardTableInputs();
+      discardTableInputs(Boolean(item.headingOp));
       collapseRange();
     }
     busy = null;
@@ -1414,7 +1416,10 @@
       button.setAttribute('aria-haspopup', 'menu');
       button.setAttribute('aria-controls', 'gp-edit-menu-heading');
       button.setAttribute('aria-expanded', 'false');
-      button.addEventListener('click', () => openHeading(link.index, true, button));
+      button.addEventListener('click', () => {
+        if (button.getAttribute('aria-expanded') === 'true') closeMenus();
+        else if (mode) openHeading(link.index, true, button);
+      });
       link.anchor.after(button);
       outlineButtons.set(link.anchor, button);
     }
@@ -1425,7 +1430,8 @@
   }
   headingButton.addEventListener('click', () => {
     const context = headingSourceContext();
-    if (context) openHeading(context.index, false, headingButton);
+    if (headingButton.getAttribute('aria-expanded') === 'true') closeMenus();
+    else if (context) openHeading(context.index, false, headingButton);
   });
   function restoreHeadingFocus() {
     if (!headingRefocus || busy || !mode || stopped || infoRender !== preview.current()?.render ||
@@ -1440,16 +1446,22 @@
     if (!element?.isConnected) return;
     if (restore.outline) element.focus({ preventScroll: true });
     else {
-      // 本文の見出しも一度だけフォーカスできるようにし、公開する属性は元へ戻す。
+      // 本文の見出しにフォーカスがある間だけ tabindex を付け、外れたら外して本文に属性を残さない。
+      // （付けてすぐ外すと、ブラウザーはフォーカスも外す）
       const previous = element.getAttribute('tabindex');
-      if (previous === null) element.setAttribute('tabindex', '-1');
+      if (previous === null) {
+        element.setAttribute('tabindex', '-1');
+        element.addEventListener('blur', () => element.removeAttribute('tabindex'), { once: true });
+      }
       element.focus({ preventScroll: true });
-      if (previous === null) element.addEventListener('blur', () => element.removeAttribute('tabindex'), { once: true });
+      if (previous === null && document.activeElement !== element) element.removeAttribute('tabindex');
     }
   }
   function handleOutlineKey(event) {
     if (!mode || event.ctrlKey || event.metaKey) return false;
-    const link = preview.outline().find((link) => link.anchor === document.activeElement);
+    // 見出しのリンクと、その隣の「操作」ボタンのどちらにフォーカスがあっても同じ見出しとして受ける（Alt+← で戻らない）。
+    const link = preview.outline().find((link) => link.anchor === document.activeElement ||
+      link.anchor.parentElement?.contains(document.activeElement));
     if (!link) return false;
     const menuKey = event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey && !event.altKey;
     const direction = event.altKey && ({ ArrowLeft: event.shiftKey ? 'promoteSection' : 'promote',
@@ -1582,8 +1594,9 @@
       if (!openMenus.some((entry) => entry.menu === menu)) continue;
       if (action === 'headings') {
         const heading = headingForTarget(blockMenu?.target);
-        item.hidden = !heading || Boolean(heading.reason);
-        if (heading) headingContext = { index: heading.index, outline: false, render: blockMenu.render };
+        // 理由のある見出しも項目を出し、理由の欄で読めるようにする。見出しでないブロックだけ隠す。
+        item.hidden = !heading;
+        headingContext = heading ? { index: heading.index, outline: false, render: blockMenu.render } : null;
       }
       const reason = reasonFor(action);
       const heading = headingAt();
@@ -1604,7 +1617,10 @@
       }
       item.setAttribute('aria-disabled', String(Boolean(reason)));
       item.title = description.textContent = reason;
-      if (reason) item.setAttribute('aria-describedby', description.id);
+      // 節ごとの削除の確認では、どの項目でも削除する範囲の説明を読めるようにする。
+      const summary = menu === headingDeleteMenu ? headingDeleteSummary.id : '';
+      const describedBy = [reason ? description.id : '', summary].filter(Boolean).join(' ');
+      if (describedBy) item.setAttribute('aria-describedby', describedBy);
       else item.removeAttribute('aria-describedby');
     }
     for (const { menu } of openMenus) {
@@ -1787,7 +1803,8 @@
     }
     cancelInsert();
     if (name === 'document') clearSelection();
-    else if (editor && name !== 'heading' && name !== 'heading-delete') endEdit(true);
+    // 原文の操作欄の「見出し…」から開いたときだけ、原文の入力欄を開いたままにする。
+    else if (editor && !(opener === headingButton && (name === 'heading' || name === 'heading-delete'))) endEdit(true);
     closeMenus();
     const menu = menus.get(name);
     const placement = name === 'cell' ? 'cell' : name === 'document' || name.startsWith('heading') && headingContext?.outline
@@ -1832,7 +1849,9 @@
       if (action === 'heading-deleteSection') {
         headingDeleteSummary.textContent = `「${heading.text}」の節を削除します。${heading.section?.lines ?? 0} 行、内側の見出し ${Math.max(0, (heading.section?.headings ?? 1) - 1)} 個。`;
         const opener = openMenus[0]?.opener || preview.outline().find((link) => link.index === heading.index)?.anchor || headingButton;
-        openMenu('heading-delete', opener);
+        // 本文の右クリックから開いたときは開く要素が見えないので、今の見出しのメニューの位置に出す。
+        const shown = openMenus.at(-1)?.menu.element.getBoundingClientRect();
+        openMenu('heading-delete', opener, opener === input && shown ? { point: { x: shown.left, y: shown.top } } : {});
         return;
       }
       const operation = action === 'heading-confirm-delete' ? 'deleteSection' : action.slice('heading-'.length);
@@ -1937,7 +1956,7 @@
         const outline = headingContext?.outline && openMenus.some((entry) =>
           entry.menu === menus.get('heading') || entry.menu === headingDeleteMenu);
         closeMenus(outline);
-        if (!outline) focusInput();
+        if (!outline && (editor || selected)) focusInput();
       }
       else return false;
     }
@@ -2016,7 +2035,7 @@
     if (event.target.closest?.('[data-md-table-sticky-resizer]')) return;
     if (!mode) return;
     if (!tablePicker.hidden && event.target !== insertTableButton && !tablePicker.contains(event.target)) closeTablePicker();
-    if (openMenus.length && !event.target.closest?.('.gp-edit-menu, #gp-edit-rows, #gp-edit-cols, #gp-edit-table, #gp-edit-add')) closeMenus();
+    if (openMenus.length && !event.target.closest?.('.gp-edit-menu, #gp-edit-rows, #gp-edit-cols, #gp-edit-table, #gp-edit-add, #gp-edit-heading, .gp-outline-actions')) closeMenus();
     down = { x: event.clientX, y: event.clientY };
     dragged = false;
   }, true);
@@ -2028,7 +2047,7 @@
       cell && selected?.table === cell.table) event.preventDefault();
   }, true);
   window.addEventListener('contextmenu', (event) => {
-    const link = mode && preview.outline().find((link) => link.anchor === event.target || link.anchor.contains(event.target));
+    const link = mode && !stopped && preview.outline().find((link) => link.anchor === event.target || link.anchor.contains(event.target));
     if (link) {
       event.preventDefault(); event.stopPropagation();
       openHeading(link.index, true, link.anchor, { point: { x: event.clientX, y: event.clientY } });

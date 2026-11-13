@@ -1026,7 +1026,7 @@ async function editIdle(page) {
     Number(document.querySelector('#gp-edit-layer').dataset.render) === window.gpPreview.current().render);
 }
 
-test('見出し操作 A-3 の画面・キー・送信とフォーカス', { skip, timeout: 240000 }, async (t) => {
+test('見出しの操作の画面・キー・送信とフォーカス', { skip, timeout: 240000 }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
   const outline = (page, title) => page.locator('#gp-outline a').filter({ hasText: title }).first();
@@ -1222,6 +1222,14 @@ test('見出し操作 A-3 の画面・キー・送信とフォーカス', { skip
     await page.waitForFunction(() => window.gpPreview.current().rev === 40);
     await editIdle(page);
     assert.equal(await outline(page, '対象').evaluate((element) => element === document.activeElement), true);
+    // 隣の「操作」ボタンにフォーカスがあっても同じ見出しのキーとして受け、ブラウザーの「戻る・進む」にしない。
+    const address = page.url();
+    await page.locator('#gp-outline li').filter({ hasText: '対象' }).locator('.gp-outline-actions').focus();
+    await page.keyboard.press('Alt+ArrowRight');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '# 題\n\n### 対象\n');
+    assert.equal(page.url(), address);
+    await outline(page, '対象').focus();
     const sent = requests(page);
     await page.evaluate(() => document.dispatchEvent(new Event('gp:stop')));
     await page.keyboard.press('Alt+ArrowLeft');
@@ -1233,6 +1241,41 @@ test('見出し操作 A-3 の画面・キー・送信とフォーカス', { skip
     assert.equal(await page.locator('#gp-edit-menu-heading-reason').textContent(), 'プレビューが止まっています');
     await page.keyboard.press('Escape');
     assert.equal(await menu(page).isVisible(), false);
+  });
+
+  await t.test('本文から開いた節ごとの削除の確認の位置、理由のある見出しの項目、「操作」ボタンの開閉', async (t) => {
+    const text = '# 題\n\n## 対象\n\n段落。\n\n## 次\n\n> ### 引用\n';
+    const { page, file } = await editablePage(t, browser, text);
+    await page.locator('#gp-content > h2').first().dispatchEvent('contextmenu', { clientX: 300, clientY: 200 });
+    await page.locator('#gp-edit-menu-block').waitFor({ state: 'visible' });
+    await page.locator('#gp-edit-block-headings').focus();
+    await page.keyboard.press('ArrowRight');
+    await menu(page).waitFor({ state: 'visible' });
+    const shown = await menu(page).boundingBox();
+    await action(page, 'deleteSection').click();
+    const confirm = page.locator('#gp-edit-menu-heading-delete');
+    await confirm.waitFor({ state: 'visible' });
+    const box = await confirm.boundingBox();
+    assert.ok(Math.abs(box.x - shown.x) < 12 && Math.abs(box.y - shown.y) < 12, '見出しのメニューの位置に出す（' + JSON.stringify([box, shown]) + '）');
+    assert.equal(await action(page, 'cancel').evaluate((element) => element === document.activeElement), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await confirm.isVisible(), false);
+    // 引用の中の見出しは、本文のメニューでも項目を出し、理由を読める。
+    await page.locator('#gp-content blockquote h3').dispatchEvent('contextmenu', { clientX: 300, clientY: 300 });
+    await page.waitForFunction(() => document.querySelector('#gp-edit-block-source').getAttribute('aria-disabled') === 'false');
+    const child = page.locator('#gp-edit-block-headings');
+    assert.equal(await child.isVisible(), true);
+    assert.equal(await child.getAttribute('aria-disabled'), 'true');
+    await child.focus();
+    assert.match(await page.locator('#gp-edit-menu-block-reason').textContent(), /引用/);
+    await page.keyboard.press('Escape');
+    // 見出し欄の「操作」ボタンは、もう一度押すと閉じる。
+    const button = page.locator('#gp-outline li').filter({ hasText: '対象' }).locator('.gp-outline-actions');
+    await button.click();
+    await menu(page).waitFor({ state: 'visible' });
+    await button.click();
+    assert.equal(await menu(page).isVisible(), false);
+    assert.equal(readFileSync(file, 'utf8'), text);
   });
 
   await t.test('本文の子メニューと原文の操作欄で共用し、確定していない原文は断る', async (t) => {
@@ -1249,6 +1292,7 @@ test('見出し操作 A-3 の画面・キー・送信とフォーカス', { skip
     assert.equal(await page.locator('#gp-content h3').evaluate((element) => element === document.activeElement), true);
     await page.locator('#gp-content p').dispatchEvent('contextmenu', { clientX: 400, clientY: 200 });
     await page.waitForFunction(() => document.querySelector('#gp-edit-block-source').getAttribute('aria-disabled') === 'false');
+    assert.equal(await page.locator('#gp-content h3').getAttribute('tabindex'), null, 'フォーカスが外れたら本文に tabindex を残さない');
     assert.equal(await child.isVisible(), false);
     await page.keyboard.press('End');
     assert.equal(await page.locator('#gp-edit-block-after').evaluate((element) => element === document.activeElement), true);
