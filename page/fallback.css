@@ -320,8 +320,7 @@ body {
   position: relative;
 }
 
-/* GitLab のフロントエンド用の要素 (コピーのボタン・タスクの操作)。ここでは使わない */
-.md copy-code,
+/* GitLab のフロントエンド用の要素のうち、ここでは使わないもの。 */
 .md task-button,
 .md insert-code-snippet {
   display: none;

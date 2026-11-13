@@ -20,7 +20,7 @@ type Options struct {
 	Edit            any
 	Review          bool
 }
-type Page struct{ HTML, JS, EditGridJS, EditTargetsJS, EditJS, ReviewJS, CSS, Fallback string }
+type Page struct{ HTML, JS, CopyCodeJS, EditGridJS, EditTargetsJS, EditJS, ReviewJS, CSS, Fallback string }
 
 func Load(o Options) (Page, error) {
 	if o.Theme == "" {
@@ -37,7 +37,7 @@ func Load(o Options) (Page, error) {
 		config["review"] = true
 	}
 	p := Page{}
-	for name, dest := range map[string]*string{"index.html": &p.HTML, "preview.js": &p.JS, "edit-grid.js": &p.EditGridJS, "edit-targets.js": &p.EditTargetsJS, "edit.js": &p.EditJS, "review.js": &p.ReviewJS, "preview.css": &p.CSS, "fallback.css": &p.Fallback} {
+	for name, dest := range map[string]*string{"index.html": &p.HTML, "preview.js": &p.JS, "copy-code.js": &p.CopyCodeJS, "edit-grid.js": &p.EditGridJS, "edit-targets.js": &p.EditTargetsJS, "edit.js": &p.EditJS, "review.js": &p.ReviewJS, "preview.css": &p.CSS, "fallback.css": &p.Fallback} {
 		b, e := page.Files.ReadFile(name)
 		if e != nil {
 			return p, e

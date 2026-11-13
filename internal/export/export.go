@@ -27,6 +27,7 @@ import (
 	"github.com/ryo-aoki-pc/md-tools/internal/pipeline"
 	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
 	"github.com/ryo-aoki-pc/md-tools/internal/session"
+	"github.com/ryo-aoki-pc/md-tools/page"
 	"golang.org/x/net/html"
 )
 
@@ -360,9 +361,10 @@ func Export(ctx context.Context, o Options) (result Result, err error) {
 	if err = RewriteURLs(ctx, tree, root, *c.Dir, base); err != nil {
 		return result, err
 	}
-	math, mermaid := false, false
+	math, mermaid, copyCode := false, false, false
 	err = htmltree.Walk(ctx, tree, func(n *html.Node) error {
 		if n.Type == html.ElementNode {
+			copyCode = copyCode || n.Data == "copy-code"
 			math = math || htmltree.HasClass(n, "js-render-math")
 			mermaid = mermaid || htmltree.HasClass(n, "js-render-mermaid")
 			if htmltree.HasClass(n, "highlight") {
@@ -379,6 +381,13 @@ func Export(ctx context.Context, o Options) (result Result, err error) {
 		return result, err
 	}
 	scripts := []string{}
+	if copyCode {
+		js, e := page.Files.ReadFile("copy-code.js")
+		if e != nil {
+			return result, e
+		}
+		scripts = append(scripts, string(js))
+	}
 	if math || mermaid {
 		libs, e := pagefiles.EmbeddedLibraries()
 		if e != nil {
