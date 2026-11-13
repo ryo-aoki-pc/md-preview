@@ -334,9 +334,11 @@
     queueLayout();
   }
   function buildOutline(headings) {
+    const focused = outlineLinks.find((link) => link.anchor === document.activeElement ||
+      link.anchor.parentElement.contains(document.activeElement));
     outlineList.replaceChildren();
     outlineLinks = [];
-    for (const heading of headings || []) {
+    for (const [index, heading] of (headings || []).entries()) {
       if (!heading || typeof heading.id !== 'string' || !heading.id) continue;
       const item = document.createElement('li');
       const anchor = document.createElement('a');
@@ -345,22 +347,25 @@
       item.style.paddingInlineStart = Math.max(0, Math.min(5, Number(heading.level) - 1)) * 12 + 'px';
       item.append(anchor);
       outlineList.append(item);
-      outlineLinks.push({ anchor, id: 'user-content-' + heading.id });
+      outlineLinks.push({ anchor, index, id: heading.id, level: heading.level });
     }
     applyOutline();
+    // 同じ題の見出しもあるので、番号と id の両方が合う項目だけに戻す。
+    const restore = focused && outlineLinks.find((link) => link.index === focused.index && link.id === focused.id);
+    restore?.anchor.focus({ preventScroll: true });
   }
   function markHeading() {
     // 閉じた details の中の見出しは、配置の情報が残っていても見えていない。checkVisibility はそれも見分ける。
     const shown = (element) =>
       !!element &&
       (typeof element.checkVisibility === 'function' ? element.checkVisibility() : element.getClientRects().length > 0);
-    const visible = outlineLinks.filter((link) => shown(document.getElementById(link.id)));
+    const visible = outlineLinks.filter((link) => shown(document.getElementById('user-content-' + link.id)));
     let current = visible[0];
     const top = toolbarHeight() + 12;
     // 文書の末尾の近くの見出しは、画面の上端まで上がらない。いちばん下まで来たら、画面に入っている最後の見出しを選ぶ。
     const atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
     for (const link of visible) {
-      const element = document.getElementById(link.id);
+      const element = document.getElementById('user-content-' + link.id);
       if (!element) continue;
       const position = element.getBoundingClientRect().top;
       if (position <= top || (atBottom && position < window.innerHeight)) current = link;
@@ -1010,6 +1015,7 @@
   window.gpPreview = {
     config: CONFIG, base: BASE, doc: query.get('doc'), current: () => last, tables, sourceOf, findSource, htmlOf, findHTML,
     fingerprint, digest,
+    outline: () => outlineLinks.map((link) => ({ ...link })),
     holdScroll: (hold) => { scrollHeld = Boolean(hold); },
     setEditing: (active) => { editing = Boolean(active); },
     rememberAppearance, appearance: savedAppearance,

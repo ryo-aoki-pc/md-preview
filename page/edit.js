@@ -57,6 +57,12 @@
   const afterButton = make('button', 'gp-edit-after', blockBar);
   afterButton.type = 'button';
   afterButton.textContent = '後ろに追加';
+  const headingButton = make('button', 'gp-edit-heading', blockBar);
+  headingButton.type = 'button';
+  headingButton.textContent = '見出し…';
+  headingButton.setAttribute('aria-haspopup', 'menu');
+  headingButton.setAttribute('aria-controls', 'gp-edit-menu-heading');
+  headingButton.hidden = true;
   const insertTableButton = make('button', 'gp-edit-insert-table', blockBar);
   insertTableButton.type = 'button';
   insertTableButton.textContent = '表を入れる…';
@@ -90,6 +96,10 @@
   let editor = null;
   let composing = false;
   let models = [];
+  let headings = [];
+  let headingContext = null;
+  let headingRefocus = null;
+  const outlineButtons = new WeakMap();
   let byCell = new WeakMap();
   let infoRender = 0;
   let fetching = null;
@@ -455,6 +465,7 @@
       documentReason = data.document.reason || '';
       documentStart = Number.isSafeInteger(data.insertStart) && data.insertStart > 0 ? data.insertStart : 1;
       documentEmpty = data.empty === true;
+      headings = Array.isArray(data.headings) ? data.headings : [];
       origin = typeof data.origin === 'string' && /^[0-9a-f]{32}$/i.test(data.origin) ? data.origin : '';
       byCell = new WeakMap();
       models = data.tables.map((info, i) => {
@@ -485,6 +496,7 @@
       updateCheckboxes();
       updateButtons();
       completeSend();
+      restoreHeadingFocus();
       void pump();
       void loadBlock();
     } catch (error) {
@@ -683,7 +695,7 @@
       let height = blockPoint(editor.point)
         ? Math.min(Math.max(64, editor.content), Math.max(64, innerHeight - rect.top - 8))
         : Math.min(Math.max(rect.height, editor.content), Math.max(rect.height, innerHeight - rect.top - 8));
-      blockBar.hidden = !blockPoint(editor.point) || (!editor.insert && !editor.outer?.length && !editor.inner?.length && !editor.anchor);
+      blockBar.hidden = !blockPoint(editor.point) || (!editor.insert && !editor.outer?.length && !editor.inner?.length && !editor.anchor && headingButton.hidden);
       if (editor.insert) {
         const header = document.getElementById('gp-header').getBoundingClientRect().bottom;
         height = Math.min(height, Math.max(64, innerHeight - header - 24));
@@ -748,6 +760,7 @@
     outerButton.textContent = outerLabels[editor.outer?.[0]?.kind] || '外側のブロックを編集';
     innerButton.hidden = !editor.inner?.length;
     input.value = draft.value;
+    updateHeadingButton();
     input.setAttribute('aria-label', editor.insert ? 'ブロックの追加' : 'ブロックの原文の編集');
     input.style.fontFamily = 'sans-serif';
     input.style.fontSize = '16px';
@@ -820,6 +833,7 @@
       if (number === sourceNumber && error.name !== 'AbortError') notice(error.message || '原文を読み込めませんでした', true);
     } finally {
       if (number === sourceNumber) sourceFetching = null;
+      updateHeadingButton();
     }
     // ブロックのメニューの「外側を編集」「前・後ろにブロックを追加」は、原文を開いてから今の操作欄と同じ手順で続ける。
     if (!opened || !pending.then || editor?.target !== pending.target) return;
@@ -938,7 +952,7 @@
     operationStart();
     item.tableElement = models[item.point?.table]?.table;
     item.version = externalVersion;
-    item.structural = Boolean(item.insert || item.history || /^(insert|delete|duplicate|move|sort|convert|merge|unmerge)/.test(item.op?.type || ''));
+    item.structural = Boolean(item.headingOp || item.insert || item.history || /^(insert|delete|duplicate|move|sort|convert|merge|unmerge)/.test(item.op?.type || ''));
     if (first) queue.unshift(item);
     else queue.push(item);
     addMask(item);
@@ -976,6 +990,7 @@
   function finishSend(changed = false, ready = false) {
     if (!busy) return;
     const item = busy.item;
+    const sentRender = busy.render;
     clearTimeout(busy.timer);
     item.mask?.remove();
     if (item.structural && changed) {
@@ -983,6 +998,10 @@
       collapseRange();
     }
     busy = null;
+    if (item.heading && mode && !stopped && item.version === externalVersion) {
+      headingRefocus = item.focus ? { ...item.focus, outline: item.outline, render: sentRender + Number(changed), version: externalVersion } : null;
+      if (ready) restoreHeadingFocus();
+    }
     if (ready && changed && item.op?.type === 'deleteTable') clearSelection();
     if (ready && changed && ['convert', 'sortRows'].includes(item.op?.type) && mode && !stopped && item.version === externalVersion) {
       const cell = find(item.point);
@@ -1104,8 +1123,8 @@
       return;
     }
     const item = queue.shift();
-    const target = !item.history && !blockPoint(item.point) && models[item.point.table];
-    if (!item.history && !blockPoint(item.point) && (!target?.editable || target.table !== item.tableElement ||
+    const target = !item.heading && !item.history && !blockPoint(item.point) && models[item.point.table];
+    if (!item.heading && !item.history && !blockPoint(item.point) && (!target?.editable || target.table !== item.tableElement ||
       !target.slots[item.point.row]?.[item.point.col])) {
       item.mask?.remove();
       discardQueue();
@@ -1114,6 +1133,13 @@
       return;
     }
     const render = preview.current().render;
+    if (item.heading && (item.render !== render || !documentEditable || !headings.some((heading) =>
+      heading.tag === item.heading.tag && heading.range === item.heading.range && !heading.reason))) {
+      discardQueue();
+      notice('文書が変わったので、もう一度操作してください', true);
+      updateButtons();
+      return;
+    }
     if (item.op) {
       item.after = editGrid.placed(item.op, target.info);
       item.afterKind = /Rows(?:From)?$/.test(item.op.type) ? 'rows' : /Columns(?:From)?$/.test(item.op.type) ? 'cols' : 'cells';
@@ -1131,7 +1157,7 @@
     updateButtons();
     try {
       // 待ち行列に入れたときの番号は使わず、直前に確かめた描画へ送る。
-      const body = item.history ? { [item.history]: true } : item.checkbox
+      const body = item.heading ? { render, heading: item.heading, op: item.headingOp } : item.history ? { [item.history]: true } : item.checkbox
         ? { render, checkbox: item.checkbox.getAttribute('data-checkbox-sourcepos'), checked: item.checked }
         : item.insert ? { render, insert: item.insert, text: item.value }
           : item.point.range ? { render, range: item.point.range, text: item.value }
@@ -1181,6 +1207,7 @@
       const messages = [...(data.warnings || []), item.successNotice].filter(Boolean);
       if (messages.length) notice(messages.join(' ／ '));
       busy.ok = true;
+      if (item.heading) item.focus = validHeadingTarget(data.focus) ? data.focus : null;
       if (data.unchanged) { finishSend(false, true); void loadTables(); return; }
       completeSend();
       if (busy?.item === item) busy.timer = setTimeout(() => {
@@ -1343,7 +1370,122 @@
     if ((action === 'block-before' || action === 'block-after') && !context.data.anchor) return 'このブロックの前後には追加できません';
     return '';
   }
-  function reasonFor(action) {
+  const headingOps = {
+    promote: { type: 'level', delta: -1, scope: 'heading' },
+    demote: { type: 'level', delta: 1, scope: 'heading' },
+    promoteSection: { type: 'level', delta: -1, scope: 'section' },
+    demoteSection: { type: 'level', delta: 1, scope: 'section' },
+    moveUp: { type: 'move', direction: 'up' }, moveDown: { type: 'move', direction: 'down' },
+    deleteHeading: { type: 'delete', scope: 'heading' }, deleteSection: { type: 'delete', scope: 'section' },
+  };
+  function validHeadingTarget(target) {
+    return /^h[1-6]$/.test(target?.tag || '') && rangePattern.test(target?.range || '');
+  }
+  function headingForTarget(target) {
+    if (!validHeadingTarget(target)) return null;
+    return headings.find((heading) => heading.tag === target.tag && heading.range === target.range) || null;
+  }
+  function headingAt(context = headingContext) {
+    if (!context) return null;
+    const heading = headings[context?.index], rendered = preview.current()?.headings?.[context?.index];
+    return context?.render === preview.current()?.render && heading?.index === context.index && rendered &&
+      heading.id === rendered.id && heading.level === rendered.level ? heading : null;
+  }
+  function headingSourceContext() {
+    const heading = !editor?.insert && blockPoint(editor?.point) && headingForTarget(editor.target);
+    return heading ? { index: heading.index, render: editor.render, outline: false } : null;
+  }
+  function updateHeadingButton() {
+    const context = headingSourceContext();
+    headingButton.hidden = !context;
+    headingButton.title = context ? reasonFor('headings', context) : '';
+    headingButton.disabled = Boolean(headingButton.title);
+  }
+  function updateOutline() {
+    for (const link of preview.outline()) {
+      let button = outlineButtons.get(link.anchor);
+      if (!mode) { button?.remove(); outlineButtons.delete(link.anchor); continue; }
+      if (button) continue;
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'gp-outline-actions';
+      button.textContent = '操作';
+      button.setAttribute('aria-label', '「' + link.anchor.textContent + '」の見出しの操作');
+      button.setAttribute('aria-haspopup', 'menu');
+      button.setAttribute('aria-controls', 'gp-edit-menu-heading');
+      button.setAttribute('aria-expanded', 'false');
+      button.addEventListener('click', () => openHeading(link.index, true, button));
+      link.anchor.after(button);
+      outlineButtons.set(link.anchor, button);
+    }
+  }
+  function openHeading(index, outline, opener, options = {}) {
+    headingContext = { index, outline, render: preview.current()?.render };
+    openMenu('heading', opener, options);
+  }
+  headingButton.addEventListener('click', () => {
+    const context = headingSourceContext();
+    if (context) openHeading(context.index, false, headingButton);
+  });
+  function restoreHeadingFocus() {
+    if (!headingRefocus || busy || !mode || stopped || infoRender !== preview.current()?.render ||
+      preview.current().render < headingRefocus.render) return;
+    const restore = headingRefocus;
+    headingRefocus = null;
+    if (restore.version !== externalVersion) return;
+    const heading = headingForTarget(restore);
+    const link = heading && preview.outline().find((link) => link.index === heading.index &&
+      link.id === heading.id && link.level === heading.level);
+    const element = restore.outline ? link?.anchor : heading && preview.findSource(restore.tag, restore.range);
+    if (!element?.isConnected) return;
+    if (restore.outline) element.focus({ preventScroll: true });
+    else {
+      // 本文の見出しも一度だけフォーカスできるようにし、公開する属性は元へ戻す。
+      const previous = element.getAttribute('tabindex');
+      if (previous === null) element.setAttribute('tabindex', '-1');
+      element.focus({ preventScroll: true });
+      if (previous === null) element.addEventListener('blur', () => element.removeAttribute('tabindex'), { once: true });
+    }
+  }
+  function handleOutlineKey(event) {
+    if (!mode || event.ctrlKey || event.metaKey) return false;
+    const link = preview.outline().find((link) => link.anchor === document.activeElement);
+    if (!link) return false;
+    const menuKey = event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey && !event.altKey;
+    const direction = event.altKey && ({ ArrowLeft: event.shiftKey ? 'promoteSection' : 'promote',
+      ArrowRight: event.shiftKey ? 'demoteSection' : 'demote',
+      ...(!event.shiftKey ? { ArrowUp: 'moveUp', ArrowDown: 'moveDown' } : {}) })[event.key];
+    if (!menuKey && !direction) return false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.repeat) return true;
+    if (menuKey) openHeading(link.index, true, link.anchor);
+    else if (event.isComposing || event.keyCode === 229) notice('文字の入力を終えてから操作してください', true);
+    else {
+      headingContext = { index: link.index, outline: true, render: preview.current()?.render };
+      runAction('heading-' + direction);
+    }
+    return true;
+  }
+  function reasonFor(action, context = headingContext) {
+    if (action === 'heading-cancel') return '';
+    if (action === 'headings' || action.startsWith('heading-')) {
+      if (!mode || !allowed()) return '編集モードで操作してください';
+      if (stopped) return 'プレビューが止まっています';
+      if (infoRender !== preview.current()?.render) return '文書の情報を読み込んでいます';
+      if (busy || queue.length || sourceFetching) return '前の書き込みの反映を待っています';
+      if (composing) return '文字の入力を終えてから操作してください';
+      if (blockPoint(editor?.point) && input.value !== editor.original)
+        return '原文の変更を確定するか取り消してから操作してください';
+      if (!documentEditable) return documentReason || 'この文書は編集できません';
+      const heading = headingAt(context);
+      if (!heading) return '見出しの対応を確かめられません';
+      if (heading.reason) return heading.reason;
+      if (!validHeadingTarget(heading)) return '見出しの対応を確かめられません';
+      const operation = action === 'heading-confirm-delete' ? 'deleteSection' : action.slice('heading-'.length);
+      return action === 'headings' ? '' : typeof heading.ops?.[operation] === 'string'
+        ? heading.ops[operation] : '見出しの対応を確かめられません';
+    }
     if (action.startsWith('block-')) return blockMenuReason(action);
     if (action === 'document-start' || action === 'document-end') return documentInsertReason();
     if (action === 'paste') return pasteInstruction;
@@ -1438,7 +1580,17 @@
   function updateMenus() {
     for (const { menu, action, item, description } of menuItems) {
       if (!openMenus.some((entry) => entry.menu === menu)) continue;
+      if (action === 'headings') {
+        const heading = headingForTarget(blockMenu?.target);
+        item.hidden = !heading || Boolean(heading.reason);
+        if (heading) headingContext = { index: heading.index, outline: false, render: blockMenu.render };
+      }
       const reason = reasonFor(action);
+      const heading = headingAt();
+      if (action === 'heading-promote') item.textContent = heading?.level > 1
+        ? `見出しだけ h${heading.level - 1} にする` : '見出しだけ 1 段上げる';
+      if (action === 'heading-demote') item.textContent = heading?.level < 6
+        ? `見出しだけ h${heading.level + 1} にする` : '見出しだけ 1 段下げる';
       if (action === 'cell-merge') item.textContent = models[selected?.table]?.info.kind === 'pipe' ? 'HTML の表にして結合' : '結合';
       if (action.startsWith('cell-align-')) {
         const label = { left: '左揃え', center: '中央揃え', right: '右揃え', default: '揃えを既定に' }[action.slice('cell-align-'.length)];
@@ -1483,10 +1635,10 @@
       item.setAttribute('role', 'menuitem');
       item.tabIndex = -1;
       item.dataset.action = action;
-      if (['rows', 'cols', 'cells', 'table'].includes(action)) {
+      if (['rows', 'cols', 'cells', 'table', 'headings'].includes(action)) {
         item.setAttribute('aria-haspopup', 'menu');
         item.setAttribute('aria-expanded', 'false');
-        item.setAttribute('aria-controls', 'gp-edit-menu-' + action);
+        item.setAttribute('aria-controls', 'gp-edit-menu-' + (action === 'headings' ? 'heading' : action));
         item.dataset.submenu = '';
       }
       const description = make('span', item.id + '-reason', element);
@@ -1497,7 +1649,7 @@
       item.addEventListener('pointerover', () => showMenuReason(menu, item));
       item.addEventListener('click', () => {
         if (reasonFor(action)) { updateMenus(); showMenuReason(menu, item); return; }
-        if (['rows', 'cols', 'cells', 'table'].includes(action)) openSubmenu(action, item);
+        if (['rows', 'cols', 'cells', 'table', 'headings'].includes(action)) openSubmenu(action === 'headings' ? 'heading' : action, item);
         else runAction(action);
       });
     }
@@ -1527,7 +1679,19 @@
     ['table-html', 'HTML の表にする'], ['table-pipe', 'パイプの表にする'], ['table-delete', '表を削除']]);
   buildMenu('document', '文書への追加', [['document-start', '文書の先頭に追加'], ['document-end', '文書の末尾に追加']]);
   buildMenu('block', 'ブロックの操作', [['block-source', '原文を編集'], ['block-outer', '外側を編集'], null,
-    ['block-before', '前にブロックを追加'], ['block-after', '後ろにブロックを追加']]);
+    ['block-before', '前にブロックを追加'], ['block-after', '後ろにブロックを追加'], ['headings', '見出し', 'block-headings']]);
+  buildMenu('heading', '見出しの操作', [
+    ['heading-promote', '見出しだけ 1 段上げる'], ['heading-demote', '見出しだけ 1 段下げる'],
+    ['heading-promoteSection', '節ごと 1 段上げる'], ['heading-demoteSection', '節ごと 1 段下げる'], null,
+    ['heading-moveUp', '節を上へ移動'], ['heading-moveDown', '節を下へ移動'], null,
+    ['heading-deleteHeading', '見出しだけを削除'], ['heading-deleteSection', '節ごと削除…'],
+  ]);
+  const headingDeleteMenu = buildMenu('heading-delete', '節ごとの削除の確認', [
+    ['heading-cancel', 'やめる'], ['heading-confirm-delete', '削除する'],
+  ]);
+  const headingDeleteSummary = make('p', 'gp-edit-heading-delete-summary', headingDeleteMenu.element);
+  headingDeleteMenu.element.prepend(headingDeleteSummary);
+  headingDeleteMenu.element.setAttribute('aria-describedby', headingDeleteSummary.id);
   // 表以外のブロックの右クリック。原文の情報を 1 回読み、外側や追加先が無ければ理由を出して無効にする。
   let blockMenu = null;
   let blockMenuNumber = 0;
@@ -1591,7 +1755,7 @@
       if (entry.opener !== input) entry.opener.setAttribute('aria-expanded', 'false');
     }
     // 文書への追加のメニューはセルを選ばずに開くので、開いたボタンへ戻す。
-    if (restore && mode && (selected || opener === addButton)) {
+    if (restore && mode && (selected || opener === addButton || opener !== input)) {
       if (opener?.isConnected && !opener.disabled) opener.focus({ preventScroll: true });
       else focusInput();
     }
@@ -1623,17 +1787,19 @@
     }
     cancelInsert();
     if (name === 'document') clearSelection();
-    else if (editor) endEdit(true);
+    else if (editor && name !== 'heading' && name !== 'heading-delete') endEdit(true);
     closeMenus();
     const menu = menus.get(name);
-    const placement = name === 'cell' ? 'cell' : name === 'document' ? 'header' : point ? 'point' : 'toolbar';
+    const placement = name === 'cell' ? 'cell' : name === 'document' || name.startsWith('heading') && headingContext?.outline
+      ? 'header' : point ? 'point' : 'toolbar';
     const rect = point ? { left: point.x, right: point.x, top: point.y, bottom: point.y }
       : name === 'cell' ? selectionCell().element.getBoundingClientRect() : opener.getBoundingClientRect();
     openMenus.push({ menu, opener, placement, rect: name === 'cell' || point ? rect : null });
     if (opener !== input) opener.setAttribute('aria-expanded', 'true');
     updateMenus();
     placeMenu(menu, rect, placement);
-    (last ? menu.items.at(-1) : menu.items[0]).focus({ preventScroll: true });
+    const visible = menu.items.filter((item) => !item.hidden);
+    (last ? visible.at(-1) : visible[0])?.focus({ preventScroll: true });
   }
   function openSubmenu(name, opener) {
     if (openMenus.length > 1) {
@@ -1650,6 +1816,7 @@
   }
   function runAction(action) {
     if (action === 'document-start' || action === 'document-end') { beginDocumentInsert(action.slice('document-'.length)); return; }
+    if (action === 'heading-cancel') { closeMenus(true); return; }
     const reason = reasonFor(action);
     if (reason) {
       if (openMenus.length) {
@@ -1660,6 +1827,23 @@
       return;
     }
     operationStart();
+    if (action.startsWith('heading-')) {
+      const heading = headingAt(), context = { ...headingContext };
+      if (action === 'heading-deleteSection') {
+        headingDeleteSummary.textContent = `「${heading.text}」の節を削除します。${heading.section?.lines ?? 0} 行、内側の見出し ${Math.max(0, (heading.section?.headings ?? 1) - 1)} 個。`;
+        const opener = openMenus[0]?.opener || preview.outline().find((link) => link.index === heading.index)?.anchor || headingButton;
+        openMenu('heading-delete', opener);
+        return;
+      }
+      const operation = action === 'heading-confirm-delete' ? 'deleteSection' : action.slice('heading-'.length);
+      closeMenus();
+      cancelSource();
+      // 原文の未確定文字は reasonFor で断る。表の入力は構造の変更後に下書きへ戻す。
+      if (blockPoint(editor?.point)) endEdit(false);
+      enqueue({ heading: { tag: heading.tag, range: heading.range }, headingOp: { ...headingOps[operation] },
+        render: context.render, outline: context.outline });
+      return;
+    }
     closeMenus();
     if (action === 'table-before' || action === 'table-after') { beginTableInsert(action.slice('table-'.length)); return; }
     if (action.startsWith('block-')) {
@@ -1738,16 +1922,23 @@
       openMenu(action, buttons.get(action), { last: key === 'ArrowUp' });
     } else {
       const menu = openMenus.at(-1).menu;
-      const index = menu.items.indexOf(document.activeElement), item = menu.items[Math.max(0, index)];
+      const items = menu.items.filter((item) => !item.hidden);
+      const index = items.indexOf(document.activeElement), item = items[Math.max(0, index)];
       if (key === 'ArrowDown' || key === 'ArrowUp')
-        menu.items[(index + (key === 'ArrowDown' ? 1 : -1) + menu.items.length) % menu.items.length].focus({ preventScroll: true });
-      else if (key === 'Home' || key === 'End') (key === 'Home' ? menu.items[0] : menu.items.at(-1)).focus({ preventScroll: true });
+        items[(index + (key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus({ preventScroll: true });
+      else if (key === 'Home' || key === 'End') (key === 'Home' ? items[0] : items.at(-1)).focus({ preventScroll: true });
       else if (key === 'Enter' || key === ' ') item.click();
       else if (key === 'ArrowRight') {
-        if (item.hasAttribute('aria-haspopup') && !reasonFor(item.dataset.action)) openSubmenu(item.dataset.action, item);
+        if (item.hasAttribute('aria-haspopup') && !reasonFor(item.dataset.action))
+          openSubmenu(item.dataset.action === 'headings' ? 'heading' : item.dataset.action, item);
       } else if (key === 'ArrowLeft') { if (openMenus.length > 1) closeSubmenu(); }
       else if (key === 'Escape') { if (openMenus.length > 1) closeSubmenu(); else closeMenus(true); }
-      else if (key === 'Tab') { closeMenus(); focusInput(); }
+      else if (key === 'Tab') {
+        const outline = headingContext?.outline && openMenus.some((entry) =>
+          entry.menu === menus.get('heading') || entry.menu === headingDeleteMenu);
+        closeMenus(outline);
+        if (!outline) focusInput();
+      }
       else return false;
     }
     event.preventDefault();
@@ -1773,6 +1964,8 @@
     });
   }
   function updateButtons() {
+    updateOutline();
+    updateHeadingButton();
     // 表を消して選択を外した後も、その一手を戻せるようにする。
     if (!selected && !editor) bar.hidden = !mode || !config.undo || !(undoState.undo || undoState.redo);
     addButton.hidden = !mode;
@@ -1796,6 +1989,7 @@
     cancelSource();
     if (!want && editor) endEdit(true);
     mode = want && allowed();
+    if (mode) infoRender = 0;
     toggle.setAttribute('aria-pressed', String(mode));
     if (mode) root.dataset.edit = 'on';
     else { cancelCut(); cancelInsert(); delete root.dataset.edit; root.style.removeProperty('--gp-edit-bottom'); clearSelection(); }
@@ -1834,6 +2028,12 @@
       cell && selected?.table === cell.table) event.preventDefault();
   }, true);
   window.addEventListener('contextmenu', (event) => {
+    const link = mode && preview.outline().find((link) => link.anchor === event.target || link.anchor.contains(event.target));
+    if (link) {
+      event.preventDefault(); event.stopPropagation();
+      openHeading(link.index, true, link.anchor, { point: { x: event.clientX, y: event.clientY } });
+      return;
+    }
     if (!mode || stopped || window.__mdTableSticky?.picking || (event.target === input && editor)) return;
     const cell = event.target === input ? selectionCell() : byCell.get(event.target.closest?.('td, th'));
     if (!cell) { openBlockMenu(event); return; }
@@ -1857,6 +2057,7 @@
     // 列幅のドラッグを離したときの click は、md-table-sticky が後の受け手で捨てる。
     if (window.__mdTableSticky?.resizeClick || event.target.closest?.('[data-md-table-sticky-resizer]')) return;
     if (event.target.closest?.('#gp-outline-resizer')) return;
+    if (event.target.closest?.('.gp-outline-actions')) return;
     if (!mode || stopped || layer.contains(event.target)) return;
     // コメントへの切り替えは、入力を確定せず busy() の確認へ渡す。
     if (event.target.closest?.('#gp-review-toggle')) return;
@@ -1973,7 +2174,8 @@
   new MutationObserver(refreshHover).observe(document.getElementById('gp-content'), { childList: true, subtree: true });
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && window.__mdTableSticky?.resizing) return;
-    if (!mode || stopped) return;
+    if (handleOutlineKey(event)) return;
+    if (!mode || stopped && !openMenus.length) return;
     if (!tablePicker.hidden && event.key === 'Escape' && !event.isComposing && !composing) {
       event.preventDefault(); event.stopImmediatePropagation(); closeTablePicker(true); return;
     }
@@ -1983,6 +2185,7 @@
       return;
     }
     if (handleMenuKey(event)) return;
+    if (stopped) return;
     // 表を消して選択が外れた後も、履歴があれば Ctrl+Z・Ctrl+Y を操作欄のボタンと同じに扱う。
     // ほかの入力欄（コメントや検索など）のキーは奪わない。
     if (!selected && !editor && config.undo && event.ctrlKey && !event.altKey && !event.metaKey &&
@@ -2066,9 +2269,11 @@
     if (event.target !== input || !mode || (!selected && !blockPoint(editor?.point))) return;
     if (!editor) beginEdit({ replace: true, value: input.value, composition: true });
     composing = true;
+    updateHeadingButton();
+    updateMenus();
   }, true);
   window.addEventListener('compositionend', (event) => {
-    if (event.target === input) { composing = false; saveDraft(); }
+    if (event.target === input) { composing = false; saveDraft(); updateHeadingButton(); updateMenus(); }
   }, true);
   window.addEventListener('input', (event) => {
     if (event.target !== input || !mode || (!selected && !blockPoint(editor?.point))) return;
@@ -2077,6 +2282,8 @@
     if (event.isComposing) composing = true;
     editor.resize = true;
     saveDraft();
+    updateHeadingButton();
+    updateMenus();
   }, true);
   window.addEventListener('paste', (event) => {
     if (!mode || stopped || document.activeElement !== input || !selected || editor) return;
