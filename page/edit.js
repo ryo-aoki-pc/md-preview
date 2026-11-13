@@ -1546,10 +1546,13 @@
       const response = await fetch(request);
       const data = await response.json();
       if (blockMenu !== context || context.number !== blockMenuNumber) return;
-      if (!response.ok) throw new Error(messageOf(data) || '原文を読み込めませんでした');
-      if (data.render !== context.render || typeof data.range !== 'string' || !rangePattern.test(data.range))
+      // 説明リストの用語のように範囲を決められないブロックは、ダブルクリックと同じく外側を開ける（前後には追加しない）。
+      const outer = response.status === 422 && Array.isArray(data.outer) && data.outer.length ? data.outer : null;
+      if (!response.ok && !outer) throw new Error(messageOf(data) || '原文を読み込めませんでした');
+      if (outer) context.data = { outer, anchor: false };
+      else if (data.render !== context.render || typeof data.range !== 'string' || !rangePattern.test(data.range))
         throw new Error('原文の応答の形が正しくありません');
-      context.data = { outer: Array.isArray(data.outer) ? data.outer : [],
+      else context.data = { outer: Array.isArray(data.outer) ? data.outer : [],
         anchor: Boolean(data.anchor && typeof data.anchor.tag === 'string' && rangePattern.test(data.anchor.range || '') &&
           rangePattern.test(data.anchor.actual || '')) };
     } catch (error) {

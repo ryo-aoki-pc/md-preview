@@ -1717,6 +1717,26 @@ test('プレビューで表を編集し、ファイル・固定の状態・安�
     await page.evaluate(() => getSelection().removeAllRanges());
     assert.equal(await prevented('#gp-content p'), true);
     await page.keyboard.press('Escape');
+    // 生の HTML の連なりは、先頭でない要素の上の選択でも既定のメニューを残す。
+    const raw = await editablePage(t, browser, '<div>一つ目</div>\n<div>二つ目</div>\n\n後の段落。\n');
+    const second = raw.page.locator('#gp-content > div').nth(1);
+    await raw.page.evaluate(() => {
+      const range = document.createRange();
+      range.selectNodeContents(document.querySelectorAll('#gp-content > div')[1]);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+    });
+    assert.equal(await second.evaluate((element) => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    }), false);
+    await raw.page.evaluate(() => getSelection().removeAllRanges());
+    assert.equal(await second.evaluate((element) => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    }), true);
     // 編集モードの外では、ブラウザーの既定のメニューのまま。
     await page.locator('#gp-edit-toggle').click();
     assert.equal(await prevented('#gp-content p'), false);
@@ -2287,6 +2307,22 @@ test('外側のブロックへ移り、下書きと操作欄の位置を保っ�
     assert.equal(await page.locator('#gp-edit-status').textContent(), 'この用語だけの範囲を決められないので、説明リスト全体を開きました');
     assert.equal(readFileSync(file, 'utf8'), original);
     await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').hidden || !document.querySelector('#gp-edit-input').value);
+    // 右クリックのメニューでも、同じ応答から外側を開ける。前後への追加はできない。
+    for (const action of ['outer', 'source']) {
+      const loaded = page.waitForResponse((response) => response.url().includes('/_/edit/source'));
+      await page.locator('#gp-content dt').click({ button: 'right' });
+      await page.locator('#gp-edit-menu-block').waitFor({ state: 'visible' });
+      await loaded;
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+      assert.equal(await page.locator('#gp-edit-block-outer').getAttribute('aria-disabled'), 'false');
+      assert.equal(await page.locator('#gp-edit-block-after').getAttribute('aria-disabled'), 'true');
+      await page.locator('#gp-edit-block-' + action).click();
+      await valueIs(page, 'Apple\n: red');
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => document.querySelector('#gp-edit-input').hidden || !document.querySelector('#gp-edit-input').value);
+    }
+    assert.equal(readFileSync(file, 'utf8'), original);
   });
 
   for (const colorScheme of ['light', 'dark']) {
