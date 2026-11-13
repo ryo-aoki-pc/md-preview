@@ -972,6 +972,24 @@
     return run ? run.nodes.filter((n) => n.nodeType === Node.ELEMENT_NODE).map((n) => liveOf.get(n)).filter((n) => n?.isConnected) : [];
   }
 
+  // 候補は写しから引く。公開するのは位置だけで、節点や表示後の文字は渡さない。
+  function targetsInRange(start, end) {
+    const blocks = [], html = [];
+    for (const node of shadow?.querySelectorAll('[data-sourcepos]') || []) {
+      const range = node.getAttribute('data-sourcepos');
+      const line = Number(range?.split(':')[0]);
+      if (htmlPosition.test(range || '') && start <= line && line <= end)
+        blocks.push({ tag: node.localName, range });
+    }
+    for (const run of htmlRuns()) {
+      const first = run.prev ? Number(run.prev.range.split('-')[1].split(':')[0]) : 0;
+      const last = run.next ? Number(run.next.range.split(':')[0]) : Infinity;
+      if (first <= end && start <= last) html.push({ kind: 'html',
+        ...(run.prev ? { prev: { ...run.prev } } : {}), ...(run.next ? { next: { ...run.next } } : {}) });
+    }
+    return { blocks, html };
+  }
+
   // コメントの対象の内容の指紋。写し（サーバーの HTML）から作るので、数式・図・表の固定など
   // 表示の後の書き換えに左右されない。位置・見出しのレベル・脚注の番号・token 入りの URL は含めない。
   function hashText(text, seed) {
@@ -1014,7 +1032,7 @@
 
   window.gpPreview = {
     config: CONFIG, base: BASE, doc: query.get('doc'), current: () => last, tables, sourceOf, findSource, htmlOf, findHTML,
-    fingerprint, digest,
+    fingerprint, digest, targetsInRange,
     outline: () => outlineLinks.map((link) => ({ ...link })),
     holdScroll: (hold) => { scrollHeld = Boolean(hold); },
     setEditing: (active) => { editing = Boolean(active); },

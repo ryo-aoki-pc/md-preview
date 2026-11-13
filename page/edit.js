@@ -6,6 +6,21 @@
   const config = preview?.config.edit;
   if (!config) return;
   const editGrid = window.gpEditGrid;
+  let writing = false;
+  // 行対応は応答由来でも型と量を確かめる。並べ替えでは新しい側の行順が逆転してよい。
+  function validChange(value) {
+    const version = /^[0-9a-f]{32}$/i;
+    const line = (n) => Number.isSafeInteger(n) && n > 0 && n <= 10000000;
+    if (!value || typeof value.before !== 'string' || typeof value.after !== 'string' ||
+      !version.test(value.before) || !version.test(value.after) || !Array.isArray(value.keep) ||
+      value.keep.length > 4096 || value.keep.some((part) => !Array.isArray(part) || part.length !== 3 ||
+        !part.every(line) || part[0] + part[2] > 10000001 || part[1] + part[2] > 10000001)) return null;
+    for (const side of [0, 1]) {
+      const ordered = [...value.keep].sort((a, b) => a[side] - b[side]);
+      if (ordered.some((part, i) => i && ordered[i - 1][side] + ordered[i - 1][2] > part[side])) return null;
+    }
+    return { before: value.before, after: value.after, keep: value.keep.map((part) => [...part]) };
+  }
 
   const root = document.documentElement;
   const toggle = document.getElementById('gp-edit-toggle');
@@ -1116,7 +1131,7 @@
     beginEdit({ source: item.source, value: item.value });
   }
   async function pump() {
-    if (busy || failed || stopped || !queue.length || infoRender !== preview.current()?.render) return;
+    if (writing || busy || failed || stopped || !queue.length || infoRender !== preview.current()?.render) return;
     // 並べた後に文書が外で変わっていたら、行や列がずれているかもしれない古い位置へ書かない。
     if (queue[0].version !== externalVersion) {
       discardQueue();
@@ -1157,6 +1172,8 @@
     }
     busy = { item, render, ok: false, timer: 0 };
     updateButtons();
+    writing = true;
+    let change = null;
     try {
       // 待ち行列に入れたときの番号は使わず、直前に確かめた描画へ送る。
       const body = item.heading ? { render, heading: item.heading, op: item.headingOp } : item.history ? { [item.history]: true } : item.checkbox
@@ -1167,6 +1184,8 @@
       const response = await fetch(url(''), { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body) });
       const data = await response.json();
+      // 断られた応答の change は、本文を変えていないので鎖に積まない。
+      change = response.ok ? validChange(data?.change) : null;
       if (!response.ok) {
         item.mask?.remove();
         busy = null;
@@ -1233,6 +1252,10 @@
       notice('書き込めませんでした' + (error.message ? ' ／ ' + error.message : ''), true);
       updateButtons();
       void loadBlock();
+    } finally {
+      writing = false;
+      document.dispatchEvent(new CustomEvent('gp:edited', { detail: { change } }));
+      void pump();
     }
   }
 
@@ -2021,7 +2044,8 @@
     updateButtons();
     if (mode) void loadTables();
   }
-  window.gpEditMode = { active: () => mode, busy: () => Boolean(editor || composing || busy || queue.length || sourceFetching), exit: () => setMode(false) };
+  window.gpEditMode = Object.assign(window.gpEditMode || {}, { active: () => mode,
+    busy: () => Boolean(editor || composing || busy || queue.length || sourceFetching), writing: () => writing, exit: () => setMode(false) });
   toggle.addEventListener('click', () => setMode(!mode));
 
   // ページと md-table-sticky の操作欄、本文の入力の部品は触らない。対象外の表の中の入力は、セルの操作として扱う。
