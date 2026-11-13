@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -129,6 +130,9 @@ func (s *Service) Tables(ctx context.Context, doc *string, render uint64) (any, 
 	start := documentInsertionPoint(src, "start")
 	result.InsertStart, result.Empty = start.cut, start.empty
 	result.Origin = s.origin(src)
+	// 外でファイルが変わっていても、コメントの位置は現在の描画に属する。
+	// 読み直した本文ではなく、描画のもとの本文の版を返す。
+	result.Version = s.version(src, src.Text)
 	if s.opts.Mode == File {
 		result.Undo = s.history.status(pathKey(src.Path), text)
 	}
@@ -206,10 +210,15 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	warnings := []string{}
 	var focus *headingFocus
 	var move *historyMove
+	var keep []lineKeep
 	if r.undo || r.redo {
 		text, move, e = s.history.prepare(key, old, r.redo)
 		if e != nil {
 			return nil, e
+		}
+		keep = move.step.keep
+		if !move.redo {
+			keep = reverseKeep(keep)
 		}
 	} else {
 		if e = s.editable(src, old); e != nil {
@@ -217,10 +226,12 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 		}
 		switch r.kind {
 		case "heading":
-			text, warnings, focus, e = s.editHeading(ctx, src, r)
+			var rewritten headingRewrite
+			rewritten, warnings, focus, e = s.editHeading(ctx, src, r)
 			if e != nil {
 				return nil, e
 			}
+			text, keep = rewritten.text, rewritten.keep
 		case "insert":
 			text, e = s.insertBlock(ctx, src, r)
 			if e != nil {
@@ -348,6 +359,13 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 		if replacement.Start == replacement.End && len(replacement.Lines) == 0 {
 			return map[string]any{"ok": true, "unchanged": true}, nil
 		}
+		// Lua は行を置き換え、末尾に LF を付けた同じ本文を doc として返す。
+		lines := bufferLines(old)
+		lines = append(append(append([]string{}, lines[:replacement.Start]...), replacement.Lines...), lines[replacement.End:]...)
+		text = strings.Join(lines, "\n") + "\n"
+		if r.kind != "heading" {
+			keep = commonKeep(old, text)
+		}
 		if _, e = s.source(doc, r.render); e != nil {
 			return nil, e
 		}
@@ -357,7 +375,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 		if warnings == nil {
 			warnings = []string{}
 		}
-		result := map[string]any{"ok": true, "warnings": warnings}
+		result := map[string]any{"ok": true, "warnings": warnings, "change": s.textChange(src, old, text, keep)}
 		if r.kind == "heading" {
 			result["focus"] = focus
 		}
@@ -382,10 +400,14 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	if err := tableedit.WriteFile(ctx, src.Path, text, bom); err != nil {
 		return nil, fault(500, "write", "文書を書き込めません。")
 	}
+	if move == nil && r.kind != "heading" {
+		keep = commonKeep(old, text)
+	}
+	change := s.textChange(src, old, text, keep)
 	if move != nil {
 		s.history.commitMove(key, move)
 	} else {
-		s.history.push(key, old, text)
+		s.history.push(key, old, text, keep)
 	}
 	delete(s.cache, key)
 	delete(s.blockCache, key)
@@ -399,7 +421,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	if warnings == nil {
 		warnings = []string{}
 	}
-	result := map[string]any{"ok": true, "warnings": warnings}
+	result := map[string]any{"ok": true, "warnings": warnings, "change": change}
 	if r.kind == "heading" {
 		result["focus"] = focus
 	}

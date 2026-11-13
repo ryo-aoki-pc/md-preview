@@ -411,18 +411,18 @@ func TestUndoRedoAndExternalChange(t *testing.T) {
 func TestHistoryLimits(t *testing.T) {
 	var h histories
 	for i := 0; i < 205; i++ {
-		h.push("文書", fmt.Sprint(i), fmt.Sprint(i+1))
+		h.push("文書", fmt.Sprint(i), fmt.Sprint(i+1), nil)
 	}
 	if len(h.documents["文書"].undo) != 200 {
 		t.Fatal("手数の上限")
 	}
 	for i := 0; i < 40; i++ {
-		h.push(fmt.Sprint(i), "前", "後")
+		h.push(fmt.Sprint(i), "前", "後", nil)
 	}
 	if len(h.documents) != 32 {
 		t.Fatal("文書の上限")
 	}
-	h.push("大きい差分", strings.Repeat("a", 17*1024*1024), strings.Repeat("b", 17*1024*1024))
+	h.push("大きい差分", strings.Repeat("a", 17*1024*1024), strings.Repeat("b", 17*1024*1024), nil)
 	if h.documents["大きい差分"] != nil {
 		t.Fatal("差分の上限")
 	}

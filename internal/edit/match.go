@@ -35,6 +35,7 @@ type cellInfo struct {
 }
 type tableInfo struct {
 	Index         int                 `json:"index"`
+	Start         int                 `json:"start"`
 	Number        int                 `json:"number"`
 	Kind          tableedit.Kind      `json:"kind"`
 	Editable      bool                `json:"editable"`
@@ -68,6 +69,7 @@ type tablesResponse struct {
 	Tables   []tableInfo   `json:"tables"`
 	Headings []headingInfo `json:"headings"`
 	Origin   string        `json:"origin"`
+	Version  string        `json:"version"`
 }
 type mapping struct {
 	response tablesResponse
@@ -180,6 +182,13 @@ func (s *Service) tables(ctx context.Context, src session.Source) (*mapping, *Er
 			return nil, fault(422, "cancelled", "表の対応の確認を取り消しました。")
 		}
 		info := tableInfo{Index: i, Reason: "原文の表と対応づけられない", Warnings: []string{}, Cells: []cellInfo{}, RowTags: []string{}, Delimiters: []string{}, Sections: []tableedit.Section{}}
+		if positions.positionReason(n, "data-sourcepos") == nil {
+			if pos, err := coordinates(Range(htmltree.Get(n, "data-sourcepos"))); err == nil {
+				if _, reason := src.Lines.Original(pos[0]); reason != "shift" {
+					info.Start = pos[0]
+				}
+			}
+		}
 		t := m.models[i]
 		if t != nil {
 			info.Number, info.Kind, info.Rows, info.Cols = t.Number, t.Kind, t.Rows, t.Cols

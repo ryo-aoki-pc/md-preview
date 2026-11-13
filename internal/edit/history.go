@@ -18,6 +18,7 @@ type change struct {
 	before, after         string
 	beforeHash, afterHash [32]byte
 	order                 uint64
+	keep                  []lineKeep
 }
 type history struct {
 	undo, redo []change
@@ -45,7 +46,7 @@ func (h *histories) status(key, text string) undoState {
 	}
 	return undoState{len(d.undo) > 0, len(d.redo) > 0}
 }
-func (h *histories) push(key, before, after string) {
+func (h *histories) push(key, before, after string, keep []lineKeep) {
 	if h.documents == nil {
 		h.documents = map[string]*history{}
 	}
@@ -71,6 +72,7 @@ func (h *histories) push(key, before, after string) {
 	}
 	// 小さい差分から、元の大きな本文全体を参照し続けない。
 	c := change{prefix: prefix, suffix: suffix, before: strings.Clone(before[prefix : len(before)-suffix]), after: strings.Clone(after[prefix : len(after)-suffix]), beforeHash: sha256.Sum256([]byte(before)), afterHash: sha256.Sum256([]byte(after)), order: h.clock}
+	c.keep = append([]lineKeep{}, keep...)
 	d.undo = append(d.undo, c)
 	if len(d.undo) > historySteps {
 		d.undo = append([]change{}, d.undo[len(d.undo)-historySteps:]...)
