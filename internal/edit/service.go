@@ -115,6 +115,17 @@ func (s *Service) Tables(ctx context.Context, doc *string, render uint64) (any, 
 		return nil, e
 	}
 	result := m.response
+	positions, e := s.blocks(ctx, src)
+	if e != nil {
+		return nil, e
+	}
+	// 見出しの対応を作れなくても、表の操作の情報は返す（見出しの操作だけを使えなくする）。
+	result.Headings = []headingInfo{}
+	if headings, e := positions.headingMapping(ctx, src); e == nil {
+		result.Headings = headings.information()
+	} else if e.Code == "cancelled" {
+		return nil, e
+	}
 	start := documentInsertionPoint(src, "start")
 	result.InsertStart, result.Empty = start.cut, start.empty
 	result.Origin = s.origin(src)
@@ -126,6 +137,11 @@ func (s *Service) Tables(ctx context.Context, doc *string, render uint64) (any, 
 		result.Origin = ""
 		result.Document = documentState{false, fileErr.Message}
 		result.Tables = append([]tableInfo{}, result.Tables...)
+		for i := range result.Headings {
+			result.Headings[i].Reason = fileErr.Message
+			result.Headings[i].Section = nil
+			result.Headings[i].Ops = map[string]string{}
+		}
 		for i := range result.Tables {
 			result.Tables[i].Editable = false
 			result.Tables[i].Reason = fileErr.Message
@@ -188,6 +204,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	key := pathKey(src.Path)
 	var text string
 	warnings := []string{}
+	var focus *headingFocus
 	var move *historyMove
 	if r.undo || r.redo {
 		text, move, e = s.history.prepare(key, old, r.redo)
@@ -199,6 +216,11 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 			return nil, e
 		}
 		switch r.kind {
+		case "heading":
+			text, warnings, focus, e = s.editHeading(ctx, src, r)
+			if e != nil {
+				return nil, e
+			}
 		case "insert":
 			text, e = s.insertBlock(ctx, src, r)
 			if e != nil {
@@ -313,6 +335,9 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 		}
 	}
 	if text == old {
+		if r.kind == "heading" {
+			return map[string]any{"ok": true, "unchanged": true, "warnings": warnings, "focus": focus}, nil
+		}
 		return map[string]any{"ok": true, "unchanged": true}, nil
 	}
 	if len(text) > maxDocumentBytes {
@@ -332,7 +357,11 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 		if warnings == nil {
 			warnings = []string{}
 		}
-		return map[string]any{"ok": true, "warnings": warnings}, nil
+		result := map[string]any{"ok": true, "warnings": warnings}
+		if r.kind == "heading" {
+			result["focus"] = focus
+		}
+		return result, nil
 	}
 	// 試しの描画中に外で変わった場合も、古い本文を上書きしない。
 	current, currentBOM, e := s.readFile(src)
@@ -370,7 +399,11 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	if warnings == nil {
 		warnings = []string{}
 	}
-	return map[string]any{"ok": true, "warnings": warnings}, nil
+	result := map[string]any{"ok": true, "warnings": warnings}
+	if r.kind == "heading" {
+		result["focus"] = focus
+	}
+	return result, nil
 }
 func changed() *Error {
 	return fault(409, "changed", "文書が外で変わりました。画面を読み直してください。")

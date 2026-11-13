@@ -66,6 +66,7 @@ type tablesResponse struct {
 	Document documentState `json:"document"`
 	Undo     undoState     `json:"undo"`
 	Tables   []tableInfo   `json:"tables"`
+	Headings []headingInfo `json:"headings"`
 	Origin   string        `json:"origin"`
 }
 type mapping struct {

@@ -11,6 +11,8 @@ import (
 )
 
 type request struct {
+	headingTag          string
+	headingOp           headingOperation
 	render              uint64
 	kind                string
 	table               int
@@ -98,6 +100,31 @@ func parseRequest(m map[string]any) (request, *Error) {
 	}
 	r.render = uint64(render)
 	switch {
+	case fields(m, "render", "heading", "op"):
+		r.kind = "heading"
+		h, valid := m["heading"].(map[string]any)
+		if !valid || !fields(h, "tag", "range") {
+			return r, invalid()
+		}
+		r.headingTag, ok = h["tag"].(string)
+		if !ok || !headingTagPattern.MatchString(r.headingTag) {
+			return r, invalid()
+		}
+		value, valid := h["range"].(string)
+		if !valid {
+			return r, invalid()
+		}
+		var e *Error
+		r.rangeValue, e = ParseRange(value)
+		if e != nil {
+			return r, e
+		}
+		op, valid := m["op"].(map[string]any)
+		if !valid {
+			return r, invalid()
+		}
+		r.headingOp, e = parseHeadingOperation(op)
+		return r, e
 	case fields(m, "render", "insert", "text"):
 		r.kind = "insert"
 		r.text, ok = stringValue(m["text"])
