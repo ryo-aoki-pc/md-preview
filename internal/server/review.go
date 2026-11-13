@@ -127,37 +127,44 @@ func reviewTarget(value any) (edit.ReviewTarget, *edit.Error) {
 	return target, nil
 }
 
-func parseReview(body map[string]any) (uint64, []edit.ReviewTarget, []review.Comment, *edit.Error) {
+func parseReview(body map[string]any) (uint64, []edit.ReviewTarget, []review.Comment, string, *edit.Error) {
 	values, ok := body["comments"].([]any)
-	if len(body) != 2 || !onlyKeys(body, "render", "comments") || !SafeInteger(body["render"]) || !ok || len(values) < 1 || len(values) > 50 {
-		return 0, nil, nil, reviewInvalid()
+	if !onlyKeys(body, "render", "comments", "mode") || !SafeInteger(body["render"]) || !ok || len(values) < 1 || len(values) > 50 {
+		return 0, nil, nil, "", reviewInvalid()
+	}
+	mode := "plan"
+	if value, present := body["mode"]; present {
+		mode, ok = value.(string)
+		if !ok || mode != "plan" && mode != "plan-text" && mode != "direct" {
+			return 0, nil, nil, "", reviewInvalid()
+		}
 	}
 	targets := make([]edit.ReviewTarget, 0, len(values))
 	comments := make([]review.Comment, 0, len(values))
 	for _, value := range values {
 		m, ok := value.(map[string]any)
 		if !ok || !onlyKeys(m, "target", "selection", "text") {
-			return 0, nil, nil, reviewInvalid()
+			return 0, nil, nil, "", reviewInvalid()
 		}
 		target, e := reviewTarget(m["target"])
 		if e != nil {
-			return 0, nil, nil, e
+			return 0, nil, nil, "", e
 		}
 		text, ok := reviewString(m["text"], true)
 		if !ok {
-			return 0, nil, nil, reviewInvalid()
+			return 0, nil, nil, "", reviewInvalid()
 		}
 		selection := ""
 		if value, present := m["selection"]; present {
 			selection, ok = reviewString(value, false)
 			if !ok {
-				return 0, nil, nil, reviewInvalid()
+				return 0, nil, nil, "", reviewInvalid()
 			}
 		}
 		targets = append(targets, target)
 		comments = append(comments, review.Comment{Selection: selection, Text: text})
 	}
-	return uint64(body["render"].(float64)), targets, comments, nil
+	return uint64(body["render"].(float64)), targets, comments, mode, nil
 }
 
 func (s *Server) prepareReview(conn net.Conn, r *http.Request) {
@@ -173,7 +180,7 @@ func (s *Server) prepareReview(conn net.Conn, r *http.Request) {
 		editError(conn, r, e)
 		return
 	}
-	render, targets, comments, e := parseReview(body)
+	render, targets, comments, mode, e := parseReview(body)
 	if e != nil {
 		editError(conn, r, e)
 		return
@@ -193,7 +200,7 @@ func (s *Server) prepareReview(conn net.Conn, r *http.Request) {
 	for i, item := range items {
 		comments[i].Item = review.Item{Kind: item.Kind, StartLine: item.StartLine, EndLine: item.EndLine, Excerpt: item.Excerpt, Table: item.Table, Row: item.Row, Col: item.Col}
 	}
-	prompt, err := review.BuildPrompt(document.RelPath, comments)
+	prompt, err := review.BuildPrompt(document.RelPath, comments, mode)
 	if err != nil {
 		code := "invalid"
 		if errors.Is(err, review.ErrTooLarge) {

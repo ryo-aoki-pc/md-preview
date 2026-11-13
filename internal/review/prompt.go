@@ -1,4 +1,4 @@
-// Package review は、検証済みの原文とコメントから計画を頼む依頼文を作る。
+// Package review は、検証済みの原文とコメントから依頼文を作る。
 package review
 
 import (
@@ -29,13 +29,24 @@ const maxPrompt = 64 * 1024
 // ErrTooLarge は、依頼文の全体が上限を超えたことを示す。
 var ErrTooLarge = errors.New("依頼文が 64 KiB を超えます。コメントを分けて送ってください。")
 
-func BuildPrompt(relPath string, comments []Comment) (string, error) {
+func BuildPrompt(relPath string, comments []Comment, mode string) (string, error) {
 	if relPath == "" || path.IsAbs(relPath) || path.Clean(relPath) != relPath || relPath == ".." || strings.HasPrefix(relPath, "../") || strings.ContainsAny(relPath, "\\:") || strings.ContainsFunc(relPath, unicode.IsControl) || !utf8.ValidString(relPath) {
 		return "", errors.New("対象の相対パスが正しくありません。")
 	}
 	var b strings.Builder
 	file := inlineCode(relPath)
-	fmt.Fprintf(&b, "/plan\n次のレビューのコメントに沿って、%s を直す計画を立ててください。\nまず計画だけを示し、承認されるまでファイルを変えないでください。\n\n対象のファイル: %s\n行の番号は 1 から数え、終わりの行も含みます。位置は、コメントを書いたときの原文のものです。\n", file, file)
+	switch mode {
+	case "plan", "plan-text":
+		if mode == "plan" {
+			b.WriteString("/plan\n")
+		}
+		fmt.Fprintf(&b, "次のレビューのコメントに沿って、%s を直す計画を立ててください。\nまず計画だけを示し、承認されるまでファイルを変えないでください。\n", file)
+	case "direct":
+		fmt.Fprintf(&b, "次のレビューのコメントに沿って、%s を直してください。\n計画を示して承認を待つ必要はありません。\n", file)
+	default:
+		return "", errors.New("依頼文の形が正しくありません。")
+	}
+	fmt.Fprintf(&b, "\n対象のファイル: %s\n行の番号は 1 から数え、終わりの行も含みます。位置は、コメントを書いたときの原文のものです。\n", file)
 	for n, comment := range comments {
 		item := comment.Item
 		lines := fmt.Sprintf("%d 行", item.StartLine)

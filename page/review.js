@@ -45,6 +45,30 @@
     if (!comments.some((item) => item.id === editing)) editing = null;
     changed();
   });
+  const skipStale = button('gp-review-skip-stale', actions, '要確認をまとめて送らない', () => {
+    if (locked()) return;
+    if (bulkSkipped.size) {
+      for (const item of comments) if (bulkSkipped.has(item.id)) item.skip = false;
+      bulkSkipped.clear();
+    } else {
+      for (const item of comments) {
+        if (item.stale && item.state === 'pending' && !item.skip) {
+          item.skip = true;
+          bulkSkipped.add(item.id);
+        }
+      }
+    }
+    changed();
+  });
+  const promptLabel = make('label', '', panel, '依頼文の形 ');
+  const promptMode = make('select', 'gp-review-mode', promptLabel);
+  for (const [value, label] of [['plan', '/plan で計画'], ['plan-text', '日本語で計画'], ['direct', '直接直す']]) {
+    const option = make('option', '', promptMode, label);
+    option.value = value;
+  }
+  // 依頼文の形は保存せず、ページを開くたびに計画から始める。
+  promptMode.value = 'plan';
+  promptMode.addEventListener('change', changed);
   const output = make('section', 'gp-review-output', panel);
   make('h3', '', output, '依頼文');
   const promptInput = make('textarea', 'gp-review-prompt', output);
@@ -129,6 +153,8 @@
   }
   const saved = readStorage();
   let comments = saved.docs[documentKey] || [];
+  // 一括で変えた印だけを戻せるようにし、ページを開き直したら忘れる。
+  const bulkSkipped = new Set();
   // 版 1 から移した項目のうち、読み込んだときに要確認でなかったもの。最初に確かめた内容を指紋にしてよい
   // （途中で表の情報が読めず一度要確認になっても、内容が見つかれば戻す）。
   const adoptable = new Set(comments.filter((item) => !item.fp && !item.stale).map((item) => item.id));
@@ -176,6 +202,8 @@
     output.hidden = true;
   }
   function changed() {
+    // 消えたカードと、直して保存したなどで印が外れたカードは、一括で戻す記録から外す。
+    for (const id of bulkSkipped) if (!comments.some((item) => item.id === id && item.skip)) bulkSkipped.delete(id);
     discardPrompt();
     save();
     draw();
@@ -200,6 +228,14 @@
     add.title = reason;
     prepare.disabled = locked() || !preview.current()?.render || !comments.some((item) => item.state === 'pending' && !item.skip);
     clearCopied.disabled = locked() || !comments.some((item) => item.state === 'copied');
+    skipStale.textContent = bulkSkipped.size ? 'まとめて送らないを戻す' : '要確認をまとめて送らない';
+    const skipReason = locked() ? '処理中またはプレビューが終了しています' :
+      !bulkSkipped.size && !comments.some((item) => item.stale && item.state === 'pending' && !item.skip) ?
+        '送る対象になっている未コピーの要確認コメントがありません' : '';
+    skipStale.disabled = Boolean(skipReason);
+    skipStale.title = skipReason;
+    promptMode.disabled = locked();
+    promptMode.title = locked() ? '処理中またはプレビューが終了しています' : '';
     copy.disabled = launch.disabled = locked() || !prepared;
     output.hidden = !prepared;
     cards.replaceChildren();
@@ -244,6 +280,8 @@
       if (item.state === 'pending') {
         const skip = button('', buttons, item.skip ? '今回は送る' : '今回は送らない', () => {
           item.skip = !item.skip;
+          // 手で変え直した印は、一括の取り消しでは戻さない。
+          bulkSkipped.delete(item.id);
           changed();
         });
         skip.setAttribute('aria-pressed', String(item.skip));
@@ -706,7 +744,7 @@
     try {
       const response = await fetch(url('prepare'), { method: 'POST', signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ render, comments: sent.map((item) => ({ target: item.target,
+        body: JSON.stringify({ render, mode: promptMode.value, comments: sent.map((item) => ({ target: item.target,
           ...(item.selection ? { selection: item.selection } : {}), text: item.text })) }) });
       const data = await response.json();
       if (number !== prepareNumber || stopped || render !== preview.current()?.render) return;
@@ -754,6 +792,7 @@
       }
       // 「今回は送らない」は今回の依頼文だけの印なので、コピーできたら外す。
       for (const item of comments) item.skip = false;
+      bulkSkipped.clear();
       save();
       copied = true;
       draw();
