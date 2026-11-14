@@ -59,6 +59,7 @@ type tableInfo struct {
 	DeleteLocked  string              `json:"deleteLocked"`
 }
 type tablesResponse struct {
+	BlockMoves []*blockMoveInfo `json:"blockMoves"`
 	// 文書の先頭へ追加したときに、下書きの位置をずらす最初の行（front matter の後ろ）。
 	InsertStart int `json:"insertStart"`
 	// 空白と空行だけの文書。追加した文で全体を置き換える（ページは「最初のブロックを書く」にする）。

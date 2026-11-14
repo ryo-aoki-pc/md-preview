@@ -8918,6 +8918,154 @@ test('セルメニューで揃えと見出しセルを変え、範囲と一手�
     });
 });
 
+test('ブロックを上下へ移動する', { skip, timeout: 240000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const open = async (page, locator) => {
+    const loaded = page.waitForResponse((response) => response.url().includes('/_/edit/source'));
+    await locator.click({ button: 'right' });
+    await loaded;
+    await page.waitForFunction(() => document.querySelector('#gp-edit-block-move-down').title !== '原文の情報を読み込んでいます');
+  };
+  const send = async (page, action) => {
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await action();
+    const result = await response;
+    assert.equal(result.status(), 200, await result.text());
+    await editIdle(page);
+    return result.json();
+  };
+  await t.test('右クリックと原文の操作欄に上下を出し、先頭・末尾・見出し・内側の理由を示す', async (t) => {
+    const text = '前。\n\n後。\n';
+    const { page, file } = await editablePage(t, browser, text);
+    await open(page, page.locator('#gp-content > p').first());
+    const up = page.locator('#gp-edit-block-move-up'), down = page.locator('#gp-edit-block-move-down');
+    assert.equal(await up.getAttribute('aria-disabled'), 'true');
+    await up.focus();
+    assert.match(await page.locator('#gp-edit-menu-block-reason').textContent(), /入れ替えるブロック/);
+    assert.equal(await down.getAttribute('aria-disabled'), 'false');
+    const data = await send(page, () => down.click());
+    assert.ok(data.change.keep.some((part) => part[0] === 1 && part[1] === 3));
+    assert.equal(readFileSync(file, 'utf8'), '後。\n\n前。\n');
+    assert.deepEqual(await page.locator('#gp-content > p').allTextContents(), ['後。', '前。']);
+    await send(page, () => page.locator('#gp-edit-undo').click());
+    assert.equal(readFileSync(file, 'utf8'), text);
+    await open(page, page.locator('#gp-content > p').last());
+    assert.equal(await down.getAttribute('aria-disabled'), 'true');
+    await page.keyboard.press('Escape');
+    await page.locator('#gp-content > p').last().dblclick();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').value === '後。');
+    const sourceUp = page.locator('#gp-edit-move-up');
+    assert.equal(await sourceUp.isVisible(), true);
+    assert.equal(await sourceUp.isDisabled(), false);
+    assert.equal(await page.locator('#gp-edit-move-down').isDisabled(), true);
+    await page.locator('#gp-edit-input').fill('下書き');
+    assert.equal(await sourceUp.isDisabled(), true);
+    assert.match(await sourceUp.getAttribute('title'), /変更を確定するか取り消して/);
+    await page.locator('#gp-edit-input').fill('後。');
+    await send(page, () => sourceUp.click());
+    assert.equal(readFileSync(file, 'utf8'), '後。\n\n前。\n');
+    const boundary = await editablePage(t, browser, '前\n\n## 題\n\n- 内側\n\n後\n');
+    await open(boundary.page, boundary.page.locator('#gp-content > p').first());
+    assert.match(await boundary.page.locator('#gp-edit-block-move-down').getAttribute('title'), /見出しはまたげません/);
+    await boundary.page.keyboard.press('Escape');
+    await open(boundary.page, boundary.page.locator('#gp-content li').first());
+    assert.match(await boundary.page.locator('#gp-edit-block-move-up').getAttribute('title'), /いちばん外側/);
+  });
+  await t.test('表のメニューと HTML の連なりを移動し、一手で戻す', async (t) => {
+    const table = '| 列 |\n| --- |\n| 値 |';
+    const text = '前\n\n' + table + '\n\n後\n';
+    const { page, file } = await editablePage(t, browser, text);
+    await page.locator('#gp-content td').click();
+    await page.locator('#gp-edit-table').click();
+    assert.equal(await page.locator('#gp-edit-table-move-up').getAttribute('aria-disabled'), 'false');
+    await send(page, () => page.locator('#gp-edit-table-move-up').click());
+    assert.equal(readFileSync(file, 'utf8'), table + '\n\n前\n\n後\n');
+    assert.equal(await page.locator('#gp-content > :first-child').evaluate((n) => n.tagName), 'TABLE');
+    await send(page, () => page.locator('#gp-edit-undo').click());
+    assert.equal(readFileSync(file, 'utf8'), text);
+    const raw = await editablePage(t, browser, '前\n\n<div>一</div>\n\n<div>二</div>\n\n後\n');
+    await open(raw.page, raw.page.locator('#gp-content > div').last());
+    await send(raw.page, () => raw.page.locator('#gp-edit-block-move-down').click());
+    assert.equal(readFileSync(raw.file, 'utf8'), '前\n\n後\n\n<div>一</div>\n\n<div>二</div>\n');
+    const mixedSource = '<table><tr><td>表</td></tr></table>\n\n<div>生</div>';
+    const mixed = await editablePage(t, browser, '前\n\n' + mixedSource + '\n\n後\n');
+    await open(mixed.page, mixed.page.locator('#gp-content > div').filter({ hasText: '生' }));
+    await send(mixed.page, () => mixed.page.locator('#gp-edit-block-move-up').click());
+    assert.equal(readFileSync(mixed.file, 'utf8'), mixedSource + '\n\n前\n\n後\n');
+  });
+  await t.test('つながるリストは書かず、サーバーの拒否理由を知らせる', async (t) => {
+    const text = '- 前\n\n間\n\n- 後\n';
+    const { page, file } = await editablePage(t, browser, text);
+    await open(page, page.locator('#gp-content > p'));
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.locator('#gp-edit-block-move-down').click();
+    assert.equal((await response).status(), 422);
+    await editIdle(page);
+    assert.match(await page.locator('#gp-edit-status').textContent(), /つながる|解釈が変わる/);
+    assert.equal(readFileSync(file, 'utf8'), text);
+  });
+  await t.test('描画済みの PlantUML と隣の HTML を入れ替え、連なりの原文も開ける', async (t) => {
+    const diagram = '```plantuml\nA -> B\n```';
+    const raw = '<div>HTML の対象</div>';
+    const { page, file } = await editablePage(t, browser, '前\n\n' + diagram + '\n\n' + raw + '\n\n後\n', { plantuml: true });
+    await page.waitForFunction(() => document.querySelector('img.gp-plantuml')?.naturalWidth > 0);
+    await open(page, page.locator('img.gp-plantuml'));
+    assert.equal(await page.locator('#gp-edit-block-move-down').getAttribute('aria-disabled'), 'false');
+    await send(page, () => page.locator('#gp-edit-block-move-down').click());
+    assert.equal(readFileSync(file, 'utf8'), '前\n\n' + raw + '\n\n' + diagram + '\n\n後\n');
+    await page.locator('#gp-content > div').filter({ hasText: 'HTML の対象' }).dblclick();
+    await page.waitForFunction((raw) => document.querySelector('#gp-edit-input').value === raw, raw);
+    assert.equal(await page.locator('#gp-edit-move-down').isDisabled(), false);
+  });
+  await t.test('移動した段落のコメントが追従し、取り消しとやり直しでも有効なまま残る', async (t) => {
+    const { page } = await editablePage(t, browser, '対象。\n\n後。\n', { review: true });
+    const items = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current);
+    await page.locator('#gp-review-toggle').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render));
+    await page.locator('#gp-content > p').first().click();
+    await page.locator('#gp-review-input').fill('移動する段落へ');
+    await page.locator('#gp-review-add').click();
+    const [before] = await items();
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    await open(page, page.locator('#gp-content > p').first());
+    await send(page, () => page.locator('#gp-edit-block-move-down').click());
+    const settled = async (range) => page.waitForFunction((range) => {
+      const [item] = JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current;
+      return !window.gpEditMode.writing() && !item.stale && item.target.range === range;
+    }, range);
+    await settled('3:1-3:9');
+    assert.equal((await items())[0].fp, before.fp);
+    await send(page, () => page.locator('#gp-edit-undo').click());
+    await settled(before.target.range);
+    await send(page, () => page.locator('#gp-edit-redo').click());
+    await settled('3:1-3:9');
+  });
+  await t.test('Neovim に一個の行の置き換えを送り、新しい描画を待つ', async (t) => {
+    const bridge = await startGoStdio(t);
+    const context = await browser.newContext();
+    t.after(() => context.close());
+    const page = await context.newPage();
+    await page.goto(bridge.url);
+    await bridge.send({ type: 'doc', path: null, name: '移動.md', text: '前\n\n後\n', buf: 7, rev: 1 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 1);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    await open(page, page.locator('#gp-content > p').last());
+    await page.locator('#gp-edit-block-move-up').click();
+    const edit = await bridge.waitFor('edit');
+    assert.deepEqual(edit, { type: 'edit', id: 1, path: null, buf: 7, rev: 1,
+      edits: [{ start: 0, end: 3, lines: ['後', '', '前'] }] });
+    assert.deepEqual(await page.locator('#gp-content > p').allTextContents(), ['前', '後']);
+    await bridge.send({ type: 'edit_result', id: edit.id, ok: true });
+    await bridge.send({ type: 'doc', path: null, name: '移動.md', text: '後\n\n前\n', buf: 7, rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 2);
+    await editIdle(page);
+    assert.deepEqual(await page.locator('#gp-content > p').allTextContents(), ['後', '前']);
+  });
+});
+
 test('表メニューで変換・削除・一手の取り消しと選択を確かめる', { skip }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
@@ -8932,7 +9080,7 @@ test('表メニューで変換・削除・一手の取り消しと選択を確�
     assert.equal(await page.locator('#gp-edit-menu-table').isVisible(), true);
     for (const [id, text] of [['html', 'HTML の表にする'], ['pipe', 'パイプの表にする'], ['delete', '表を削除']])
       assert.equal(await page.locator('#gp-edit-table-' + id).textContent(), text);
-    assert.equal(await page.locator('#gp-edit-menu-table [role="separator"]').count(), 1);
+    assert.equal(await page.locator('#gp-edit-menu-table [role="separator"]').count(), 2);
   };
   const action = async (page, id) => {
     const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
