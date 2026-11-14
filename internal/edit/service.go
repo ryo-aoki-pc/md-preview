@@ -195,7 +195,7 @@ func (s *Service) Text(ctx context.Context, doc *string, render uint64, tag stri
 	if ctx.Err() != nil {
 		return nil, fault(422, "cancelled", "原文の読み取りを取り消しました。")
 	}
-	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": b.kind, "outer": s.htmlOuter(ctx, src, m, b, m.outerBlocks(b)), "anchor": m.anchor(b), "move": s.blockMoveInformation(ctx, src, m, blockMoveTarget{Tag: tag, Range: r})}, nil
+	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": b.kind, "outer": s.htmlOuter(ctx, src, m, b, m.outerBlocks(b)), "anchor": m.anchor(b), "move": s.blockMoveInformation(ctx, src, m, blockMoveTarget{Tag: tag, Range: r}), "listIndent": s.listIndentInformation(ctx, src, m, listIndentTarget(m, b, blockMoveTarget{Tag: tag, Range: r}))}, nil
 }
 func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (any, *Error) {
 	s.mu.Lock()
@@ -237,6 +237,13 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 			return nil, e
 		}
 		switch r.kind {
+		case "listIndent":
+			var rewritten headingRewrite
+			rewritten, e = s.indentList(ctx, src, r.listIndent)
+			if e != nil {
+				return nil, e
+			}
+			text, keep = rewritten.text, rewritten.keep
 		case "moveBlock":
 			var rewritten headingRewrite
 			rewritten, warnings, e = s.moveBlock(ctx, src, r.blockMove)
@@ -390,7 +397,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 		lines := bufferLines(old)
 		lines = append(append(append([]string{}, lines[:replacement.Start]...), replacement.Lines...), lines[replacement.End:]...)
 		text = strings.Join(lines, "\n") + "\n"
-		if r.kind != "heading" && r.kind != "moveBlock" {
+		if r.kind != "heading" && r.kind != "moveBlock" && r.kind != "listIndent" {
 			keep = s.editKeep(old, text, editStart, editEnd)
 		}
 		if _, e = s.source(doc, r.render); e != nil {
@@ -430,7 +437,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	if err := tableedit.WriteFile(ctx, src.Path, text, bom); err != nil {
 		return nil, fault(500, "write", "文書を書き込めません。")
 	}
-	if move == nil && r.kind != "heading" && r.kind != "moveBlock" {
+	if move == nil && r.kind != "heading" && r.kind != "moveBlock" && r.kind != "listIndent" {
 		keep = s.editKeep(old, text, editStart, editEnd)
 	}
 	change, changeKnown := s.textChange(src, old, text, keep)
