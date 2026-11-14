@@ -819,12 +819,12 @@ async function fixturePage(
   browser,
   render = payload('<h1>見出し</h1><p>本文</p>'),
   prepareRoot = () => {},
-  { jump = false, live = false, directory = false, edit = '', review = false, launchFail = false, plantuml = false, beforeNavigate, waitUntil = 'load' } = {},
+  { jump = false, live = false, directory = false, edit = '', review = false, reviewBuffer = false, launchFail = false, plantuml = false, beforeNavigate, waitUntil = 'load' } = {},
 ) {
   const root = temp(t);
   prepareRoot(root);
   const jumpRequests = [];
-  const server = await startGoPageServer(t, { root, live, jump, directory, edit, review, launchFail, plantuml, render });
+  const server = await startGoPageServer(t, { root, live, jump, directory, edit, review, reviewBuffer, launchFail, plantuml, render });
   const jumps = server.jumps;
   if (live && !directory)
     await server.setDocument({
@@ -5636,6 +5636,130 @@ test('表のクリップボード・挿入貼り付け・切り取りを確か�
     await editIdle(page);
     assert.match(await page.locator('#gp-edit-status').textContent(), /参照リンク・脚注・相対パス/);
     assert.equal(await page.locator('#gp-edit-layer img').count(), 0);
+  });
+});
+
+test('Neovim の取り決めでコメント・保存の確認・文書ごとの記憶と起動を確かめる', { skip, timeout: 180000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const source = '本文\n';
+  const enter = async (page) => {
+    await page.locator('#gp-review-toggle').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render));
+  };
+  const add = async (page, text) => {
+    await page.locator('#gp-content > p').click();
+    await page.locator('#gp-review-input').fill(text);
+    await page.locator('#gp-review-add').click();
+  };
+  const prepare = async (page, status) => {
+    const waiting = page.waitForResponse((r) => r.url().includes('/_/review/prepare') && r.request().method() === 'POST');
+    await page.locator('#gp-review-prepare').click();
+    const response = await waiting;
+    assert.equal(response.status(), status, await response.text());
+    await page.waitForFunction(() => !document.querySelector('#gp-review-prepare').disabled);
+    return response.json();
+  };
+  const reviewPage = (t) => fixturePage(t, browser, undefined, (root) => {
+    writeFileSync(join(root, 'README.md'), source);
+    mkdirSync(join(root, 'docs'));
+    writeFileSync(join(root, 'docs', 'README.md'), source);
+  }, { live: true, review: true, reviewBuffer: true });
+  const switchBuffer = async ({ page, server }, path, buf, rev) => {
+    await server.setDocument({ path, name: 'README.md', text: source, buf, rev });
+    await page.waitForFunction((rev) => window.gpPreview.current()?.rev === rev &&
+      document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render), rev);
+  };
+
+  await t.test('hello の review だけでコメントを出し、保存前を断って保存後に依頼文を作る', async (t) => {
+    const root = temp(t), path = join(root, 'main.md');
+    writeFileSync(path, '保存前\n');
+    const bridge = await startGoStdio(t, { edit: false, review: true });
+    assert.equal(bridge.ready.review, 1);
+    assert.equal(bridge.ready.edit, undefined);
+    const context = await browser.newContext();
+    t.after(() => context.close());
+    const page = await context.newPage();
+    await page.goto(bridge.url);
+    await bridge.send({ type: 'doc', path, name: 'main.md', text: source, rev: 1 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 1);
+    assert.equal(await page.locator('#gp-edit-toggle').isVisible(), false);
+    await enter(page);
+    await add(page, '保存後に直してください');
+    const rejected = await prepare(page, 409);
+    assert.equal(rejected.error.code, 'changed');
+    await page.waitForFunction(() => document.querySelector('#gp-review-status').textContent === 'Neovim で保存（:w）してから依頼文を作ってください。');
+    assert.equal(await page.locator('#gp-review-output').isVisible(), false);
+    writeFileSync(path, '\ufeff本文\r\n');
+    const data = await prepare(page, 200);
+    assert.ok(data.prompt.includes('main.md'));
+    assert.ok(!data.prompt.includes(root));
+    await page.waitForFunction(() => !document.querySelector('#gp-review-output').hidden);
+    assert.equal(await page.locator('#gp-review-launch').isEnabled(), true);
+    assert.equal(readFileSync(path, 'utf8'), '\ufeff本文\r\n');
+  });
+
+  await t.test('バッファの相対パスと無名の番号ごとに保存して戻し、前の依頼文と入力を捨てる', async (t) => {
+    const f = await reviewPage(t);
+    const { page, root } = f;
+    await enter(page);
+    await add(page, '最初の文書');
+    await prepare(page, 200);
+    await page.locator('#gp-review-input').fill('まだ足していない文');
+    await switchBuffer(f, join(root, 'docs', 'README.md'), 2, 2);
+    assert.equal(await page.locator('.gp-review-card').count(), 0);
+    assert.equal(await page.locator('#gp-review-input').inputValue(), '');
+    assert.equal(await page.locator('#gp-review-output').isVisible(), false);
+    await add(page, '別のフォルダー');
+    await switchBuffer(f, null, 8, 3);
+    assert.equal(await page.locator('.gp-review-card').count(), 0);
+    await add(page, '無名の八番');
+    await switchBuffer(f, null, 9, 4);
+    assert.equal(await page.locator('.gp-review-card').count(), 0);
+    await add(page, '無名の九番');
+    await switchBuffer(f, null, 8, 5);
+    assert.match(await page.locator('#gp-review-cards').textContent(), /無名の八番/);
+    assert.doesNotMatch(await page.locator('#gp-review-cards').textContent(), /無名の九番/);
+    await switchBuffer(f, join(root, 'README.md'), 1, 6);
+    assert.match(await page.locator('#gp-review-cards').textContent(), /最初の文書/);
+    assert.doesNotMatch(await page.locator('#gp-review-cards').textContent(), /別のフォルダー/);
+    const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')));
+    assert.deepEqual(Object.keys(saved.docs).sort(), ['nvim:file:README.md', 'nvim:file:docs/README.md', 'nvim:unnamed:8', 'nvim:unnamed:9']);
+    assert.ok(!JSON.stringify(saved).includes(root));
+    await page.reload();
+    await enter(page);
+    assert.match(await page.locator('#gp-review-cards').textContent(), /最初の文書/);
+  });
+
+  await t.test('表示名があっても無名のバッファの依頼文を断り、コメントと書き出しは使える', async (t) => {
+    const f = await reviewPage(t);
+    await enter(f.page);
+    await switchBuffer(f, null, 7, 2);
+    await add(f.page, '無名へのコメント');
+    const data = await prepare(f.page, 422);
+    assert.equal(data.error.code, 'unnamed');
+    await f.page.waitForFunction(() => document.querySelector('#gp-review-status').textContent ===
+      '名前のないバッファでは依頼文を作れません。ファイルに保存してから作ってください。');
+    assert.equal(await f.page.locator('.gp-review-card').count(), 1);
+    assert.equal(await f.page.locator('#gp-review-export').isEnabled(), true);
+    assert.equal(await f.page.locator('#gp-review-output').isVisible(), false);
+  });
+
+  await t.test('依頼文をコピーして、prepare で確認したルートの Agents Window を一度だけ開く', async (t) => {
+    const { page, root, server } = await reviewPage(t);
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin });
+    await enter(page);
+    await add(page, '起動して直してください');
+    await prepare(page, 200);
+    await page.locator('#gp-review-launch').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-status').textContent.includes('Agents Window を開きました'));
+    await server.sync();
+    assert.deepEqual(server.launches, [{ root }]);
+    assert.match(await page.evaluate(() => navigator.clipboard.readText()), /起動して直してください/);
+    await page.locator('#gp-review-launch').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-status').textContent.includes('もう開いています'));
+    await server.sync();
+    assert.deepEqual(server.launches, [{ root }]);
   });
 });
 

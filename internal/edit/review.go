@@ -44,9 +44,12 @@ func (s *Service) Review(ctx context.Context, doc *string, render uint64, target
 		return document, nil, e
 	}
 	if src.Path == "" {
+		if s.opts.Mode == BufferReview {
+			return document, nil, fault(422, "unnamed", "名前のないバッファでは依頼文を作れません。ファイルに保存してから作ってください。")
+		}
 		return document, nil, fault(422, "unnamed", "名前の無い文書は送れません。ファイルを開いてから使ってください。")
 	}
-	if _, _, e = s.read(src); e != nil {
+	if e = s.readReview(src); e != nil {
 		return document, nil, e
 	}
 	items := make([]ReviewItem, 0, len(targets))
@@ -87,7 +90,7 @@ func (s *Service) Review(ctx context.Context, doc *string, render uint64, target
 		return document, nil, first
 	}
 	// 試しの描画中に外で変わった場合も、古い原文から依頼文を作らない。
-	if _, _, e = s.read(src); e != nil {
+	if e = s.readReview(src); e != nil {
 		return document, nil, e
 	}
 	if _, e = s.source(doc, render); e != nil {
@@ -96,6 +99,25 @@ func (s *Service) Review(ctx context.Context, doc *string, render uint64, target
 	sum := sha256.Sum256([]byte(src.Text))
 	document = ReviewDocument{Root: src.Root, RelPath: filepath.ToSlash(src.File), Render: src.Render, Hash: hex.EncodeToString(sum[:])}
 	return document, items, nil
+}
+
+func (s *Service) readReview(src session.Source) *Error {
+	if _, _, e := s.read(src); e != nil {
+		return e
+	}
+	if s.opts.Mode == BufferReview {
+		text, _, e := readDisk(src)
+		if e != nil {
+			return e
+		}
+		normalize := func(text string) string {
+			return strings.ReplaceAll(strings.TrimPrefix(text, "\ufeff"), "\r\n", "\n")
+		}
+		if normalize(text) != normalize(src.Text) {
+			return fault(409, "changed", "Neovim で保存（:w）してから依頼文を作ってください。")
+		}
+	}
+	return nil
 }
 
 // reviewTarget は 1 件の対象を今の描画の一覧で確かめ、原文の行と抜粋を返す。
