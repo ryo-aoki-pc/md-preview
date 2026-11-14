@@ -45,11 +45,11 @@ export function prepareGoPageTests() {
   })());
 }
 
-export async function renderGoPageDocument({ file, root, output }) {
+export async function renderGoPageDocument({ file, root, output, embedImages = false }) {
   const commands = await prepareGoPageTests();
   assert.equal(commands.skip, false, '書き出しのコマンドが使える');
   // この入力には PlantUML がない。手元に導入済みのコマンドを探さず、製品の render を通す。
-  await execFileAsync(commands.command, ['render', '--no-plantuml', '--root', root, '-o', output, file], {
+  await execFileAsync(commands.command, ['render', '--no-plantuml', '--root', root, ...(embedImages ? ['--embed-images'] : []), '-o', output, file], {
     cwd: pageTestRoot, env: pageGoEnvironment(), windowsHide: true, timeout: 90000,
   });
 }

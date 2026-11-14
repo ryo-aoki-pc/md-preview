@@ -44,6 +44,7 @@ type Options struct {
 	Timeout                          time.Duration
 	Renderer                         Renderer
 	Plantuml                         DiagramRenderer
+	EmbedImages                      bool
 }
 type NoticeCount struct {
 	Kind  string
@@ -331,6 +332,13 @@ func Export(ctx context.Context, o Options) (result Result, err error) {
 	}
 	if failed > 0 {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("PlantUML の図を描けませんでした（%d 件）", failed))
+	}
+	if o.EmbedImages {
+		warnings, e := embedImages(ctx, tree, root, *c.Dir, fileopen.Open)
+		if e != nil {
+			return result, e
+		}
+		result.Warnings = append(result.Warnings, warnings...)
 	}
 	base := filepath.Dir(path)
 	if o.Output != "" {
