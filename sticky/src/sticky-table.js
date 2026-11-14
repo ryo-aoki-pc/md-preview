@@ -297,7 +297,41 @@
     return texts.map((text, index) => normalizeSearch(text).includes(needle) ? index : -1).filter((index) => index >= 0);
   }
 
-  function filterRows(model, matched, keepRows) {
+  function columnSearchMatches(model, texts, query, column = null) {
+    return searchMatches(texts, query).filter((index) => {
+      const cell = model.cells[index];
+      return cell && (column === null || Number.isInteger(column) && cell.col <= column && column < cell.col + cell.colspan);
+    });
+  }
+
+  // 条件の交わりは結合のまとまりに広げる前に、セルが覆う論理行で求める。
+  function intersectSearchRows(model, matches) {
+    let intersection = null;
+    for (const matched of matches) {
+      const rows = new Set();
+      for (const index of matched) {
+        const cell = model.cells[index];
+        if (!cell) continue;
+        for (let row = cell.row; row < cell.row + cell.rowspan; row += 1) rows.add(row);
+      }
+      intersection = intersection === null ? rows : new Set([...intersection].filter((row) => rows.has(row)));
+    }
+    return intersection === null ? [] : [...intersection].sort((a, b) => a - b);
+  }
+
+  const maximumSearchConditions = 5;
+
+  function searchConditions(model, texts, conditions) {
+    const active = conditions.slice(0, maximumSearchConditions).filter((condition) => normalizeSearch(condition.query));
+    const matches = active.map((condition) => columnSearchMatches(model, texts, condition.query, condition.column));
+    return {
+      active: active.length > 0,
+      matches: [...new Set(matches.flat())].sort((a, b) => a - b),
+      rows: intersectSearchRows(model, matches),
+    };
+  }
+
+  function filterRows(model, matched, keepRows, rows = null) {
     const protectedRows = Array.from({ length: model.rowCount }, (_, row) => row < keepRows);
     const kinds = Array(model.rowCount).fill("tbody");
     for (const group of model.groups) {
@@ -306,7 +340,7 @@
         if (group.kind === "thead" || group.kind === "tfoot") protectedRows[row] = true;
       }
     }
-    const matchedRows = new Set(matched.filter((index) => model.cells[index]).map((index) => model.cells[index].row));
+    const matchedRows = new Set(rows === null ? matched.filter((index) => model.cells[index]).map((index) => model.cells[index].row) : rows);
     const anchors = Array.from({ length: model.rowCount }, () => []);
     const ends = Array.from({ length: model.rowCount }, (_, row) => row + 1);
     for (const cell of model.cells) {
@@ -376,7 +410,7 @@
   }
 
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, pickBoundaries, crossCells, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, clampColumnWidth, resizableColumns, columnShape, reconcileColumnWidths, cellColumnWidths, cellManualWrap, searchMatches, filterRows, tableMatrix, toTsv, toHtml };
+    module.exports = { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, pickBoundaries, crossCells, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, clampColumnWidth, resizableColumns, columnShape, reconcileColumnWidths, cellColumnWidths, cellManualWrap, searchMatches, columnSearchMatches, intersectSearchRows, searchConditions, filterRows, tableMatrix, toTsv, toHtml };
   }
   if (typeof document === "undefined") return;
 
@@ -751,7 +785,7 @@
   }
 
   function closeSearch(record) {
-    record.search = { open: false, query: "", index: 0, filter: false, composing: false };
+    record.search = { open: false, query: "", column: null, conditions: [], index: 0, filter: false, composing: false };
     removeSearch(record);
     refresh(record);
     if (record.bar) record.bar.buttons.search.focus({ preventScroll: true });
@@ -761,11 +795,30 @@
     window.clearTimeout(record.searchTimer);
     record.searchTimer = 0;
     if (!record.searchUi || record.search.composing) return;
-    const query = record.searchUi.input.value;
-    if (record.search.query !== query) {
-      record.search.query = query;
+    const conditions = record.searchUi.entries.map(({ input, select }) => ({ query: input.value, column: select.value === "" ? null : Number(select.value) }));
+    const [first, ...rest] = conditions;
+    if (record.search.query !== first.query || record.search.column !== first.column || JSON.stringify(record.search.conditions) !== JSON.stringify(rest)) {
+      record.search.query = first.query;
+      record.search.column = first.column;
+      record.search.conditions = rest;
       record.search.index = 0;
     }
+  }
+
+  function tableSearch(record, parts) {
+    const searched = searchConditions(parts.model, parts.elements.map((cell) => cell.textContent), [record.search, ...record.search.conditions]);
+    const keepRows = Math.max(headerRowCount(parts.model), record.override.rows === null ? record.region.rows : record.override.rows);
+    const hiddenRows = record.search.filter && searched.active ? filterRows(parts.model, searched.matches, keepRows, searched.rows) : [];
+    const rows = new Set(searched.rows);
+    // 表示のために残した行も、条件の交わりを覆わなければ一致に含めない。
+    const matches = record.search.filter ? searched.matches.filter((index) => {
+      const cell = parts.model.cells[index];
+      for (let row = cell.row; row < cell.row + cell.rowspan; row += 1) {
+        if (rows.has(row)) return true;
+      }
+      return false;
+    }) : searched.matches;
+    return { ...searched, hiddenRows, matches };
   }
 
   function scheduleSearch(record) {
@@ -784,7 +837,7 @@
     updateSearchQuery(record);
     write(() => {
       const parts = tableParts(record.table);
-      const matched = searchMatches(parts.elements.map((cell) => cell.textContent), record.search.query);
+      const matched = tableSearch(record, parts).matches;
       const index = record.search.index < matched.length ? record.search.index : 0;
       record.search.index = matched.length ? (index + direction + matched.length) % matched.length : 0;
       refresh(record);
@@ -814,34 +867,6 @@
       node.addEventListener(type, handler);
       handlers.push([node, type, handler]);
     }
-    const input = document.createElement("input");
-    input.type = "search";
-    input.setAttribute("data-md-table-sticky-search-input", "");
-    input.setAttribute("aria-label", "表の中を検索");
-    input.placeholder = "表の中を検索";
-    input.value = record.search.query;
-    setStyles(input, {
-      "font-size": "12px", "font-family": "inherit", "line-height": "1.5", "max-width": "100%", "min-width": "0",
-      color: "var(--gl-text-color-default, #333238)", background: "var(--gl-background-color-default, #fff)",
-      border: "1px solid var(--gl-border-color-default, #dcdcde)", "border-radius": "3px", padding: "0 5px", margin: "0",
-    });
-    listen(input, "input", (event) => {
-      if (event.isComposing || record.search.composing) {
-        window.clearTimeout(record.searchTimer);
-        record.searchTimer = 0;
-        return;
-      }
-      scheduleSearch(record);
-    });
-    listen(input, "compositionstart", () => {
-      record.search.composing = true;
-      window.clearTimeout(record.searchTimer);
-      record.searchTimer = 0;
-    });
-    listen(input, "compositionend", () => {
-      record.search.composing = false;
-      scheduleSearch(record);
-    });
     function button(action, text, description, handler) {
       const node = document.createElement("button");
       node.type = "button";
@@ -858,6 +883,82 @@
       listen(node, "click", handler);
       return node;
     }
+    const entries = [];
+    [record.search, ...record.search.conditions].forEach((condition, index) => {
+      const row = document.createElement("div");
+      row.setAttribute("data-md-table-sticky-search-condition", "");
+      setStyles(row, { display: "inline-flex", "align-items": "center", "flex-wrap": "wrap", gap: "4px", "max-width": "100%" });
+      const label = document.createElement("label");
+      setStyles(label, { display: "inline-flex", "align-items": "center", gap: "4px", margin: "0", "font-weight": "normal" });
+      const select = document.createElement("select");
+      select.setAttribute("data-md-table-sticky-search-column", "");
+      select.setAttribute("aria-label", "条件 " + (index + 1) + " の列");
+      const input = document.createElement("input");
+      input.type = "search";
+      input.setAttribute(index === 0 ? "data-md-table-sticky-search-input" : "data-md-table-sticky-search-condition-input", "");
+      input.setAttribute("aria-label", index === 0 ? "表の中を検索" : "条件 " + (index + 1) + " の文字");
+      input.placeholder = "表の中を検索";
+      input.value = condition.query;
+      const styles = {
+        "font-size": "12px", "font-family": "inherit", "line-height": "1.5", "max-width": "100%", "min-width": "0",
+        color: "var(--gl-text-color-default, #333238)", background: "var(--gl-background-color-default, #fff)",
+        border: "1px solid var(--gl-border-color-default, #dcdcde)", "border-radius": "3px", padding: "0 5px", margin: "0",
+      };
+      setStyles(input, styles);
+      setStyles(select, { ...styles, "max-width": "220px" });
+      listen(input, "input", (event) => {
+        if (event.isComposing || record.search.composing) {
+          window.clearTimeout(record.searchTimer);
+          record.searchTimer = 0;
+          return;
+        }
+        scheduleSearch(record);
+      });
+      listen(input, "compositionstart", () => {
+        record.search.composing = true;
+        window.clearTimeout(record.searchTimer);
+        record.searchTimer = 0;
+      });
+      listen(input, "compositionend", () => {
+        record.search.composing = false;
+        scheduleSearch(record);
+      });
+      listen(select, "change", () => {
+        updateSearchQuery(record);
+        write(() => refresh(record));
+      });
+      const remove = button("search-remove", "条件を消す", "条件 " + (index + 1) + " を消す", () => {
+        if (record.search.composing) return;
+        updateSearchQuery(record);
+        if (index === 0) {
+          record.search.query = "";
+          record.search.column = null;
+        } else record.search.conditions.splice(index - 1, 1);
+        record.search.index = 0;
+        write(() => {
+          removeSearch(record);
+          refresh(record);
+          record.searchUi.input.focus({ preventScroll: true });
+        });
+      });
+      label.append(document.createTextNode("列"), select);
+      row.append(label, input, remove);
+      element.appendChild(row);
+      entries.push({ input, select });
+    });
+    const input = entries[0].input;
+    const add = button("search-add", "条件を足す", "検索の条件を足す（5 個まで）", () => {
+      if (record.search.composing || entries.length >= maximumSearchConditions) return;
+      updateSearchQuery(record);
+      record.search.conditions.push({ query: "", column: null });
+      record.search.index = 0;
+      write(() => {
+        removeSearch(record);
+        refresh(record);
+        record.searchUi.entries[record.search.conditions.length].input.focus({ preventScroll: true });
+      });
+    });
+    add.disabled = entries.length >= maximumSearchConditions;
     const previous = button("search-prev", "前", "前の一致へ（Shift+Enter）", () => moveSearch(record, -1));
     const next = button("search-next", "次", "次の一致へ（Enter）", () => moveSearch(record, 1));
     const count = document.createElement("span");
@@ -878,19 +979,19 @@
     });
     label.append(filter, document.createTextNode("一致した行だけ表示"));
     const close = button("search-close", "閉じる", "検索を閉じる（Esc）", () => write(() => closeSearch(record)));
-    element.append(input, previous, next, count, label, close);
+    element.append(add, previous, next, count, label, close);
     listen(element, "keydown", (event) => {
       if (event.key === "Escape" && !state.picking) {
         event.preventDefault();
         event.stopPropagation();
         write(() => closeSearch(record));
-      } else if (event.key === "Enter" && event.target === input && !event.isComposing && event.keyCode !== 229 && !record.search.composing) {
+      } else if (event.key === "Enter" && entries.some((entry) => event.target === entry.input) && !event.isComposing && event.keyCode !== 229 && !record.search.composing) {
         event.preventDefault();
         event.stopPropagation();
         moveSearch(record, event.shiftKey ? -1 : 1);
       }
     });
-    return { element, input, count, filter, handlers };
+    return { element, input, entries, count, filter, handlers, names: null };
   }
 
   function syncSearch(record) {
@@ -899,9 +1000,34 @@
       return;
     }
     if (!record.searchUi) record.searchUi = createSearch(record);
-    const { element, count, filter } = record.searchUi;
+    const { element, count, filter, entries } = record.searchUi;
+    const names = columnLabels(record.model, record.elements.map((cell) => cell.textContent));
+    const stamp = JSON.stringify(names);
+    if (record.searchUi.names !== stamp) {
+      record.searchUi.names = stamp;
+      entries.forEach(({ select }, index) => {
+        const column = index === 0 ? record.search.column : record.search.conditions[index - 1].column;
+        const options = [document.createElement("option")];
+        options[0].value = "";
+        options[0].textContent = "すべての列";
+        names.forEach((name, col) => {
+          const option = document.createElement("option");
+          option.value = String(col);
+          option.textContent = "列 " + (col + 1) + (name ? "（" + name + "）" : "");
+          options.push(option);
+        });
+        if (column !== null && column >= names.length) {
+          const option = document.createElement("option");
+          option.value = String(column);
+          option.textContent = "列 " + (column + 1) + "（現在はありません）";
+          options.push(option);
+        }
+        select.replaceChildren(...options);
+        select.value = column === null ? "" : String(column);
+      });
+    }
     const total = record.matches.length;
-    const text = !normalizeSearch(record.search.query) ? "" : total ? (record.search.index + 1) + " / " + total + " 件" : "0 件";
+    const text = ![record.search, ...record.search.conditions].slice(0, maximumSearchConditions).some((condition) => normalizeSearch(condition.query)) ? "" : total ? (record.search.index + 1) + " / " + total + " 件" : "0 件";
     if (count.textContent !== text) count.textContent = text;
     filter.checked = record.search.filter;
     element.style.setProperty("display", record.printing ? "none" : "flex", "important");
@@ -1635,10 +1761,10 @@
     if (record.hover) record.hover.index = hovered ? parts.elements.indexOf(hovered) : -1;
     record.region = frozenRegion(parts.model);
     if (record.override.rows !== null) record.override.rows = lowerBoundary(usableRowBoundaries(parts.model), record.override.rows);
-    record.matches = record.search.open ? searchMatches(parts.elements.map((cell) => cell.textContent), record.search.query) : [];
+    const searched = record.search.open ? tableSearch(record, parts) : { matches: [], hiddenRows: [] };
+    record.matches = searched.matches;
     if (record.search.index >= record.matches.length) record.search.index = 0;
-    const keepRows = Math.max(headerRowCount(parts.model), record.override.rows === null ? record.region.rows : record.override.rows);
-    record.hiddenRows = record.search.open && record.search.filter && normalizeSearch(record.search.query) ? filterRows(parts.model, record.matches, keepRows) : [];
+    record.hiddenRows = searched.hiddenRows;
     record.skipped = parts.model.overlap || (parts.model.cells.length > 0 && parts.model.grid[0][0] === undefined);
     const currentCells = new Set(parts.elements);
     const currentRows = new Set(parts.rows);
@@ -1881,7 +2007,7 @@
             inners: new Map(), base: new Map(), borderCache: null, override: { rows: null, cols: null }, bar: null, columns: null, wrap: null, scrollX: false, onScroll: null, printing: false, skipped: false,
             nativeFull: false, fitHeight: false, picking: false, highlight: false, compact: false, hover: null, elements: [], desired: null,
             widths: [], widthShape: [],
-            search: { open: false, query: "", index: 0, filter: false, composing: false }, searchUi: null, searchTimer: 0, matches: [], hiddenRows: [],
+            search: { open: false, query: "", column: null, conditions: [], index: 0, filter: false, composing: false }, searchUi: null, searchTimer: 0, matches: [], hiddenRows: [],
           };
           state.records.set(table, record);
           state.processed.add(table);

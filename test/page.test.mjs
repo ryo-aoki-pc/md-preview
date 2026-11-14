@@ -6219,6 +6219,234 @@ test('本文の差分更新と編集用の接点', { skip, timeout: 120000 }, as
   });
 });
 
+test('表の固定の列ごとの絞り込み', { skip, timeout: 120000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const table = (heading = '担当', extra = '') => '<table><thead><tr><th>地域</th><th>' + heading + '</th><th>状態</th></tr></thead>' +
+    '<tbody><tr><td rowspan="2">東</td><td>赤</td><td>完了</td></tr>' +
+    '<tr><td>青</td><td>保留</td></tr><tr><td>西</td><td>東</td><td>完了</td></tr>' +
+    '<tr><td>西</td><td>赤</td><td>保留</td></tr><tr><td colspan="3">次の区画</td></tr>' +
+    '<tr><td>南</td><td>青</td><td>完了</td></tr>' + extra + '</tbody>' +
+    '<tfoot><tr><td colspan="3">合計</td></tr></tfoot></table>';
+  const setup = async (t, html = table()) => {
+    const fixture = await fixturePage(t, browser, payload(html));
+    await fixture.page.locator('#gp-sticky-toggle').click();
+    await fixture.page.locator('[data-md-table-sticky-action="search"]').click();
+    return fixture;
+  };
+  const input = (page) => page.locator('[data-md-table-sticky-search-input]');
+  const columns = (page) => page.locator('[data-md-table-sticky-search-column]');
+  const extras = (page) => page.locator('[data-md-table-sticky-search-condition-input]');
+  const action = (page, name) => page.locator('[data-md-table-sticky-action="search-' + name + '"]');
+  const hidden = (page) => page.evaluate(() => window.__mdTableSticky.records.get(window.gpPreview.tables()[0]).hiddenRows);
+  const waitHidden = (page, rows) => page.waitForFunction((rows) => {
+    const record = window.__mdTableSticky.records.get(window.gpPreview.tables()[0]);
+    return JSON.stringify(record.hiddenRows) === JSON.stringify(rows);
+  }, rows);
+  const add = async (page, column, query) => {
+    await action(page, 'add').click();
+    await columns(page).last().selectOption(String(column));
+    await extras(page).last().fill(query);
+  };
+
+  await t.test('既定は表全体を検索し、列を選ぶと強調と絞り込みをその列に限る', async (t) => {
+    const { page } = await setup(t);
+    assert.deepEqual(await columns(page).first().locator('option').allTextContents(),
+      ['すべての列', '列 1（地域）', '列 2（担当）', '列 3（状態）']);
+    await input(page).fill('東');
+    await input(page).press('Enter');
+    assert.match(await page.locator('[data-md-table-sticky-search-count]').textContent(), /2 件/);
+    await action(page, 'filter').check();
+    await waitHidden(page, [4, 5, 6]);
+    await columns(page).first().selectOption('0');
+    await waitHidden(page, [3, 4, 5, 6]);
+    const highlighted = await page.evaluate(() => {
+      const record = window.__mdTableSticky.records.get(window.gpPreview.tables()[0]);
+      return record.matches.map((index) => ({ text: record.elements[index].textContent, col: record.model.cells[index].col }));
+    });
+    assert.deepEqual(highlighted, [{ text: '東', col: 0 }]);
+    await input(page).press('Shift+Enter');
+    assert.match(await page.locator('[data-md-table-sticky-search-count]').textContent(), /1 \/ 1 件/);
+    await input(page).press('Escape');
+    assert.deepEqual(await hidden(page), []);
+    assert.equal(await page.locator('[data-md-table-sticky-search]').count(), 0);
+  });
+
+  await t.test('二つ条件を足すと論理行で AND を取り、条件を消すと表示を戻す', async (t) => {
+    const { page } = await setup(t);
+    await columns(page).first().selectOption('0');
+    await input(page).fill('東');
+    await action(page, 'filter').check();
+    await add(page, 1, '青');
+    await waitHidden(page, [3, 4, 5, 6]);
+    await add(page, 2, '完了');
+    // 青と完了は同じ rowspan のまとまりでも別の論理行なので、交わらない。
+    await waitHidden(page, [1, 2, 3, 4, 5, 6]);
+    await extras(page).last().press('Enter');
+    assert.equal(await page.locator('[data-md-table-sticky-search-count]').textContent(), '0 件');
+    await action(page, 'remove').last().click();
+    await waitHidden(page, [3, 4, 5, 6]);
+    await extras(page).last().press('Enter');
+    assert.match(await page.locator('[data-md-table-sticky-search-count]').textContent(), /2 件/);
+    assert.equal(await page.locator('tbody tr').nth(0).isVisible(), true);
+    assert.equal(await page.locator('tbody tr').nth(1).isVisible(), true);
+    await action(page, 'remove').last().click();
+    await action(page, 'remove').first().click();
+    await waitHidden(page, []);
+    assert.equal(await input(page).inputValue(), '');
+    assert.equal(await columns(page).first().inputValue(), '');
+    assert.equal(await action(page, 'filter').isChecked(), true);
+  });
+
+  await t.test('交わりがないと見出しを強調せず、単独の条件では見出しも一致に含める', async (t) => {
+    const { page } = await setup(t);
+    const count = page.locator('[data-md-table-sticky-search-count]');
+    const heading = page.locator('thead th').first();
+    await columns(page).first().selectOption('0');
+    await input(page).fill('地域');
+    await input(page).press('Enter');
+    assert.equal(await count.textContent(), '1 / 1 件');
+    assert.match(await heading.evaluate((cell) => cell.style.backgroundImage), /255, 196, 0/);
+    await add(page, 2, '見つからない');
+    await extras(page).press('Enter');
+    assert.equal(await count.textContent(), '1 / 1 件');
+    await action(page, 'filter').check();
+    await waitHidden(page, [1, 2, 3, 4, 5, 6]);
+    assert.equal(await count.textContent(), '0 件');
+    assert.doesNotMatch(await heading.evaluate((cell) => cell.style.backgroundImage), /255, 196, 0/);
+    for (const name of ['prev', 'next']) {
+      await action(page, name).click();
+      assert.equal(await count.textContent(), '0 件');
+    }
+    await action(page, 'remove').last().click();
+    assert.equal(await count.textContent(), '1 / 1 件');
+    assert.match(await heading.evaluate((cell) => cell.style.backgroundImage), /255, 196, 0/);
+    assert.equal(await heading.isVisible(), true);
+  });
+
+  await t.test('条件を足すと追加した入力欄へ移り、消すと最初の入力欄へ戻る', async (t) => {
+    const { page } = await setup(t);
+    for (let index = 0; index < 2; index++) {
+      await action(page, 'add').click();
+      assert.equal(await extras(page).last().evaluate((element) => element === document.activeElement), true);
+    }
+    await action(page, 'remove').nth(1).click();
+    assert.equal(await input(page).evaluate((element) => element === document.activeElement), true);
+    await action(page, 'remove').last().click();
+    assert.equal(await input(page).evaluate((element) => element === document.activeElement), true);
+    await input(page).fill('東');
+    await action(page, 'remove').first().click();
+    assert.equal(await input(page).inputValue(), '');
+    assert.equal(await input(page).evaluate((element) => element === document.activeElement), true);
+  });
+
+  await t.test('rowspan のまとまり・見出し・区切り・thead・tfoot を保つ', async (t) => {
+    const { page } = await setup(t);
+    await columns(page).first().selectOption('1');
+    await input(page).fill('青');
+    await action(page, 'filter').check();
+    await waitHidden(page, [3, 4]);
+    for (const row of [0, 1, 2, 5, 6, 7]) assert.equal(await page.locator('table tr').nth(row).isVisible(), true);
+    await columns(page).first().selectOption('0');
+    await input(page).fill('南');
+    await waitHidden(page, [1, 2, 3, 4]);
+    assert.equal(await page.locator('tbody tr').nth(4).isVisible(), true);
+    await input(page).fill('見つからない');
+    await waitHidden(page, [1, 2, 3, 4, 5, 6]);
+    assert.equal(await page.locator('thead tr').isVisible(), true);
+    assert.equal(await page.locator('tfoot tr').isVisible(), true);
+  });
+
+  await t.test('全幅表示でも列と条件を操作し、5 個の上限を守る', async (t) => {
+    const { page } = await setup(t);
+    await page.locator('[data-md-table-sticky-action="float"]').click();
+    await page.locator('[data-md-table-sticky-float-panel]').waitFor();
+    await columns(page).first().selectOption('0');
+    await input(page).fill('南');
+    await action(page, 'filter').check();
+    await add(page, 1, '青');
+    await waitHidden(page, [1, 2, 3, 4]);
+    for (let index = 0; index < 3; index++) await action(page, 'add').click();
+    assert.equal(await columns(page).count(), 5);
+    assert.equal(await action(page, 'add').isDisabled(), true);
+    await action(page, 'remove').last().click();
+    assert.equal(await columns(page).count(), 4);
+    assert.equal(await action(page, 'add').isEnabled(), true);
+    await input(page).press('Escape');
+    assert.equal(await page.locator('[data-md-table-sticky-search]').count(), 0);
+    assert.equal(await page.locator('[data-md-table-sticky-float]').isVisible(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('[data-md-table-sticky-float]').count(), 0);
+  });
+
+  await t.test('差分描画では既存の検索と同じく条件を保ち、再読込では保存しない', async (t) => {
+    const fixture = await setup(t);
+    const { page } = fixture;
+    await columns(page).first().selectOption('0');
+    await input(page).fill('南');
+    await action(page, 'filter').check();
+    await add(page, 1, '青');
+    await waitHidden(page, [1, 2, 3, 4]);
+    await page.evaluate(() => { window.keptFilterRecord = window.__mdTableSticky.records.get(window.gpPreview.tables()[0]); });
+    await fixture.send('render', payload(table('担当者', '<tr><td>南</td><td>赤</td><td>完了</td></tr>'), { rev: 2 }));
+    await settledRender(page, 2);
+    await waitHidden(page, [1, 2, 3, 4, 7]);
+    assert.equal(await page.evaluate(() => window.keptFilterRecord === window.__mdTableSticky.records.get(window.gpPreview.tables()[0])), true);
+    assert.equal(await input(page).inputValue(), '南');
+    assert.equal(await extras(page).inputValue(), '青');
+    assert.equal(await columns(page).nth(1).inputValue(), '1');
+    assert.equal(await columns(page).first().locator('option').nth(2).textContent(), '列 2（担当者）');
+    await page.reload();
+    await page.locator('[data-md-table-sticky-bar]').waitFor();
+    assert.equal(await page.locator('[data-md-table-sticky-search]').count(), 0);
+    await page.locator('[data-md-table-sticky-action="search"]').click();
+    assert.equal(await columns(page).count(), 1);
+    assert.equal(await input(page).inputValue(), '');
+    assert.deepEqual(await hidden(page), []);
+  });
+
+  await t.test('差分描画で選んだ列がなくなると条件を保って不一致にする', async (t) => {
+    const fixture = await setup(t);
+    const { page } = fixture;
+    await add(page, 2, '完了');
+    await action(page, 'filter').check();
+    await waitHidden(page, [4]);
+    await page.evaluate(() => { window.keptFilterRecord = window.__mdTableSticky.records.get(window.gpPreview.tables()[0]); });
+    const html = '<table><thead><tr><th>地域</th><th>担当</th></tr></thead><tbody>' +
+      '<tr><td>東</td><td>完了</td></tr><tr><td>西</td><td>青</td></tr></tbody></table>';
+    await fixture.send('render', payload(html, { rev: 2 }));
+    await settledRender(page, 2);
+    await waitHidden(page, [1, 2]);
+    assert.equal(await page.evaluate(() => window.keptFilterRecord === window.__mdTableSticky.records.get(window.gpPreview.tables()[0])), true);
+    assert.equal(await extras(page).inputValue(), '完了');
+    assert.equal(await columns(page).last().inputValue(), '2');
+    assert.deepEqual(await columns(page).last().locator('option').allTextContents(),
+      ['すべての列', '列 1（地域）', '列 2（担当）', '列 3（現在はありません）']);
+    assert.equal(await page.locator('[data-md-table-sticky-search-count]').textContent(), '0 件');
+    await action(page, 'filter').uncheck();
+    assert.equal(await page.locator('[data-md-table-sticky-search-count]').textContent(), '0 件');
+    await columns(page).last().selectOption('1');
+    assert.equal(await page.locator('[data-md-table-sticky-search-count]').textContent(), '1 / 1 件');
+  });
+
+  await t.test('空の最初の条件・重複した列名・空の列名・記号と全半角を扱う', async (t) => {
+    const html = '<table><thead><tr><th>同名</th><th>同名</th><th></th></tr></thead><tbody>' +
+      '<tr><td>別</td><td>ＡｂＣ　［ｘ］．＊</td><td></td></tr>' +
+      '<tr><td>abc [x].*</td><td>abc xxxx</td><td>対象</td></tr></tbody></table>';
+    const { page } = await setup(t, html);
+    assert.deepEqual(await columns(page).first().locator('option').allTextContents(),
+      ['すべての列', '列 1（同名）', '列 2（同名）', '列 3']);
+    await add(page, 1, 'aBc [x].*');
+    await action(page, 'filter').check();
+    await waitHidden(page, [2]);
+    await columns(page).last().selectOption('2');
+    await extras(page).fill('対象');
+    await waitHidden(page, [1]);
+    await extras(page).fill('　');
+    await waitHidden(page, []);
+  });
+});
+
 test('ローカルのプレビューページ', { skip, timeout: 180000 }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
