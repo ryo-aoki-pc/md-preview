@@ -977,12 +977,15 @@
 
   // 候補は写しから引く。公開するのは位置だけで、節点や表示後の文字は渡さない。
   function targetsInRange(start, end) {
-    const blocks = [], html = [];
+    const blocks = [], html = [], sections = [];
     for (const node of shadow?.querySelectorAll('[data-sourcepos]') || []) {
       const range = node.getAttribute('data-sourcepos');
       const line = Number(range?.split(':')[0]);
-      if (htmlPosition.test(range || '') && start <= line && line <= end)
+      if (htmlPosition.test(range || '') && start <= line && line <= end) {
         blocks.push({ tag: node.localName, range });
+        if (node.parentNode === shadow && /^h[1-6]$/.test(node.localName))
+          sections.push({ kind: 'section', tag: node.localName, range });
+      }
     }
     for (const run of htmlRuns()) {
       const first = run.prev ? Number(run.prev.range.split('-')[1].split(':')[0]) : 0;
@@ -990,7 +993,7 @@
       if (first <= end && start <= last) html.push({ kind: 'html',
         ...(run.prev ? { prev: { ...run.prev } } : {}), ...(run.next ? { next: { ...run.next } } : {}) });
     }
-    return { blocks, html };
+    return { blocks, html, sections };
   }
 
   // コメントの対象の内容の指紋。写し（サーバーの HTML）から作るので、数式・図・表の固定など
@@ -1007,21 +1010,51 @@
   // BASE は URL なので、文字列にしてから比べて切る（token とポートを指紋に入れない）。
   const baseHref = BASE.href;
   const withoutBase = (value) => typeof value === 'string' && value.startsWith(baseHref) ? value.slice(baseHref.length) : value || '';
-  function canonical(node, root) {
-    // コードの中は改行と字下げも内容なので、空白を畳まない。
+  function canonical(node, root, sectionLevel = null) {
+    // コードの中だけ、改行と字下げも内容として保つ。
     if (node.nodeType === Node.TEXT_NODE) return node.parentElement?.closest('pre') ? node.data : node.data.replace(/\s+/g, ' ');
     if (node.nodeType !== Node.ELEMENT_NODE || node.matches('a.anchor, a.footnote-backref')) return '';
+    // 目次には節の外の見出しも入るので、節では存在だけを比べる。
+    if (sectionLevel !== null && node.matches('ul.section-nav')) return '\u0001[toc]';
     // タスクのチェックは内容の違いなので、入れるかどうかだけを含める。
     if (node.localName === 'input') return node.getAttribute('type') === 'checkbox' ? '\u0001[' + (node.hasAttribute('checked') ? 'x' : ' ') + ']' : '';
     if (node.matches('a[data-footnote-ref]')) return '\u0001[^]';
     const attrs = node.localName === 'img' ? ' alt=' + (node.getAttribute('alt') || '') + ' src=' + withoutBase(node.getAttribute('src'))
       : node.localName === 'a' ? ' href=' + withoutBase(node.getAttribute('href')) : '';
-    const name = node === root && /^h[1-6]$/.test(node.localName) ? 'h' : node.localName;
-    return '\u0001<' + name + attrs + '>' + Array.from(node.childNodes, (child) => canonical(child, root)).join('') + '\u0001</>';
+    const name = node === root && /^h[1-6]$/.test(node.localName)
+      ? 'h' + (sectionLevel === null ? '' : Number(node.localName[1]) - sectionLevel) : node.localName;
+    return '\u0001<' + name + attrs + '>' + Array.from(node.childNodes, (child) => canonical(child, root, sectionLevel)).join('') + '\u0001</>';
   }
-  const fingerprintOf = (nodes) => digest(nodes.map((node) => canonical(node, node)).join('').trim());
+  const fingerprintOf = (nodes, sectionLevel = null) => digest(nodes.map((node) => canonical(node, node, sectionLevel)).join('').trim());
   function fingerprint(target) {
     if (!shadow) return '';
+    if (target?.kind === 'section' && /^h[1-6]$/.test(target.tag)) {
+      const heading = shadowSource(target.tag, target.range);
+      if (heading?.parentNode !== shadow) return '';
+      // 子の節も含め、次の同じか上のレベルの最上位の見出しの直前までを指紋にする。
+      // 節ごとのレベル変更に追従し、子だけの変更は区別するため、見出しのレベルは先頭との差で比べる。
+      const nodes = [];
+      const first = Number(target.range.split(':')[0]);
+      let end = Infinity;
+      for (let node = heading; node; node = node.nextSibling) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          if (node.matches('section[data-footnotes]')) break;
+          if (node !== heading && /^h[1-6]$/.test(node.localName) && node.localName <= heading.localName) {
+            const boundary = htmlBoundary(node);
+            if (boundary) end = Number(boundary.range.split(':')[0]);
+            break;
+          }
+        }
+        nodes.push(node);
+      }
+      // 脚注の表示は末尾へ集まるが、節への所属は原文の定義の開始行で決める。
+      const definitions = Array.from(shadow.querySelectorAll('section[data-footnotes] li[data-sourcepos]'))
+        .map((node) => ({ node, line: Number(node.getAttribute('data-sourcepos').split(':')[0]) }))
+        .filter(({ line }) => first <= line && line < end)
+        .sort((a, b) => a.line - b.line);
+      nodes.push(...definitions.map(({ node }) => node));
+      return 's:' + fingerprintOf(nodes, Number(heading.localName[1]));
+    }
     if (target?.kind === 'block' && typeof target.tag === 'string' && typeof target.range === 'string') {
       const node = shadowSource(target.tag, target.range);
       return node ? 'b:' + fingerprintOf([node]) : '';

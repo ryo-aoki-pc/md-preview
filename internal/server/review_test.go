@@ -307,6 +307,8 @@ func TestReviewInput(t *testing.T) {
 		t.Fatal(comments, e)
 	}
 	for _, value := range []string{
+		`{"kind":"section","tag":"h1","range":"1:1-1:3"}`,
+		`{"kind":"section","tag":"h6","range":"3:1-4:3"}`,
 		`{"kind":"html","prev":{"tag":"hr","range":"4:5-4:3"},"next":{"tag":"p","range":"6:1-6:5"}}`,
 		`{"kind":"html"}`, `{"kind":"cell","table":0,"row":1,"col":2}`,
 	} {
@@ -317,6 +319,13 @@ func TestReviewInput(t *testing.T) {
 		}
 	}
 	for _, value := range []string{
+		`{"kind":"section","tag":"p","range":"1:1-1:3"}`,
+		`{"kind":"section","tag":"h7","range":"1:1-1:3"}`,
+		`{"kind":"section","tag":"H1","range":"1:1-1:3"}`,
+		`{"kind":"section","tag":"h2","range":"1:1-1:3","end":8}`,
+		`{"kind":"section","tag":"h2"}`,
+		`{"kind":"section","tag":"h2","range":1}`,
+		`{"kind":"section","tag":"h2","range":"2:1-1:3"}`,
 		`null`, `{"kind":"html","prev":null}`, `{"kind":"html","prev":{"tag":"p"}}`,
 		`{"kind":"html","prev":{"tag":"p","range":"1:1-1:2","extra":true}}`,
 		`{"kind":"html","prev":{"tag":"p","range":12}}`, `{"kind":"html","range":"1:1-1:2"}`,
