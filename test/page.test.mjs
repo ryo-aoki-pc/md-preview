@@ -1,6 +1,6 @@
 // ページの配線を、本物の HTTP / SSE・KaTeX・mermaid・ブラウザで確かめる。
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -354,6 +354,44 @@ test('書き出した単一 HTML を file:// で開き、数式と図を外部�
   assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'), code);
   assert.deepEqual(violations, []);
   assert.deepEqual(outside, []);
+  assert.deepEqual(errors, []);
+});
+
+test('画像を埋め込んだ HTML を別のフォルダーへ移しても外部要求と CSP 違反なしで表示する', { skip }, async (t) => {
+  const root = temp(t), destination = temp(t);
+  const file = join(root, 'sample.md'), output = join(root, 'out.html'), moved = join(destination, 'moved.html');
+  // 1 ピクセルの PNG。元の画像を消してから開き、元のフォルダーへの依存がないことを確かめる。
+  const image = join(root, '画像.png');
+  writeFileSync(image, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jX1sAAAAASUVORK5CYII=', 'base64'));
+  writeFileSync(file, '# 画像の持ち出し\n\n![画像](画像.png)\n');
+  await renderGoPageDocument({ file, root, output, embedImages: true });
+  renameSync(output, moved);
+  rmSync(image);
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const context = await browser.newContext();
+  t.after(() => context.close());
+  const outside = [], violations = [], errors = [];
+  await context.exposeBinding('recordImageExportViolation', (_source, value) => violations.push(value));
+  await context.addInitScript(() => {
+    document.addEventListener('securitypolicyviolation', (event) => {
+      void window.recordImageExportViolation({ directive: event.violatedDirective, uri: event.blockedURI });
+    });
+  });
+  context.on('request', (req) => {
+    if (req.url() !== pathToFileURL(moved).href && !/^(data:|blob:)/.test(req.url())) outside.push(req.url());
+  });
+  await context.route('**/*', (route) =>
+    route.request().url() === pathToFileURL(moved).href || /^(data:|blob:)/.test(route.request().url())
+      ? route.continue() : route.abort(),
+  );
+  const page = await context.newPage();
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto(pathToFileURL(moved).href);
+  await page.waitForFunction(() => document.querySelector('#gp-content img')?.naturalWidth > 0);
+  assert.match(await page.locator('#gp-content img').getAttribute('src'), /^data:image\/png;base64,/);
+  assert.deepEqual(outside, []);
+  assert.deepEqual(violations, []);
   assert.deepEqual(errors, []);
 });
 

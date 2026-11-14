@@ -170,7 +170,7 @@ func Run(ctx context.Context, args []string, streams IO, deps Dependencies) int 
 		fn := deps.Render
 		if fn == nil {
 			fn = func(ctx context.Context, o Options, stdout, stderr io.Writer) int {
-				result, err := exporthtml.Export(ctx, exporthtml.Options{File: o.File, Root: o.Root, Output: o.Output, Theme: o.Theme, Width: o.Width, Renderer: deps.Renderer, Plantuml: plantuml})
+				result, err := exporthtml.Export(ctx, exporthtml.Options{File: o.File, Root: o.Root, Output: o.Output, Theme: o.Theme, Width: o.Width, Renderer: deps.Renderer, Plantuml: plantuml, EmbedImages: o.EmbedImages})
 				if err != nil {
 					report(err.Error())
 					return 1
