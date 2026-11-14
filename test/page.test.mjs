@@ -8984,6 +8984,18 @@ test('ブロックを上下へ移動する', { skip, timeout: 240000 }, async (t
     assert.equal(await page.locator('#gp-content > :first-child').evaluate((n) => n.tagName), 'TABLE');
     await send(page, () => page.locator('#gp-edit-undo').click());
     assert.equal(readFileSync(file, 'utf8'), text);
+    // 表全体の原文の入力欄の操作欄からも、表の範囲で移動を送る。
+    await page.locator('#gp-content td').click();
+    await page.locator('#gp-edit-table').click();
+    await page.locator('#gp-edit-table-source').click();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+    const sourceDown = page.locator('#gp-edit-move-down');
+    await page.waitForFunction(() => !document.querySelector('#gp-edit-move-down').hidden && !document.querySelector('#gp-edit-move-down').disabled);
+    const moved = await send(page, () => sourceDown.click());
+    assert.equal(moved.change !== undefined, true);
+    assert.equal(readFileSync(file, 'utf8'), '前\n\n後\n\n' + table + '\n');
+    await send(page, () => page.locator('#gp-edit-undo').click());
+    assert.equal(readFileSync(file, 'utf8'), text);
     const raw = await editablePage(t, browser, '前\n\n<div>一</div>\n\n<div>二</div>\n\n後\n');
     await open(raw.page, raw.page.locator('#gp-content > div').last());
     await send(raw.page, () => raw.page.locator('#gp-edit-block-move-down').click());

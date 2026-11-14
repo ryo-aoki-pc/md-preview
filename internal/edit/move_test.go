@@ -109,6 +109,29 @@ func TestMoveBlockWithoutBlankLine(t *testing.T) {
 	}
 }
 
+// 脚注は名前で対応づけて比べるので、参照の順が変わって番号が付け直される移動も受ける。
+func TestMoveBlockFootnotes(t *testing.T) {
+	text := "前[^a]\n\n後[^b]\n\n[^a]: 一\n[^b]: 二\n"
+	s, h := testService(t, testEngine(t), text, nil)
+	if _, e := moveBlockRequest(t, s, h, moveTargetAt(t, s, h, 1), "up"); e != nil || disk(t, h) != "後[^b]\n\n前[^a]\n\n[^a]: 一\n[^b]: 二\n" {
+		t.Fatalf("番号が変わる移動=%v、本文=%q", e, disk(t, h))
+	}
+	if !strings.Contains(h.src.HTML, `href="#fn-b" id="fnref-b">1</a>`) || !strings.Contains(h.src.HTML, `href="#fn-a" id="fnref-a">2</a>`) {
+		t.Fatalf("番号の付け直し=%s", h.src.HTML)
+	}
+	// 脚注の定義の中身が変わる描画は断る。
+	text = "前[^a]\n\n後\n\n[^a]: 一\n"
+	s, h = testService(t, testEngine(t), text, nil)
+	h.trial = func(text string) (result pipeline.Result, err error) {
+		result, err = h.renderer.Render(context.Background(), text, session.FileContext(h.src.Root, h.src.File, h.src.Dir, false))
+		result.HTML = strings.Replace(result.HTML, "一", "変化", 1)
+		return
+	}
+	if _, e := moveBlockRequest(t, s, h, moveTargetAt(t, s, h, 1), "up"); e == nil || e.Message != blockMoveCompareReason || disk(t, h) != text {
+		t.Fatalf("脚注の中身の変化=%v、本文=%q", e, disk(t, h))
+	}
+}
+
 func TestMoveBlockBoundaries(t *testing.T) {
 	for _, c := range []struct {
 		name, text, direction, reason string

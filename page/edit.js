@@ -1556,7 +1556,8 @@
     if (!info) return;
     const render = preview.current().render;
     const cell = selectionCell();
-    const range = info.target.range || (cell && models[cell.table]?.info.anchor) || editor?.anchor?.actual;
+    // 表は、表のメニューからでも表全体の原文の入力欄からでも、移動の対象の表の範囲で指す。
+    const range = info.target.range || models[info.target.table]?.info.anchor || (cell && models[cell.table]?.info.anchor) || editor?.anchor?.actual;
     const direction = action.endsWith('-up') ? 'up' : 'down';
     closeMenus();
     cancelSource();
