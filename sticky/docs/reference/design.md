@@ -146,16 +146,25 @@ C は `max(1, H)` から始める。固定する行に、C の境目を `colspan
 
 | 要素 | action | 説明 |
 | --- | --- | --- |
-| `input[type=search][data-md-table-sticky-search-input]` | — | `aria-label` と `placeholder` は「表の中を検索」 |
+| 条件ごとの「列」の `select[data-md-table-sticky-search-column]` | — | `aria-label` は「条件 N の列」。既定は「すべての列」 |
+| 条件ごとの `input[type=search]` | — | 最初は `data-md-table-sticky-search-input`、追加分は `data-md-table-sticky-search-condition-input`。`aria-label` は最初が「表の中を検索」、追加分は「条件 N の文字」。`placeholder` は「表の中を検索」 |
+| 条件ごとの「条件を消す」のボタン | `search-remove` | `aria-label` と `title` は「条件 N を消す」 |
+| 「条件を足す」のボタン | `search-add` | `aria-label` と `title` は「検索の条件を足す（5 個まで）」。5 個で `disabled` にする |
 | 「前」のボタン | `search-prev` | `aria-label` と `title` は「前の一致へ（Shift+Enter）」 |
 | 「次」のボタン | `search-next` | `aria-label` と `title` は「次の一致へ（Enter）」 |
 | `span[data-md-table-sticky-search-count]` | — | `aria-live="polite"` を付ける |
 | 「一致した行だけ表示」のチェックボックス | `search-filter` | `aria-label` と `title` は「一致するセルのある行だけを表示する」 |
 | 「閉じる」のボタン | `search-close` | `aria-label` と `title` は「検索を閉じる（Esc）」 |
 
-状態は `record.search = { open, query, index, filter, composing }` に持つ。保存領域へ書かない。ツールバーの「検索」の押し直し、検索の「閉じる」、欄の Esc で閉じる。閉じると欄、一致、今の番号、「一致した行だけ表示」を空に戻し、重ね塗りと絞り込みを外し、ツールバーの「検索」へフォーカスを戻す。欄の Esc は `preventDefault()` と `stopPropagation()` を呼ぶ。セルを選ぶ状態の Esc は、先に選ぶ状態をやめる。
+状態は `record.search = { open, query, column, conditions, index, filter, composing }` に持つ。`query`・`column` が最初の条件、`conditions` が追加した `{query, column}` の配列で、`column: null` は全列にする。空の欄を含めて 5 個までに制限する。最初の「条件を消す」は `query` と `column` を空と `null` に戻し、追加分はその要素を配列から外す。保存領域へ書かない。ツールバーの「検索」の押し直し、検索の「閉じる」、欄の Esc で閉じる。閉じると欄、列と追加の条件、一致、今の番号、「一致した行だけ表示」を空と既定に戻し、重ね塗りと絞り込みを外し、ツールバーの「検索」へフォーカスを戻す。欄の Esc は `preventDefault()` と `stopPropagation()` を呼ぶ。セルを選ぶ状態の Esc は、先に選ぶ状態をやめる。
 
 一致は DOM に触れない `searchMatches(texts, query)` で求める。セルの `textContent` と欄の文字を `normalize("NFKC")`、小文字、連続する空白を 1 つの空白、前後の空白を除いた形にそろえ、部分一致するセルの番号を行・列の順に返す。空の欄では空の配列を返す。件数は、空の欄では空、一致が無ければ「0 件」、あれば「M / N 件」にする。M は今の一致の番号、N は一致したセルの数にする。
+
+`columnSearchMatches(model, texts, query, column)` は、この一致のうち `cell.col <= column < cell.col + cell.colspan` のセルだけを選ぶ。`null` は全列、範囲外や整数でない列は一致なしにする。`syncSearch` は `columnLabels` から「列 N（見出し）」を作り、名前が空でも番号で区別する。同じ位置の見出しの変更は名前を更新し、選んだ列が無くなれば「列 N（現在はありません）」の選択肢を足して位置を残す。別の列へ自動で移さない。
+
+`searchConditions` は最初の 5 個から正規化後の文字が空でない条件だけを使い、それぞれの列の一致を求める。一致したセルの番号は和集合を重複なく昇順にする。`intersectSearchRows(model, matches)` は、各条件の一致セルが覆う `[row, row + rowspan)` を論理行の集合にし、条件ごとの集合の交わり（AND）を昇順で返す。`rowspan` のまとまりへ広げる前に交わりを求め、同じまとまりの別の行で合う条件を混ぜない。見出しの一致も論理行に入れる。条件が全部空なら、重ね塗りと絞り込みをしない。
+
+「一致した行だけ表示」のチェックなしでは一致セルの和集合を強調してたどる。チェックありでは、交わりの行を覆う一致セルだけに強調・件数・「前」「次」を限る。見出しや結合などを保つために行が残っても、交わりを覆わない一致セルは数えない。
 
 一致したセルには `rgba(255, 196, 0, 0.35)` の黄色を `background-image` で重ねる。今の一致には、さらに `outline: 2px solid rgba(255, 140, 0, 0.9)` と `outline-offset: -2px` を当てる。マウスによる青の強調と同じ処理で重ね塗りを作り、`desired` へ入れる。
 
@@ -167,9 +176,9 @@ GitLab の並べ替えなどで行が動いたら、今の見張りによる `re
 
 ## 一致した行だけ表示
 
-「一致した行だけ表示」にチェックがあり、欄が空でないときだけ行を隠す。隠す行の番号は DOM に触れない `filterRows(model, matched, keepRows)` で求め、昇順で返す。`matched` は一致したセルの番号にする。`keepRows` は `headerRowCount(model)` と、手動なら `record.override.rows`、自動なら `record.region.rows` の大きい方にする。半分の上限で実際には固定しない場合も、この先頭の範囲は残す。
+「一致した行だけ表示」にチェックがあり、文字のある条件が 1 個以上あるときだけ行を隠す。隠す行の番号は DOM に触れない `filterRows(model, matched, keepRows, rows)` で求め、昇順で返す。`matched` は一致したセルの番号、`rows` は条件の全部に合う論理行の交わりにする。`rows` を省略した場合は、一致セルの開始行を使う。`keepRows` は `headerRowCount(model)` と、手動なら `record.override.rows`、自動なら `record.region.rows` の大きい方にする。半分の上限で実際には固定しない場合も、この先頭の範囲は残す。
 
-先頭の `keepRows` 行、`thead` の行、`tfoot` の行は隠さない。残りの行は、あるセルの `[row, row + rowspan)` を同じまとまりとし、推移的につながる行もまとめる。まとまりの行で始まる一致したセルがあれば、そのまとまりを残し、無ければ隠す。`col === 0 && colspan === colCount && rowspan === 1` のセルだけの行は区切りとし、それ自身が一致するか、その後ろから次の区切りまでに残るまとまりがあれば残す。一致が 0 件なら、必ず残す行を除いて本文の行をすべて隠す。
+先頭の `keepRows` 行、`thead` の行、`tfoot` の行は隠さない。残りの行は、あるセルの `[row, row + rowspan)` を同じまとまりとし、推移的につながる行もまとめる。まとまりの中に交わりの行があれば、そのまとまりを残し、無ければ隠す。`col === 0 && colspan === colCount && rowspan === 1` のセルだけの行は区切りとし、それ自身が交わりに入るか、その後ろから次の区切りまでに残るまとまりがあれば残す。交わりが空なら、必ず残す行を除いて本文の行をすべて隠す。
 
 隠す `tr` は `desired` で `display: none` にする。検索の文字や絞り込みを変えるたびにその表を `refresh()` し、行を隠した後の寸法から固定の位置を測る。`refresh()` の初めに使わなくなった要素を戻して忘れるときは、表、包み、枠、ツールバーの基準、今のセル、今の内側の span に加え、今の行 `parts.rows` も残す。`tr` の `originals` を失わないため。
 
@@ -304,7 +313,9 @@ GitLab の本文の外側にある `div.panel-content` は `contain: layout`、`
 
 ## 組み立てと試験
 
-中核はクラシックスクリプトの IIFE にする。DOM に触れない格子と範囲、セルから選ぶ境目、強調するセル、見出しの行数、列の名前、初めの折り返し、セルの折り返し、列の最小の幅、列幅の上下限・つまみの有無・見出しの形と幅の引き継ぎ・セルに当てる幅と折り返し、検索の一致、隠す行、コピーする行列、TSV、HTML の関数は、Node の `module.exports` があるときだけ出す。`document` が無ければ DOM の処理には進まない。
+列ごとの検索は、純粋な関数の試験で、結合セルの列の範囲・重複した列名と空の列・NFKC と小文字の部分一致・論理行の AND・空の条件・5 個の上限を確かめる。ルートの `test/page.test.mjs` は同じ原文を使う mdpreview のページで、列と条件の選択・絞り込み中の強調と移動・列名の変更と列の削除・全幅表示・再描画・IME の合成・解除を確かめる。gitlab.com の実際の画面、AlmaLinux 10 の実機、Edge 以外のブラウザー、スクリーンリーダー、実際の IME、タッチの端末での列ごとの絞り込みは未検証。
+
+中核はクラシックスクリプトの IIFE にする。DOM に触れない格子と範囲、セルから選ぶ境目、強調するセル、見出しの行数、列の名前、初めの折り返し、セルの折り返し、列の最小の幅、列幅の上下限・つまみの有無・見出しの形と幅の引き継ぎ・セルに当てる幅と折り返し、検索の一致・列の範囲・複数条件の論理行の交わり、隠す行、コピーする行列、TSV、HTML の関数は、Node の `module.exports` があるときだけ出す。`document` が無ければ DOM の処理には進まない。
 
 組み立ては、行全体のコメント・空行・行頭の字下げを除く。末尾へ `void 0;` を足し、`encodeURIComponent` して `javascript:` の後へ置く。評価の結果を undefined にし、ページが結果の文字列に置き換わらないようにする。
 
