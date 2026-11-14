@@ -205,6 +205,11 @@ func parseOperation(m map[string]any) (operation, *Error) {
 	get := func(name string, min int) int { n, valid := integer(m[name], min); ok = ok && valid; return n }
 	ok = true
 	switch o.kind {
+	case "setTableSource":
+		if !fields(m, "type", "source") {
+			return o, invalid()
+		}
+		o.source, ok = stringValue(m["source"])
 	case "convert":
 		if !fields(m, "type", "to") {
 			return o, invalid()

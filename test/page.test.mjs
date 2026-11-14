@@ -8126,6 +8126,145 @@ test('数式と図の原文を編集し、描き直しと編集の枠を確か�
   });
 });
 
+test('表全体の原文の編集・拒否・取り消しと Neovim の行置換を確かめる', { skip, timeout: 180000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const pipe = '| 列 | 二列 |\n| --- | --- |\n| 本文 | 値 |';
+  const open = async (page) => {
+    await page.locator('#gp-content td').first().click();
+    await page.locator('#gp-edit-table').click();
+    const source = page.locator('#gp-edit-table-source');
+    assert.equal(await source.textContent(), '表全体の原文を編集');
+    assert.equal(await source.getAttribute('aria-disabled'), 'false');
+    const response = page.waitForResponse((r) => r.url().includes('/_/edit/source?') && new URL(r.url()).searchParams.get('tag') === 'table');
+    await source.click();
+    assert.equal((await response).status(), 200);
+    await page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+    assert.equal(await page.locator('#gp-edit-input').getAttribute('aria-label'), '表全体の原文の編集');
+  };
+
+  for (const [ending, bom] of [['\n', ''], ['\r\n', '\ufeff']]) await t.test('原文・確定・一手の履歴 ' + JSON.stringify(ending), async (t) => {
+    const original = bom + ('前\n\n' + pipe + '\n\n後\n').replaceAll('\n', ending);
+    const { page, file, server } = await editablePage(t, browser, original);
+    if (bom) {
+      // 実際のファイル読み取りと同じく、描画用の本文では BOM を除く（保存先には残す）。
+      await server.setDocument({ path: file, text: original.slice(1), rev: 2 });
+      await page.waitForFunction(() => window.gpPreview.current()?.rev === 2);
+      await editIdle(page);
+    }
+    assert.equal(await page.locator('#gp-edit-menu-table').isVisible(), false);
+    await open(page);
+    const input = page.locator('#gp-edit-input');
+    assert.equal(await input.inputValue(), pipe);
+    assert.equal(await page.locator('#gp-edit-source-label').textContent(), '原文');
+    const source = '| 新列 | 二列 | 三列 |\n| ---: | :---: | --- |\n| 縦\\|棒 | 値 | 追加 |\n| 次 | 二 | 三 |';
+    await input.fill(source);
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.keyboard.press('Control+Enter');
+    const saved = await response;
+    assert.equal(saved.status(), 200);
+    assert.deepEqual(saved.request().postDataJSON().op, { type: 'setTableSource', source });
+    await editIdle(page);
+    const want = bom + ('前\n\n' + source + '\n\n後\n').replaceAll('\n', ending);
+    assert.equal(readFileSync(file, 'utf8'), want);
+    assert.equal(await page.locator('#gp-content table').count(), 1);
+    assert.equal(await page.locator('#gp-content th').count(), 3);
+    assert.match(await page.locator('#gp-content td').first().textContent(), /縦\|棒/);
+    await page.keyboard.press('Control+z');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original);
+    await page.keyboard.press('Control+Shift+z');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), want);
+  });
+
+  await t.test('拒否の理由・再編集・Esc と下書き', async (t) => {
+    const original = pipe + '\n';
+    const { page, file } = await editablePage(t, browser, original);
+    await open(page);
+    const input = page.locator('#gp-edit-input');
+    for (const rejected of ['段落', pipe + '\n\n後の段落', pipe + '\n\n' + pipe, '<table><tr><td>HTML</td></tr></table>']) {
+      await input.fill(rejected);
+      const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+      await page.keyboard.press('Control+Enter');
+      assert.equal((await response).status(), 422);
+      await page.waitForFunction(() => document.querySelector('#gp-edit-status').dataset.kind === 'error');
+      assert.match(await page.locator('#gp-edit-status').textContent(), /パイプの表 1 個/);
+      assert.equal(await input.inputValue(), rejected);
+      assert.equal(readFileSync(file, 'utf8'), original);
+    }
+    await page.keyboard.press('Escape');
+    assert.equal(readFileSync(file, 'utf8'), original);
+    await open(page);
+    assert.equal(await input.inputValue(), pipe);
+    const draft = pipe.replace('本文', '下書き');
+    await input.fill(draft);
+    await page.locator('#gp-edit-toggle').click();
+    assert.equal(readFileSync(file, 'utf8'), original);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    await open(page);
+    assert.equal(await input.inputValue(), draft);
+    await page.keyboard.press('Escape');
+    await open(page);
+    await input.fill(pipe.replace('本文', '確定'));
+    await page.keyboard.press('Control+Enter');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original.replace('本文', '確定'));
+  });
+
+  await t.test('HTML と最上位でない表はメニューに理由を出す', async (t) => {
+    for (const [text, reason] of [
+      ['<table><tr><td>HTML</td></tr></table>\n', /パイプの表だけ/],
+      ['> ' + pipe.replaceAll('\n', '\n> ') + '\n', /最上位/],
+    ]) {
+      const { page, file } = await editablePage(t, browser, text);
+      await page.locator('#gp-content td').first().click();
+      await page.locator('#gp-edit-table').click();
+      const source = page.locator('#gp-edit-table-source');
+      assert.equal(await source.getAttribute('aria-disabled'), 'true');
+      await source.focus();
+      assert.match(await page.locator('#gp-edit-menu-table-reason').textContent(), reason);
+      await source.click({ force: true });
+      assert.equal(readFileSync(file, 'utf8'), text);
+      assert.equal(await page.locator('#gp-edit-layer').getAttribute('data-typing'), 'off');
+      await page.keyboard.press('Escape');
+      if (reason.source.includes('パイプ')) {
+        // HTML のセル単独の原文編集はそのまま使える。
+        await page.locator('#gp-edit-source').click();
+        assert.equal(await page.locator('#gp-edit-input').getAttribute('aria-label'), '表のセルの編集');
+        await page.keyboard.press('Escape');
+      }
+    }
+  });
+
+  await t.test('Neovim へ表全体を一個の行の置換で送る', async (t) => {
+    const bridge = await startGoStdio(t);
+    const context = await browser.newContext();
+    t.after(() => context.close());
+    const page = await context.newPage();
+    await page.goto(bridge.url);
+    const original = '前\n\n' + pipe + '\n\n後\n';
+    await bridge.send({ type: 'doc', path: null, name: '表.md', text: original, buf: 7, rev: 1 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 1);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    await open(page);
+    const source = '| 新列 |\n| ---: |\n| 一 |\n| 二 |';
+    await page.locator('#gp-edit-input').fill(source);
+    await page.keyboard.press('Control+Enter');
+    const edit = await bridge.waitFor('edit');
+    assert.deepEqual(edit, { type: 'edit', id: 1, path: null, buf: 7, rev: 1,
+      edits: [{ start: 2, end: 5, lines: source.split('\n') }] });
+    await bridge.send({ type: 'edit_result', id: edit.id, ok: true });
+    await bridge.send({ type: 'doc', path: null, name: '表.md', text: '前\n\n' + source + '\n\n後\n', buf: 7, rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 2);
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-content table').count(), 1);
+    assert.equal(await page.locator('#gp-content td').count(), 2);
+  });
+});
+
 test('最上位の表の前後への追加と、追加欄で空の表を入れる操作を確かめる', { skip }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());
