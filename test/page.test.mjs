@@ -6181,6 +6181,197 @@ test('本文の差分更新と編集用の接点', { skip, timeout: 120000 }, as
   });
 });
 
+test('本文のリンク切れの点検と再点検を確かめる', { skip, timeout: 120000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const setup = (t, text, options = {}) => fixturePage(t, browser, undefined, (root) => {
+    writeFileSync(join(root, 'README.md'), text);
+    writeFileSync(join(root, 'other.md'), '# 別の題\n');
+  }, { live: true, ...options });
+  const finished = (page) => page.waitForFunction(() => {
+    const button = document.querySelector('#gp-links-check');
+    return !button.hidden && !button.disabled && button.textContent === '再点検' && button.getAttribute('aria-busy') === 'false';
+  });
+
+  await t.test('リンク切れと未点検を分けて数え、既存の知らせと同じ操作で行へ移る', async (t) => {
+    const text = '# 題\n\n' + Array.from({ length: 50 }, (_, i) =>
+      i === 20 ? '[ない](missing.txt) [外](../outside.txt)' : '行の位置を確かめる本文。'.repeat(12)).join('\n\n') + '\n';
+    const { page, jumpRequests } = await setup(t, text, { jump: true });
+    await finished(page);
+    assert.equal(await page.locator('#gp-notices-toggle').textContent(), 'GitLab との違い 2');
+    await page.locator('#gp-notices-toggle').click();
+    assert.equal(await page.locator('#gp-notices [data-kind="broken"] h3').textContent(), 'リンク切れ（1件）');
+    assert.equal(await page.locator('#gp-notices [data-kind="unchecked"] h3').textContent(), '点検していないリンク（1件）');
+    assert.match(await page.locator('#gp-notices [data-kind="broken"] button').textContent(), /^43 行: missing.txt/);
+    await page.locator('#gp-notices [data-kind="broken"] button').click();
+    await page.waitForFunction(() => {
+      const line = document.querySelector('#gp-content [data-sourcepos^="43:"]');
+      const top = document.querySelector('#gp-header').offsetHeight + document.querySelector('#gp-notices').offsetHeight;
+      return Math.abs(line.getBoundingClientRect().top - top) < 2;
+    });
+    assert.deepEqual(jumpRequests, [], '知らせの行の操作は既存と同じく本文へ移る');
+  });
+
+  await t.test('ファイルの修正を再点検と次の描画の両方で拾い、0件でも再点検できる', async (t) => {
+    const text = '[別の題](other.md#target)\n';
+    const { page, server, root } = await setup(t, text);
+    await finished(page);
+    await page.locator('#gp-notices-toggle').click();
+    assert.equal(await page.locator('#gp-notices [data-kind="broken"] li').count(), 1);
+    writeFileSync(join(root, 'other.md'), '# target\n');
+    await page.locator('#gp-links-check').click();
+    await finished(page);
+    assert.equal(await page.locator('#gp-notices [data-kind="broken"] li').count(), 0);
+    assert.equal(await page.locator('#gp-notices-toggle').isVisible(), false);
+    assert.equal(await page.locator('#gp-links-check').isVisible(), true);
+    writeFileSync(join(root, 'other.md'), '# 別の題\n');
+    await server.setDocument({ path: join(root, 'README.md'), text, rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 2);
+    await finished(page);
+    assert.equal(await page.locator('#gp-notices [data-kind="broken"] li').count(), 1);
+    writeFileSync(join(root, 'other.md'), '# target\n');
+    await server.setDocument({ path: join(root, 'README.md'), text, rev: 3 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 3);
+    await finished(page);
+    assert.equal(await page.locator('#gp-notices [data-kind="broken"] li').count(), 0);
+  });
+
+  await t.test('続く描画の点検を最後の描画から400ms後の1回にまとめる', async (t) => {
+    const { page, root, server } = await setup(t, '最初の本文\n', { beforeNavigate: async (page) => {
+      await page.addInitScript(() => {
+        window.linkRequests = [];
+        const original = window.fetch.bind(window);
+        window.fetch = (input, options) => {
+          const url = new URL(String(input), location.href);
+          if (url.pathname.endsWith('/_/links')) window.linkRequests.push(Number(url.searchParams.get('render')));
+          return original(input, options);
+        };
+      });
+    } });
+    await finished(page);
+    const now = new Date();
+    await page.clock.install({ time: now });
+    await page.clock.pauseAt(now);
+    await page.evaluate(() => { window.linkRequests = []; });
+    for (const rev of [2, 3, 4]) {
+      // 時計を止めたまま、実際の SSE による描画の完了を待つ。
+      await page.evaluate((rev) => {
+        window.nextLinkRender = new Promise((resolve) => {
+          const rendered = () => {
+            if (window.gpPreview.current()?.rev !== rev) return;
+            document.removeEventListener('gp:render', rendered);
+            resolve();
+          };
+          document.addEventListener('gp:render', rendered);
+        });
+      }, rev);
+      await server.setDocument({ path: join(root, 'README.md'), text: '次の本文' + rev + '\n', rev });
+      await page.evaluate(() => window.nextLinkRender);
+      if (rev < 4) await page.clock.runFor(250);
+      assert.deepEqual(await page.evaluate(() => window.linkRequests), []);
+    }
+    await page.clock.runFor(399);
+    assert.deepEqual(await page.evaluate(() => window.linkRequests), []);
+    const render = await page.evaluate(() => window.gpPreview.current().render);
+    await page.clock.runFor(1);
+    assert.deepEqual(await page.evaluate(() => window.linkRequests), [render]);
+    await page.clock.runFor(800);
+    assert.deepEqual(await page.evaluate(() => window.linkRequests), [render]);
+    await page.clock.resume();
+    await finished(page);
+  });
+
+  await t.test('自動点検の待機中でも再点検をすぐ行い、予約した点検を重ねない', async (t) => {
+    let requests = 0;
+    const { page } = await setup(t, '本文\n', { beforeNavigate: async (page) => {
+      await page.route('**/_/links?*', (route) => {
+        requests++;
+        return route.fulfill({ json: { render: Number(new URL(route.request().url()).searchParams.get('render')), broken: [], unchecked: [] } });
+      });
+    } });
+    await finished(page);
+    const now = new Date();
+    await page.clock.install({ time: now });
+    await page.clock.pauseAt(now);
+    requests = 0;
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('gp:render')));
+    assert.equal(await page.locator('#gp-links-check').isEnabled(), true);
+    const requested = page.waitForRequest((request) => new URL(request.url()).pathname.endsWith('/_/links'));
+    await page.evaluate(() => document.querySelector('#gp-links-check').click());
+    await requested;
+    await page.clock.runFor(800);
+    assert.equal(requests, 1);
+    await page.clock.resume();
+    await finished(page);
+  });
+
+  await t.test('行き先と理由をHTMLとして入れず、描画番号の違う応答を捨てる', async (t) => {
+    let wrong = false;
+    const dangerous = '<img src="https://example.invalid/leak"><script>危険</script>';
+    const { page } = await setup(t, '[ない](missing.txt)\n', { beforeNavigate: async (page) => {
+      await page.route('**/_/links?*', (route) => route.fulfill({ json: {
+        render: Number(new URL(route.request().url()).searchParams.get('render')) + (wrong ? 1 : 0),
+        broken: [{ line: 1, href: wrong ? '捨てるべき応答' : dangerous, reason: dangerous }], unchecked: [],
+      } }));
+    } });
+    await finished(page);
+    await page.locator('#gp-notices-toggle').click();
+    assert.equal(await page.locator('#gp-notices img, #gp-notices script').count(), 0);
+    assert.equal(await page.locator('#gp-notices [data-kind="broken"] button').textContent(), '1 行: ' + dangerous + ' — ' + dangerous);
+    wrong = true;
+    await page.locator('#gp-links-check').click();
+    await finished(page);
+    assert.equal(await page.locator('#gp-notices [data-kind="broken"] li').count(), 1);
+    assert.equal(await page.locator('#gp-notices [data-kind="broken"] button').textContent(), '1 行: ' + dangerous + ' — ' + dangerous);
+  });
+
+  await t.test('次の描画より遅れて届いた古い描画の応答を捨てる', async (t) => {
+    const { page, root, server } = await setup(t, '最初の本文\n', { beforeNavigate: async (page) => {
+      await page.addInitScript(() => {
+        const original = window.fetch.bind(window);
+        window.fetch = async (input, options) => {
+          const url = new URL(String(input), location.href);
+          if (url.pathname.endsWith('/_/links') && !window.heldLinkRequest) {
+            window.heldLinkRequest = true;
+            window.heldLinkSignal = options.signal;
+            await new Promise((resolve) => { window.releaseLinkResponse = resolve; });
+            return new Response(JSON.stringify({ render: Number(url.searchParams.get('render')),
+              broken: [{ line: 1, href: '古いリンク', reason: '古い応答' }], unchecked: [] }),
+            { headers: { 'Content-Type': 'application/json' } });
+          }
+          return original(input, options);
+        };
+      });
+    } });
+    await page.waitForFunction(() => window.heldLinkRequest);
+    await server.setDocument({ path: join(root, 'README.md'), text: '次の本文\n', rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 2);
+    assert.equal(await page.evaluate(() => window.heldLinkSignal.aborted), true);
+    await finished(page);
+    await page.evaluate(async () => {
+      window.releaseLinkResponse();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    assert.equal(await page.locator('#gp-notices [data-kind="broken"] li').count(), 0);
+    assert.equal(await page.locator('#gp-notices-toggle').isVisible(), false);
+  });
+
+  await t.test('編集モードとコメントモードでも読み取りだけの再点検を使える', async (t) => {
+    const { page } = await setup(t, '[ない](missing.txt)\n', { edit: 'file', review: true });
+    await finished(page);
+    await page.locator('#gp-edit-toggle').click();
+    await page.locator('#gp-links-check').click();
+    await finished(page);
+    assert.equal(await page.locator('#gp-edit-toggle').getAttribute('aria-pressed'), 'true');
+    await page.locator('#gp-edit-toggle').click();
+    await page.locator('#gp-review-toggle').click();
+    await page.locator('#gp-links-check').click();
+    await finished(page);
+    assert.equal(await page.locator('#gp-review-toggle').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('#gp-notices [data-kind="broken"] li').count(), 1);
+  });
+});
+
 test('ローカルのプレビューページ', { skip, timeout: 180000 }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());

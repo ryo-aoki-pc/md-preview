@@ -503,6 +503,10 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 		send(conn, r, 404, nil, nil)
 		return
 	}
+	if rel == "_/links" {
+		s.checkLinks(conn, r)
+		return
+	}
 	if rel == "_/list" {
 		b, e := Stringify(documents.ListMarkdown(s.opts.Session.Root()))
 		if e != nil {

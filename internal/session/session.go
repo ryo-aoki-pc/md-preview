@@ -332,7 +332,7 @@ func (s *Session) run() {
 				if result.Notices == nil {
 					result.Notices = []pipeline.Notice{}
 				}
-				source := &Source{Rev: j.rev, Buf: j.buf, DocPath: j.path, Text: j.text, HTML: result.HTML, Lines: result.Source, HasSourcepos: result.HasSourcepos, SourceposInput: result.SourceposInput,
+				source := &Source{Rev: j.rev, Buf: j.buf, DocPath: j.path, Text: j.text, HTML: result.HTML, Lines: result.Source, Headings: result.Headings, HasSourcepos: result.HasSourcepos, SourceposInput: result.SourceposInput,
 					Root: j.context.root, Path: j.context.path, File: j.context.file, Dir: j.context.dir}
 				s.publish(j, Data{"html": result.HTML, "headings": result.Headings, "includes": result.Includes, "notices": result.Notices}, source, &actions)
 			}

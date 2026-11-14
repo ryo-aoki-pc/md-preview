@@ -13,6 +13,7 @@
   const noticesPanel = document.getElementById('gp-notices');
   const noticesContent = document.getElementById('gp-notices-content');
   const noticesToggle = document.getElementById('gp-notices-toggle');
+  const linksCheck = document.getElementById('gp-links-check');
   const themeEl = document.getElementById('gp-theme');
   const widthEl = document.getElementById('gp-width');
   const shellStyle = document.querySelector('link[href="_/preview.css"]');
@@ -126,10 +127,18 @@
     ['include', '取り込めなかった ::include'],
     ['emoji', '絵文字にならなかった短縮記法'],
     ['missing', '手元に見つからない画像・動画・音声'],
+    ['broken', 'リンク切れ'],
+    ['unchecked', '点検していないリンク'],
     ['more', 'ほかに'],
   ]);
   let noticesWanted = savedAppearance.notices === true;
   let noticeCount = 0;
+  let renderNotices = [];
+  let linkNotices = [];
+  let linkFailure = '';
+  let linksController = null;
+  let linksGeneration = 0;
+  let linksTimer = null;
 
   function toolbarHeight() {
     return (
@@ -146,8 +155,14 @@
     queueLayout();
   }
   function buildNotices(values) {
-    const notices = Array.isArray(values) ? values.filter((item) => item && noticeLabels.has(item.kind)) : [];
-    noticeCount = notices.length;
+    renderNotices = Array.isArray(values) ? values.filter((item) => item && noticeLabels.has(item.kind)) : [];
+    linkNotices = [];
+    linkFailure = '';
+    showNotices();
+  }
+  function showNotices() {
+    const notices = [...renderNotices, ...linkNotices];
+    noticeCount = notices.length + (linkFailure ? 1 : 0);
     noticesContent.replaceChildren();
     for (const [kind, label] of noticeLabels) {
       const items = notices.filter((item) => item.kind === kind);
@@ -189,8 +204,76 @@
       }
       noticesContent.append(section);
     }
+    if (linkFailure) {
+      const status = document.createElement('p');
+      status.textContent = linkFailure;
+      noticesContent.append(status);
+    }
     applyNotices();
   }
+  function cancelLinkCheck() {
+    clearTimeout(linksTimer);
+    linksTimer = null;
+    linksController?.abort();
+    return ++linksGeneration;
+  }
+  function canCheckLinks() {
+    return !CONFIG.list && last && !Object.hasOwn(last, 'error') && Number.isSafeInteger(last.render) && last.render >= 1;
+  }
+  function scheduleLinkCheck() {
+    cancelLinkCheck();
+    linksCheck.hidden = !canCheckLinks();
+    linksCheck.disabled = false;
+    linksCheck.textContent = '再点検';
+    linksCheck.setAttribute('aria-busy', String(!linksCheck.hidden));
+    if (!linksCheck.hidden) linksTimer = setTimeout(() => void checkLinks(), 400);
+  }
+  async function checkLinks() {
+    const request = cancelLinkCheck();
+    const message = last;
+    if (!canCheckLinks()) {
+      linksCheck.hidden = true;
+      linksCheck.setAttribute('aria-busy', 'false');
+      return;
+    }
+    linksController = new AbortController();
+    linksCheck.hidden = false;
+    linksCheck.disabled = true;
+    linksCheck.textContent = '点検中…';
+    linksCheck.setAttribute('aria-busy', 'true');
+    const url = new URL('_/links', BASE);
+    url.searchParams.set('render', message.render);
+    if (query.has('doc')) url.searchParams.set('doc', query.get('doc'));
+    try {
+      const response = await fetch(url, { signal: linksController.signal });
+      if (response.status === 409) return;
+      if (!response.ok) throw new Error('リンクを点検できませんでした。再点検してください。');
+      const value = await response.json();
+      if (request !== linksGeneration || last !== message || value.render !== message.render) return;
+      linkNotices = [];
+      for (const kind of ['broken', 'unchecked']) {
+        for (const item of Array.isArray(value[kind]) ? value[kind] : []) {
+          if (item && typeof item.href === 'string' && typeof item.reason === 'string') {
+            linkNotices.push({ kind, line: item.line, text: item.href + ' — ' + item.reason });
+          }
+        }
+      }
+      linkFailure = '';
+      showNotices();
+    } catch (error) {
+      if (request !== linksGeneration || last !== message || error.name === 'AbortError') return;
+      linkFailure = 'リンクを点検できませんでした。再点検してください。';
+      showNotices();
+    } finally {
+      if (request === linksGeneration) {
+        linksCheck.disabled = false;
+        linksCheck.textContent = '再点検';
+        linksCheck.setAttribute('aria-busy', 'false');
+      }
+    }
+  }
+  linksCheck.addEventListener('click', () => void checkLinks());
+  document.addEventListener('gp:render', scheduleLinkCheck);
   noticesToggle.addEventListener('click', () => {
     noticesWanted = !noticesWanted;
     rememberAppearance('notices', noticesWanted);
