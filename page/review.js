@@ -71,6 +71,20 @@
     }
     changed();
   });
+  const exportComments = button('gp-review-export', actions, '書き出す', exportItems);
+  const importComments = button('gp-review-import', actions, '読み込む', () => {
+    if (locked() || transferDocument() === undefined) return;
+    importArea.hidden = false;
+    importInput.focus();
+  });
+  const importArea = make('section', 'gp-review-import-area', panel);
+  make('label', 'gp-review-import-label', importArea, '書き出したコメントの JSON を貼り付けてください');
+  const importInput = make('textarea', 'gp-review-import-input', importArea);
+  importInput.setAttribute('aria-labelledby', 'gp-review-import-label');
+  importInput.rows = 6;
+  const importAdd = button('gp-review-import-add', importArea, '足す', importItems);
+  const importCancel = button('gp-review-import-cancel', importArea, 'やめる', closeImport);
+  importArea.hidden = true;
   const promptLabel = make('label', '', panel, '依頼文の形 ');
   const promptMode = make('select', 'gp-review-mode', promptLabel);
   for (const [value, label] of [['plan', '/plan で計画'], ['plan-text', '日本語で計画'], ['direct', '直接直す']]) {
@@ -94,6 +108,10 @@
   status.setAttribute('aria-live', 'polite');
 
   const storageKey = 'gitlab-preview-review';
+  const maxStoredItems = 200, maxPendingItems = 50;
+  // 保存できる 200 件の本文・引用が長くても持ち出せる大きさにし、JSON を読む前に制限する。
+  const maxTransferBytes = 4 * 1024 * 1024;
+  const transferFormat = 'gitlab-preview-comments';
   // 編集中の文書と、?doc= で開いたファイルを混同しない。
   const documentKey = preview.doc === null ? 'current' : 'file:' + preview.doc;
   const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -123,7 +141,7 @@
   const versionPattern = /^(?:|[0-9a-f]{32})$/i;
   // 1 つの文書の分を読む。形が違えば、その文書の分だけを捨てる（ほかの文書のコメントは残す）。
   function readItems(items, version) {
-    if (!Array.isArray(items) || items.length > 200) return null;
+    if (!Array.isArray(items) || items.length > maxStoredItems) return null;
     const seen = new Set();
     const list = [];
     for (const item of items) {
@@ -205,6 +223,114 @@
     status.textContent = text;
     status.hidden = !text;
   }
+  function transferDocument() {
+    const file = preview.current()?.file;
+    return typeof file !== 'string' ? undefined : file === '[無名]' ? null : file;
+  }
+  const onlyKeys = (value, keys) => plain(value) && Object.keys(value).every((key) => keys.includes(key));
+  // 持ち出す形式には、保存や依頼文の状態を混ぜない。入れ子も許可した鍵だけを受ける。
+  function transferItem(item) {
+    if (!onlyKeys(item, ['target', 'label', 'text', 'selection', 'fp', 'keys'])) return null;
+    const target = validTarget(item.target);
+    if (!target || !shortOK(item.label, 200) || !textOK(item.text) ||
+      (item.selection !== undefined && !textOK(item.selection)) ||
+      typeof item.fp !== 'string' || !fingerprintPattern.test(item.fp)) return null;
+    const targetKeys = target.kind === 'cell' ? ['kind', 'table', 'row', 'col'] :
+      target.kind === 'html' ? ['kind', 'prev', 'next'] : ['kind', 'tag', 'range'];
+    if (!onlyKeys(item.target, targetKeys)) return null;
+    if (target.kind === 'html' && ['prev', 'next'].some((key) =>
+      Object.hasOwn(item.target, key) && !onlyKeys(item.target[key], ['tag', 'range']))) return null;
+    const keys = item.keys;
+    if (keys !== undefined && (target.kind !== 'cell' || !onlyKeys(keys, ['row', 'col', 'start', 'dupCol', 'dupRow']) ||
+      typeof keys.row !== 'string' || !keyPattern.test(keys.row) || typeof keys.col !== 'string' || !keyPattern.test(keys.col) ||
+      (keys.start !== undefined && !integer(keys.start)) ||
+      ['dupCol', 'dupRow'].some((key) => keys[key] !== undefined && typeof keys[key] !== 'boolean'))) return null;
+    return { target, label: item.label, text: item.text, ...(item.selection ? { selection: item.selection } : {}),
+      fp: item.fp, ...(keys ? { keys: { ...keys } } : {}) };
+  }
+  function closeImport() {
+    if (locked()) return;
+    importInput.value = '';
+    importArea.hidden = true;
+    importComments.focus();
+  }
+  importInput.addEventListener('keydown', (event) => {
+    if (event.isComposing || event.keyCode === 229 || event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeImport();
+  });
+  function importItems() {
+    if (locked() || transferDocument() === undefined) return;
+    const text = importInput.value;
+    if (text.length > maxTransferBytes || new TextEncoder().encode(text).byteLength > maxTransferBytes) {
+      notice('読み込む文字が大きすぎます（4 MiB まで）。'); return;
+    }
+    let data;
+    try { data = JSON.parse(text); }
+    catch { notice('JSON として読み込めませんでした。書き出した文字をそのまま貼り付けてください。'); return; }
+    if (!onlyKeys(data, ['format', 'version', 'doc', 'items']) || data.format !== transferFormat || data.version !== 1 ||
+      !Object.hasOwn(data, 'doc') || (data.doc !== null && !shortOK(data.doc, 2100)) || !Array.isArray(data.items)) {
+      notice('コメントの形式または版が正しくありません。'); return;
+    }
+    if (data.items.length > maxStoredItems) { notice('読み込むコメントは 200 件までです。'); return; }
+    const items = data.items.map(transferItem);
+    if (items.some((item) => !item)) { notice('コメントの項目の形や文字が正しくありません。何も足していません。'); return; }
+    if (data.doc !== transferDocument()) { notice('別の文書のコメントです。'); return; }
+    const additions = [];
+    for (const item of items) {
+      if (![...comments, ...additions].some((other) => sameTarget(other.target, item.target) && other.text === item.text))
+        additions.push(item);
+    }
+    if (comments.length + additions.length > maxStoredItems) {
+      notice('保存するコメントは、今ある分と合わせて 200 件までです。何も足していません。'); return;
+    }
+    if (comments.filter((item) => item.state === 'pending').length + additions.length > maxPendingItems) {
+      notice('未コピーのコメントは、今ある分と合わせて 50 件までです。何も足していません。'); return;
+    }
+    for (const item of additions) comments.push({ ...item, id: crypto.randomUUID(), render: preview.current()?.render || 1,
+      state: 'pending', skip: false, stale: false, error: '', version: '' });
+    if (additions.length) { changed(); checkTargets(); }
+    closeImport();
+    const duplicates = items.length - additions.length;
+    notice('コメントを ' + additions.length + ' 件足しました。' + (duplicates ? '重なりで ' + duplicates + ' 件は足しませんでした。' : ''));
+  }
+  function copyFallback(text) {
+    const focused = document.activeElement;
+    const field = document.createElement('textarea');
+    field.value = text;
+    field.setAttribute('aria-label', 'コピー用の一時的な欄');
+    Object.assign(field.style, { position: 'fixed', left: '0', top: '0', opacity: '0', pointerEvents: 'none' });
+    try {
+      document.body.append(field);
+      field.focus({ preventScroll: true });
+      field.select();
+      return document.execCommand('copy');
+    } finally {
+      field.remove();
+      if (focused?.isConnected) focused.focus({ preventScroll: true });
+    }
+  }
+  async function exportItems() {
+    if (locked() || transferDocument() === undefined || !comments.length) return;
+    const text = JSON.stringify({ format: transferFormat, version: 1, doc: transferDocument(), items: comments.map((item) => ({
+      target: item.target, label: item.label, text: item.text, ...(item.selection ? { selection: item.selection } : {}), fp: item.fp,
+      ...(item.keys ? { keys: item.keys } : {}) })) });
+    copying = true;
+    try {
+      draw();
+      let copied = false;
+      try {
+        // 利用者のクリックから、ほかの非同期処理を挟まずに呼ぶ。
+        if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); copied = true; }
+      } catch { /* コピーを使えない場合も、一時的な欄で試す。 */ }
+      if (!copied && !stopped) {
+        try { copied = copyFallback(text); }
+        catch { /* 失敗は知らせに出す。 */ }
+      }
+      if (!stopped) notice(copied ? 'コメントを書き出してコピーしました。' : 'コメントを書き出せませんでした。コピーを許可してから試してください。');
+    } finally { copying = false; draw(); }
+  }
   function save() {
     saved.docs[documentKey] = comments;
     try { sessionStorage.setItem(storageKey, JSON.stringify(saved)); } catch { /* 保存できなくてもメモリーで続ける。 */ }
@@ -250,6 +376,13 @@
         '送る対象になっている未コピーの要確認コメントがありません' : '';
     skipStale.disabled = Boolean(skipReason);
     skipStale.title = skipReason;
+    const transferReason = locked() ? '処理中またはプレビューが終了しています' :
+      transferDocument() === undefined ? '文書の描画が届くまでお待ちください' : '';
+    exportComments.title = transferReason || (!comments.length ? '書き出すコメントがありません' : '');
+    exportComments.disabled = Boolean(exportComments.title);
+    importComments.disabled = Boolean(transferReason);
+    importComments.title = transferReason;
+    importInput.disabled = importAdd.disabled = importCancel.disabled = locked();
     promptMode.disabled = locked();
     promptMode.title = locked() ? '処理中またはプレビューが終了しています' : '';
     copy.disabled = launch.disabled = locked() || !prepared;
@@ -365,7 +498,7 @@
     if (!text) return;
     if (Array.from(text).length > 2000) { notice('コメントが長すぎます（2,000 文字まで）'); return; }
     if (controlPattern.test(text)) { notice('コメントに使えない制御文字が入っています。'); return; }
-    if (comments.filter((item) => item.state === 'pending' && item.id !== editing).length >= 50) {
+    if (comments.filter((item) => item.state === 'pending' && item.id !== editing).length >= maxPendingItems) {
       notice('一度に依頼できるコメントは 50 件までです。依頼文をコピーしてから追加してください。'); return;
     }
     // 今の描画で対象を確かめ、内容の指紋を取ってから保存する。見つからない対象には付けない。
@@ -653,7 +786,7 @@
       const match = chain ? followTarget(item, chain) : null;
       const facts = chain ? match?.facts : factsOf(item.target);
       let ok = Boolean(facts);
-      if (ok && item.fp) ok = chain ? facts.fp === item.fp : sameFacts(item, facts);
+      if (ok && item.fp) ok = chain || !item.version ? facts.fp === item.fp : sameFacts(item, facts);
       else if (ok) {
         // 版 1 で保存したコメントは、読み込んだときに要確認でなかったものだけ、最初に確かめた内容を指紋にする。
         ok = adoptable.has(item.id);
@@ -676,8 +809,8 @@
           }
           if (facts.keys && JSON.stringify(item.keys) !== JSON.stringify(facts.keys)) { item.keys = facts.keys; changed = true; }
         }
-        // 初回に位置だけで照合した古い保存にも、表の開始行を補う。
-        if (facts.keys && item.keys?.start !== facts.keys.start) { item.keys = facts.keys; changed = true; }
+        // 読み込んだセルは今の鍵で追従を始め、古い保存には表の開始行を補う。
+        if (facts.keys && (!item.version || item.keys?.start !== facts.keys.start)) { item.keys = facts.keys; changed = true; }
         // 版が分からないとき（表の情報の読み込みの失敗）は、最後に確かめた版を空で上書きしない。
         if (currentVersion && item.version !== currentVersion) { item.version = currentVersion; changed = true; }
       }

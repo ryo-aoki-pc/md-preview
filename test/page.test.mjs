@@ -932,6 +932,346 @@ test('画面のコメント', { skip, timeout: 240000 }, async (t) => {
       document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render), rev);
   };
 
+  const savedComments = (page) => page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current);
+  const exportedComments = async (page) => {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin });
+    await page.locator('#gp-review-export').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-status').textContent === 'コメントを書き出してコピーしました。');
+    return JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
+  };
+  const importComments = async (page, data) => {
+    await page.locator('#gp-review-import').click();
+    await page.locator('#gp-review-import-input').fill(typeof data === 'string' ? data : JSON.stringify(data));
+    await page.locator('#gp-review-import-add').click();
+    return page.locator('#gp-review-status').textContent();
+  };
+
+  await t.test('全状態のコメントを必要な項目だけ書き出し、節とセルも別のタブへ読み込む', async (t) => {
+    const { page, server, root } = await reviewPage(t);
+    await enter(page);
+    assert.equal(await page.locator('#gp-review-export').isDisabled(), true);
+    assert.match(await page.locator('#gp-review-export').getAttribute('title'), /コメントがありません/);
+    await selectText(page, '#gp-content > p:nth-child(2)', 0);
+    await page.locator('#gp-review-input').fill('引用付きのコメント');
+    await page.locator('#gp-review-add').click();
+    await prepare(page);
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(server.url).origin });
+    await page.locator('#gp-review-copy').click();
+    await page.waitForFunction(() => document.querySelector('.gp-review-state').textContent === 'コピー済み');
+    await page.locator('#gp-content h1').click();
+    await page.getByRole('checkbox', { name: '節全体へのコメントにする' }).check();
+    await page.locator('#gp-review-input').fill('節のコメント');
+    await page.locator('#gp-review-add').click();
+    await addComment(page, page.locator('#gp-content td').first(), 'セルのコメント');
+    await addComment(page, page.locator('#gp-content > div:not(.markdown-code-block)').first(), 'HTML の連なりのコメント');
+    await card(page, 'セルのコメント').getByRole('button', { name: '今回は送らない', exact: true }).click();
+    const saved = await savedComments(page);
+    const data = await exportedComments(page);
+    assert.deepEqual(Object.keys(data).sort(), ['doc', 'format', 'items', 'version']);
+    assert.equal(data.format, 'gitlab-preview-comments');
+    assert.equal(data.version, 1);
+    assert.equal(data.doc, 'README.md');
+    assert.deepEqual(data.items, saved.map(({ target, label, text, selection, fp, keys }) => ({ target, label, text,
+      ...(selection ? { selection } : {}), fp, ...(keys ? { keys } : {}) })));
+    assert.deepEqual(data.items.map((item) => item.target.kind), ['block', 'section', 'cell', 'html']);
+    const text = JSON.stringify(data);
+    for (const secret of [root, root.replaceAll('\\', '/'), server.token, server.url, ...saved.map((item) => item.version).filter(Boolean)])
+      assert.equal(text.includes(secret), false, '持ち出しに入れてはいけない値が入った');
+    assert.doesNotMatch(text, /"(?:id|state|stale|skip|error|render|prompt|token)":/);
+    assert.deepEqual(await savedComments(page), saved, '書き出してもコピー済みなどの状態を変えない');
+
+    const context = await browser.newContext({ viewport: { width: 2000, height: 900 } });
+    t.after(() => context.close());
+    const other = await context.newPage();
+    await other.goto(server.url);
+    await enter(other);
+    assert.equal(await other.evaluate(() => sessionStorage.getItem('gitlab-preview-review')), null);
+    assert.equal(await importComments(other, data), 'コメントを 4 件足しました。');
+    const restored = await savedComments(other);
+    assert.deepEqual(restored.map((item) => [item.target, item.text, item.fp, item.selection, item.keys]),
+      saved.map((item) => [item.target, item.text, item.fp, item.selection, item.keys]));
+    assert.deepEqual(await other.locator('.gp-review-state').allTextContents(), Array(4).fill('未コピー'));
+    assert.ok(restored.every((item) => !saved.some((old) => old.id === item.id) && item.state === 'pending' &&
+      !item.skip && !item.stale && item.error === ''));
+  });
+
+  await t.test('今あるカードを残して足し、対象と文が同じものは入力内も含め重なりとして知らせる', async (t) => {
+    const { page } = await reviewPage(t);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content p').first(), '残すカード');
+    const data = await exportedComments(page);
+    const next = { ...data.items[0], text: '新しく足すカード' };
+    data.items.push(next, next, { ...data.items[0], selection: '引用が違っても重なり' });
+    assert.match(await importComments(page, data), /1 件足しました。重なりで 3 件/);
+    assert.deepEqual((await savedComments(page)).map((item) => item.text), ['残すカード', '新しく足すカード']);
+    assert.match(await importComments(page, data), /0 件足しました。重なりで 4 件/);
+    assert.equal(await page.locator('.gp-review-card').count(), 2);
+    await page.locator('#gp-review-import').click();
+    await page.locator('#gp-review-import-input').fill('取り消す文字');
+    await page.locator('#gp-review-import-cancel').click();
+    assert.equal(await page.locator('#gp-review-import-area').isVisible(), false);
+    assert.equal(await page.locator('#gp-review-import-input').inputValue(), '');
+    await page.locator('#gp-review-import').click();
+    await page.locator('#gp-review-import-input').fill('Esc で取り消す文字');
+    for (const composing of [{ isComposing: true }, { keyCode: 229 }]) {
+      await page.locator('#gp-review-import-input').dispatchEvent('keydown', { key: 'Escape', ...composing });
+      assert.equal(await page.locator('#gp-review-import-area').isVisible(), true);
+      assert.equal(await page.locator('#gp-review-import-input').inputValue(), 'Esc で取り消す文字');
+    }
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#gp-review-import-area').isVisible(), false);
+    assert.equal(await page.locator('#gp-review-import-input').inputValue(), '');
+    assert.equal(await page.locator('#gp-review-import').evaluate((element) => element === document.activeElement), true);
+  });
+
+  await t.test('読み込みで足すと依頼文を消し、重なりだけなら依頼文を残す', async (t) => {
+    const { page } = await reviewPage(t);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content p').first(), '依頼文に入れたカード');
+    const data = await exportedComments(page);
+    const prompt = await prepare(page);
+    assert.equal(await importComments(page, data), 'コメントを 0 件足しました。重なりで 1 件は足しませんでした。');
+    assert.equal(await page.locator('#gp-review-output').isVisible(), true);
+    assert.equal(await page.locator('#gp-review-prompt').inputValue(), prompt);
+    assert.equal(await importComments(page, { ...data, items: [{ ...data.items[0], text: '後から足すカード' }] }),
+      'コメントを 1 件足しました。');
+    assert.equal(await page.locator('#gp-review-output').isVisible(), false);
+    assert.equal(await page.locator('#gp-review-prompt').inputValue(), '');
+  });
+
+  await t.test('描画が届く前とファイル名がない描画では、理由を出して持ち出しを無効にする', async (t) => {
+    const root = temp(t);
+    writeFileSync(join(root, 'README.md'), '描画を待つ本文。\n');
+    const server = await startGoPageServer(t, { root, live: true, review: true });
+    const context = await browser.newContext();
+    t.after(() => context.close());
+    const page = await context.newPage();
+    await page.goto(server.url);
+    await page.locator('#gp-review-toggle').click();
+    assert.equal(await page.evaluate(() => window.gpPreview.current()), null);
+    const disabled = async () => {
+      for (const id of ['export', 'import']) {
+        assert.equal(await page.locator('#gp-review-' + id).isDisabled(), true);
+        assert.equal(await page.locator('#gp-review-' + id).getAttribute('title'), '文書の描画が届くまでお待ちください');
+      }
+    };
+    await disabled();
+    await server.broadcast('render', payload('<p>ファイル名がない本文。</p>', { file: null, render: 1 }));
+    await page.waitForFunction(() => window.gpPreview.current()?.render === 1);
+    await disabled();
+    await server.setDocument({ path: join(root, 'README.md'), text: '描画を待つ本文。\n', rev: 1 });
+    await page.waitForFunction(() => !document.querySelector('#gp-review-import').disabled);
+    assert.equal(await page.locator('#gp-review-import').getAttribute('title'), '');
+    assert.match(await page.locator('#gp-review-export').getAttribute('title'), /コメントがありません/);
+  });
+
+  await t.test('サブフォルダーの編集中文書とファイル文書を照合し、別のフォルダーの同名文書は断る', async (t) => {
+    const { page, server, root } = await fixturePage(t, browser, undefined, (root) => {
+      writeFileSync(join(root, 'README.md'), source);
+      for (const folder of ['docs', 'notes']) {
+        mkdirSync(join(root, folder));
+        writeFileSync(join(root, folder, 'a.md'), source);
+      }
+    }, { live: true, review: true });
+    await server.setDocument({ path: join(root, 'docs', 'a.md'), text: source, rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 2);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content p').first(), 'サブフォルダーのカード');
+    const data = await exportedComments(page);
+    assert.equal(data.doc, 'docs/a.md');
+    const other = await page.context().newPage();
+    await other.goto(server.url + '?doc=docs/a.md');
+    await enter(other);
+    assert.equal(await importComments(other, data), 'コメントを 1 件足しました。');
+    await other.goto(server.url + '?doc=docs/./a.md');
+    await enter(other);
+    assert.equal(await importComments(other, data), 'コメントを 1 件足しました。');
+    assert.equal((await exportedComments(other)).doc, 'docs/a.md');
+    await other.goto(server.url + '?doc=notes/a.md');
+    await enter(other);
+    assert.equal(await importComments(other, data), '別の文書のコメントです。');
+    assert.equal(await other.locator('.gp-review-card').count(), 0);
+  });
+
+  await t.test('別のタブへ読み込んだセルに今の鍵と版を付け、画面の行の並べ替えに追従させる', async (t) => {
+    const text = '# 題\n\n| 鍵 | 内容 |\n| --- | --- |\n| 2 | 同じ |\n| 1 | 同じ |\n';
+    const { page, server } = await reviewPage(t, text, { edit: 'file' });
+    await enter(page);
+    await addComment(page, page.locator('#gp-content td').nth(1), '二の行のセルへ');
+    const [original] = await savedComments(page);
+    const data = await exportedComments(page);
+    assert.equal(data.items[0].keys.start, 3);
+    const wrongRow = await page.evaluate(() => window.gpPreview.digest('1'));
+    data.items[0].keys.row = wrongRow;
+    assert.notEqual(data.items[0].keys.row, original.keys.row);
+    const other = await page.context().newPage();
+    await other.goto(server.url);
+    await enter(other);
+    assert.equal(await importComments(other, data), 'コメントを 1 件足しました。');
+    const [restored] = await savedComments(other);
+    assert.deepEqual(restored.keys, original.keys, '版が空のセルは、位置と指紋の照合後に今の鍵へ置き換える');
+    assert.match(restored.version, /^[0-9a-f]{32}$/);
+    assert.equal(restored.stale, false);
+    await other.locator('#gp-edit-toggle').click();
+    await editIdle(other);
+    await other.locator('#gp-content td').first().click();
+    await other.locator('#gp-edit-cols').click();
+    const response = other.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await other.locator('#gp-edit-col-sort-asc').click();
+    const result = await response;
+    assert.equal(result.status(), 200, await result.text());
+    const change = (await result.json()).change;
+    await editIdle(other);
+    await other.waitForFunction((version) => !window.gpEditMode.writing() &&
+      JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0].version === version, change.after);
+    const [followed] = await savedComments(other);
+    assert.equal(followed.target.row, 2);
+    assert.equal(followed.stale, false);
+    assert.equal(followed.keys.row, original.keys.row);
+    assert.equal(followed.fp, original.fp);
+  });
+
+  await t.test('別の文書と不正な JSON・項目・余分な鍵は全体を断り、元のカードを保つ', async (t) => {
+    const { page } = await reviewPage(t);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content p').first(), '元のカード');
+    const data = await exportedComments(page);
+    const good = { ...data.items[0], text: '途中まで足してはいけないカード' };
+    const badItem = (change) => ({ ...data, items: [good, { ...good, ...change }] });
+    const cases = [
+      ['{壊れた JSON', /JSON として/],
+      [{ ...data, format: '別の形式' }, /形式または版/],
+      [{ ...data, version: 2 }, /形式または版/],
+      [{ ...data, doc: 'other.md' }, /別の文書のコメントです/],
+      [{ ...data, items: {} }, /形式または版/],
+      [{ ...data, items: Array(201).fill(good) }, /200 件まで/],
+      [' '.repeat(4 * 1024 * 1024 + 1), /大きすぎます/],
+      // 文字数は上限内でも UTF-8 で 4 MiB を超える入力を断る。
+      ['日'.repeat(1400000), /大きすぎます/],
+      [JSON.stringify(data).replace('"format":', '"__proto__":{},"format":'), /形式または版/],
+      [badItem(JSON.parse('{"__proto__":{}}')), /項目の形や文字/],
+      [badItem({ text: '制御文字\u0001' }), /項目の形や文字/],
+      [badItem({ text: '長'.repeat(2001) }), /項目の形や文字/],
+      [badItem({ label: '長'.repeat(201) }), /項目の形や文字/],
+      [badItem({ selection: '\u007f' }), /項目の形や文字/],
+      [badItem({ fp: 'b:壊れた指紋' }), /項目の形や文字/],
+      [badItem({ target: { kind: 'block', tag: 'p', range: '壊れた位置' } }), /項目の形や文字/],
+      [badItem({ target: { kind: 'section', tag: 'p', range: good.target.range } }), /項目の形や文字/],
+      [badItem({ target: { ...good.target, constructor: {} } }), /項目の形や文字/],
+      [badItem({ target: { kind: 'cell', table: -1, row: 0, col: 0 } }), /項目の形や文字/],
+      [badItem({ target: { kind: 'html', prev: { tag: 'p', range: good.target.range, prototype: {} } } }), /項目の形や文字/],
+      [badItem({ target: { kind: 'cell', table: 0, row: 0, col: 0 }, keys: { row: '0'.repeat(16), col: '0'.repeat(16), extra: 1 } }), /項目の形や文字/],
+      [badItem({ target: { kind: 'cell', table: 0, row: 0, col: 0 }, keys: { row: '壊れた鍵', col: '0'.repeat(16) } }), /項目の形や文字/],
+      [badItem({ state: 'copied' }), /項目の形や文字/],
+    ];
+    const saved = await savedComments(page);
+    for (const [value, reason] of cases) {
+      assert.match(await importComments(page, value), reason);
+      assert.deepEqual(await savedComments(page), saved, '一つでも不正なら何も足さない');
+      assert.equal(await page.locator('.gp-review-card').count(), 1);
+    }
+    assert.equal(await page.evaluate(() => ({}).polluted), undefined);
+  });
+
+  await t.test('保存の 200 件と未コピーの 50 件を今ある分と合わせて検査する', async (t) => {
+    const { page } = await reviewPage(t);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content p').first(), 'もとのカード');
+    const base = (await savedComments(page))[0];
+    const data = await exportedComments(page);
+    const item = { ...data.items[0], text: '上限の最後のカード' };
+    for (const [count, state, limit] of [[199, 'copied', 200], [49, 'pending', 50]]) {
+      await page.evaluate(({ base, count, state }) => sessionStorage.setItem('gitlab-preview-review', JSON.stringify({ version: 2,
+        docs: { current: Array.from({ length: count }, (_, i) => ({ ...base, id: 'saved-' + i, text: '既存 ' + i, state })) } })),
+      { base, count, state });
+      await page.reload();
+      await enter(page);
+      const saved = await savedComments(page);
+      assert.match(await importComments(page, { ...data, items: [item, { ...item, text: '上限を超えるカード' }] }),
+        new RegExp(limit + ' 件まで'));
+      assert.deepEqual(await savedComments(page), saved);
+      assert.match(await importComments(page, { ...data, items: [item] }), /1 件足しました/);
+      assert.equal(await page.locator('.gp-review-card').count(), count + 1);
+      assert.match(await importComments(page, { ...data, items: [item] }), /0 件足しました。重なりで 1 件/);
+    }
+  });
+
+  await t.test('HTML の文字をそのまま読み込み、再起動後に内容が違えば要確認にする', async (t) => {
+    const first = await reviewPage(t);
+    await enter(first.page);
+    const text = '<img src=x onerror="window.reviewInjected=1">';
+    await addComment(first.page, first.page.locator('#gp-content p').first(), text);
+    const data = await exportedComments(first.page);
+    const { page } = await reviewPage(t, source.replace('最初の段落の文字。', '変わった段落の文字。'));
+    await enter(page);
+    assert.match(await importComments(page, data), /1 件足しました/);
+    assert.equal(await page.locator('.gp-review-state').textContent(), '要確認');
+    assert.ok((await card(page, text).textContent()).includes(text));
+    assert.equal(await page.locator('#gp-review-panel img').count(), 0);
+    assert.equal(await page.evaluate(() => window.reviewInjected), undefined);
+    const item = (await savedComments(page))[0];
+    assert.equal(item.version, '', '内容が合わない項目の版は空のままにする');
+    assert.equal(item.stale, true);
+  });
+
+  await t.test('ファイル文書の相対パスと無名の文書を照合する', async (t) => {
+    const { page, server } = await reviewPage(t, source, { files: { '空 白.md': 'ファイルの本文。\n' } });
+    await page.goto(server.url + '?doc=' + encodeURIComponent('空 白.md'));
+    await enter(page);
+    await addComment(page, page.locator('#gp-content p'), 'ファイルのカード');
+    const data = await exportedComments(page);
+    assert.equal(data.doc, '空 白.md');
+    await page.goto(server.url);
+    await enter(page);
+    assert.match(await importComments(page, data), /別の文書のコメントです/);
+    assert.equal(await page.locator('.gp-review-card').count(), 0);
+    await server.setDocument({ path: null, name: '[無名]', text: '無名の本文。\n', rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current().rev === 2);
+    if (await page.locator('#gp-review-panel').isHidden()) await enter(page);
+    await addComment(page, page.locator('#gp-content p'), '無名のカード');
+    const unnamed = await exportedComments(page);
+    assert.equal(unnamed.doc, null);
+    assert.match(await importComments(page, { ...unnamed, items: [{ ...unnamed.items[0], text: '無名へ足す' }] }), /1 件足しました/);
+  });
+
+  await t.test('書き出しの代替コピーと失敗を知らせ、処理中と終了後は持ち出しを無効にする', async (t) => {
+    const { page } = await reviewPage(t);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content p').first(), 'コピーするカード');
+    const expected = await exportedComments(page);
+    await page.evaluate(() => {
+      window.reviewClipboardAPI = navigator.clipboard;
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+      const copy = document.execCommand.bind(document);
+      document.execCommand = (command) => {
+        const field = document.activeElement;
+        window.reviewFallback = [field.parentElement === document.body, field.value];
+        return copy(command);
+      };
+    });
+    await page.locator('#gp-review-export').click();
+    assert.equal(await page.locator('#gp-review-status').textContent(), 'コメントを書き出してコピーしました。');
+    const [outside, text] = await page.evaluate(() => window.reviewFallback);
+    assert.equal(outside, true);
+    assert.deepEqual(JSON.parse(text), expected);
+    assert.deepEqual(JSON.parse(await page.evaluate(() => window.reviewClipboardAPI.readText())), expected);
+    assert.equal(await page.getByRole('textbox', { name: 'コピー用の一時的な欄' }).count(), 0);
+    await page.evaluate(() => { document.execCommand = () => false; });
+    await page.locator('#gp-review-export').click();
+    assert.match(await page.locator('#gp-review-status').textContent(), /書き出せませんでした/);
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText() { return new Promise((resolve) => { window.releaseReviewCopy = resolve; }); },
+    } }));
+    await page.locator('#gp-review-export').click();
+    assert.equal(await page.locator('#gp-review-export').isDisabled(), true);
+    assert.equal(await page.locator('#gp-review-import').isDisabled(), true);
+    await page.evaluate(() => window.releaseReviewCopy());
+    await page.waitForFunction(() => !document.querySelector('#gp-review-export').disabled);
+    await page.evaluate(() => document.dispatchEvent(new Event('gp:stop')));
+    assert.equal(await page.locator('#gp-review-export').isDisabled(), true);
+    assert.equal(await page.locator('#gp-review-import').isDisabled(), true);
+  });
+
   await t.test('最上位の見出しだけで節を選び、子の節の原文と行を送り、保存から戻す', async (t) => {
     const text = '# 題\n\n## 対象\n\n本文。\n\n### 子\n\n子本文。\n\n## 次\n\n次本文。\n\n> ### 引用\n\n<div><h3>HTML の見出し</h3></div>\n';
     const { page } = await reviewPage(t, text);
