@@ -702,8 +702,8 @@
     if (!blockPoint(editor?.point) || editor.element.isConnected) return;
     // 探し直すのは、数式・図の描き直しや配色の切り替えで置き換わったときだけ。
     // 文書が外で変わった後は、同じ位置に別の内容が来ているかもしれないので付け替えない。
-    const element = editor.version === externalVersion && (editor.tableInsert
-      ? models[editor.tableIndex]?.info.anchor === editor.anchor.actual && models[editor.tableIndex].table
+    const element = editor.version === externalVersion && (editor.tableInsert || editor.tableSource
+      ? models[editor.tableIndex]?.info.anchor === (editor.tableSource ? editor.point.range : editor.anchor.actual) && models[editor.tableIndex].table
       : findBlock(editor.target));
     if (element) editor.element = element;
     else {
@@ -774,8 +774,8 @@
         const top = above ? rect.top - toolbarHeight - gap : rect.top + height + gap;
         blockBar.style.top = Math.max(header + gap, Math.min(top, innerHeight - toolbarHeight - 8)) + 'px';
       }
-      // 表の外へ追加する入力欄は、表を固定するスクロールの包みで切らない。
-      placeBox(input, editor.tableInsert ? document.getElementById('gp-content') : cell.element, rect, { width, height });
+      // 表全体の原文と表の外へ追加する入力欄は、表を固定するスクロールの包みで切らない。
+      placeBox(input, editor.tableInsert || editor.tableSource ? document.getElementById('gp-content') : cell.element, rect, { width, height });
       if (insertPicker) {
         const { form } = insertPicker;
         const box = blockBar.getBoundingClientRect(), size = form.getBoundingClientRect();
@@ -821,7 +821,7 @@
     innerButton.hidden = !editor.inner?.length;
     input.value = draft.value;
     updateHeadingButton();
-    input.setAttribute('aria-label', editor.insert ? 'ブロックの追加' : 'ブロックの原文の編集');
+    input.setAttribute('aria-label', editor.insert ? 'ブロックの追加' : editor.tableSource ? '表全体の原文の編集' : 'ブロックの原文の編集');
     input.style.fontFamily = 'sans-serif';
     input.style.fontSize = '16px';
     input.style.fontWeight = 'normal';
@@ -912,6 +912,42 @@
     pendingBlock = { target, inner, fallbackNotice, then };
     operationStart();
     void loadBlock();
+  }
+
+  async function beginTableSource() {
+    const cell = selectionCell(), model = models[cell?.table];
+    if (!model) return;
+    if (editor) endEdit(true);
+    if (reasonFor('table-source')) return;
+    cancelSource();
+    operationStart();
+    const render = preview.current().render, version = externalVersion, number = ++sourceNumber;
+    const controller = new AbortController();
+    sourceFetching = controller;
+    const target = url('/source');
+    target.searchParams.set('render', render);
+    target.searchParams.set('tag', 'table');
+    target.searchParams.set('range', model.info.anchor);
+    try {
+      const response = await fetch(target, { signal: controller.signal });
+      if (number !== sourceNumber || response.status === 409) return;
+      const data = await response.json();
+      if (!mode || stopped || number !== sourceNumber || render !== preview.current()?.render ||
+        version !== externalVersion || models[cell.table]?.table !== model.table) return;
+      if (!response.ok) throw new Error(messageOf(data) || '表の原文を読み込めませんでした');
+      if (data.render !== render || data.table !== cell.table || data.range !== model.info.anchor || typeof data.text !== 'string')
+        throw new Error('表の原文の応答の形が正しくありません');
+      const point = { range: data.range }, saved = drafts.get(keyOf(point));
+      const value = saved?.original === data.text ? saved.value : data.text;
+      drafts.delete(keyOf(point));
+      openBlock({ point, kind: 'table', tableSource: true, tableIndex: cell.table, element: model.table,
+        target: { tag: 'table', range: data.range }, render, version, original: data.text, value });
+    } catch (error) {
+      if (number === sourceNumber && error.name !== 'AbortError') notice(error.message || '表の原文を読み込めませんでした', true);
+    } finally {
+      if (number === sourceNumber) sourceFetching = null;
+      updateButtons();
+    }
   }
 
   function currentValue(cell, source) {
@@ -1012,7 +1048,7 @@
     operationStart();
     item.tableElement = models[item.point?.table]?.table;
     item.version = externalVersion;
-    item.structural = Boolean(item.headingOp || item.insert || item.history || /^(insert|delete|duplicate|move|sort|convert|merge|unmerge)/.test(item.op?.type || ''));
+    item.structural = Boolean(item.headingOp || item.insert || item.history || item.tableSource || /^(insert|delete|duplicate|move|sort|convert|merge|unmerge)/.test(item.op?.type || ''));
     if (first) queue.unshift(item);
     else queue.push(item);
     addMask(item);
@@ -1223,6 +1259,7 @@
       const body = item.heading ? { render, heading: item.heading, op: item.headingOp } : item.history ? { [item.history]: true } : item.checkbox
         ? { render, checkbox: item.checkbox.getAttribute('data-checkbox-sourcepos'), checked: item.checked }
         : item.insert ? { render, insert: item.insert, text: item.value }
+          : item.tableSource ? { render, table: item.tableIndex, op: { type: 'setTableSource', source: item.value } }
           : item.point.range ? { render, range: item.point.range, text: item.value }
           : { render, table: item.point.table, op: item.op };
       const response = await fetch(url(''), { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1586,6 +1623,14 @@
     if (stopped) return 'プレビューが止まっています';
     if (infoRender !== preview.current()?.render) return '表の情報を読み込んでいます';
     if (action === 'table' || action === 'cells') return '';
+    if (action === 'table-source') {
+      if (busy || queue.length || sourceFetching) return '前の書き込みの反映を待っています';
+      if (composing) return '文字の入力を終えてから操作してください';
+      const info = models[cell.table].info;
+      if (!models[cell.table].editable) return info.reason || 'この表は編集できません';
+      if (info.kind !== 'pipe') return '表全体の原文を編集できるのは、パイプの表だけです';
+      return rangePattern.test(info.anchor || '') ? '' : info.anchorReason || '表全体の原文の範囲を確かめられません';
+    }
     if (action === 'table-before' || action === 'table-after') {
       if (busy || queue.length || sourceFetching) return '前の書き込みの反映を待っています';
       if (composing) return '文字の入力を終えてから操作してください';
@@ -1765,6 +1810,7 @@
     ['cell-align-left', '左揃え'], ['cell-align-center', '中央揃え'], ['cell-align-right', '右揃え'], ['cell-align-default', '揃えを既定に'], null,
     ['cell-header', '見出しセル（th）にする'], ['cell-data', '通常のセル（td）にする']]);
   buildMenu('table', '表の操作', [['table-before', '表の前にブロックを追加'], ['table-after', '表の後ろにブロックを追加'], null,
+    ['table-source', '表全体の原文を編集'],
     ['table-html', 'HTML の表にする'], ['table-pipe', 'パイプの表にする'], ['table-delete', '表を削除']]);
   buildMenu('document', '文書への追加', [['document-start', '文書の先頭に追加'], ['document-end', '文書の末尾に追加']]);
   buildMenu('block', 'ブロックの操作', [['block-source', '原文を編集'], ['block-outer', '外側を編集'], null,
@@ -1943,6 +1989,7 @@
       return;
     }
     closeMenus();
+    if (action === 'table-source') { void beginTableSource(); return; }
     if (action === 'table-before' || action === 'table-after') { beginTableInsert(action.slice('table-'.length)); return; }
     if (action.startsWith('block-')) {
       const { target } = blockMenu, element = findBlock(target);

@@ -169,6 +169,9 @@ func (s *Service) Text(ctx context.Context, doc *string, render uint64, tag stri
 	if _, _, e = s.read(src); e != nil {
 		return nil, e
 	}
+	if tag == "table" {
+		return s.tableText(ctx, src, r)
+	}
 	m, e := s.blocks(ctx, src)
 	if e != nil {
 		return nil, e
@@ -250,6 +253,13 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 			t := m.response.Tables[r.table]
 			if !t.Editable {
 				return nil, fault(422, "excluded", t.Reason)
+			}
+			if r.operation.kind == "setTableSource" {
+				text, editStart, editEnd, e = s.setTableSource(ctx, src, m, r.table, r.operation.source)
+				if e != nil {
+					return nil, e
+				}
+				break
 			}
 			source := func(f moveSource) (tableedit.Target, *Error) {
 				if f.origin != s.origin(src) || f.render != r.render {
