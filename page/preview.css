@@ -397,6 +397,91 @@ body {
   }
 }
 
+/* 閲覧用の操作は本文の木に入れない。 */
+#gp-heading-link-menu {
+  position: fixed;
+  z-index: 2147483600;
+  padding: 4px;
+  border: 1px solid var(--gp-border);
+  border-radius: 4px;
+  background: var(--gp-bg);
+  color: var(--gp-fg);
+  box-shadow: 0 4px 16px #0003;
+  max-width: calc(100vw - 16px);
+}
+#gp-heading-link-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  font: inherit;
+}
+#gp-heading-link-menu button:hover,
+#gp-heading-link-menu button:focus {
+  background: var(--gp-subtle);
+}
+#gp-heading-link-menu [aria-disabled='true'] {
+  color: var(--gp-muted);
+  cursor: default;
+}
+#gp-viewer-status {
+  position: fixed;
+  inset: auto 16px 16px;
+  z-index: 2147483601;
+  width: fit-content;
+  max-width: calc(100vw - 64px);
+  padding: 8px 12px;
+  border: 1px solid var(--gp-border);
+  border-radius: 4px;
+  background: var(--gp-bg);
+  color: var(--gp-fg);
+  overflow-wrap: anywhere;
+}
+.gp-copy-fallback {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+}
+#gp-image-dialog {
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  padding: 12px;
+  border: 1px solid var(--gp-border);
+  border-radius: 6px;
+  background: var(--gp-bg);
+  color: var(--gp-fg);
+}
+#gp-image-dialog::backdrop {
+  background: #000b;
+}
+#gp-image-dialog button {
+  display: block;
+  margin: 0 0 8px auto;
+}
+#gp-image-dialog img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 160px);
+  margin: auto;
+  object-fit: contain;
+}
+#gp-image-caption {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media print {
+  #gp-heading-link-menu,
+  #gp-viewer-status,
+  #gp-image-dialog,
+  #gp-image-dialog::backdrop {
+    display: none !important;
+  }
+}
+
 /* 編集の UI（書き出す本文のスタイルには含めない） */
 /* 線の両側の余白を当たり判定へ移す。線の太さと全体の高さは保つ。 */
 :root[data-edit='on'] #gp-content hr {

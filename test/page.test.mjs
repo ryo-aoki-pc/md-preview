@@ -410,6 +410,372 @@ const payload = (html, extra = {}) => ({
   ...extra,
 });
 
+test('見出しのリンクのコピー・折りたたみ・画像の拡大表示', { skip, timeout: 180000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const clipboard = async (page) => (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');
+  const allowClipboard = (page) => page.context().grantPermissions(['clipboard-read', 'clipboard-write'],
+    { origin: new URL(page.url()).origin });
+  const openLink = async (page, index = 0, keyboard = false) => {
+    const link = page.locator('#gp-outline a').nth(index);
+    if (keyboard) { await link.focus(); await page.keyboard.press('Shift+F10'); }
+    else await link.click({ button: 'right' });
+    await page.locator('#gp-heading-link-menu').waitFor({ state: 'visible' });
+    return link;
+  };
+
+  await t.test('右クリックとキーで二つのリンクをコピーし、重複した題の描画済み id と文字を使う', async (t) => {
+    const source = '# 同じ題\n\n## 同じ題\n\n## 日本語 \\[角\\] \\\\ 記号\n';
+    const { page } = await fixturePage(t, browser, undefined,
+      (root) => writeFileSync(join(root, 'README.md'), source), { live: true });
+    await allowClipboard(page);
+    assert.equal(await page.evaluate(() => window.gpPreview.current().headings[1].id), '同じ題-1');
+    const link = await openLink(page, 1);
+    assert.deepEqual(await page.locator('#gp-heading-link-menu button').allTextContents(),
+      ['リンクをコピー（ファイル名つき）', 'リンクをコピー（#id）']);
+    await page.locator('#gp-heading-link-file').click();
+    await page.waitForFunction(() => document.querySelector('#gp-viewer-status').textContent === 'リンクをコピーしました');
+    assert.equal(await clipboard(page), '[同じ題](README.md#%E5%90%8C%E3%81%98%E9%A1%8C-1)');
+    assert.equal(await link.evaluate((el) => el === document.activeElement), true);
+    await openLink(page, 2, true);
+    await page.locator('#gp-heading-link-fragment').click();
+    const id = await page.evaluate(() => window.gpPreview.current().headings[2].id);
+    assert.equal(await clipboard(page), '[日本語 \\[角\\] \\\\ 記号](#' + encodeURIComponent(id) + ')');
+    assert.equal(await page.locator('#gp-viewer-status img').count(), 0);
+    await link.focus();
+    await page.keyboard.press('ContextMenu');
+    assert.equal(await page.locator('#gp-heading-link-menu').isVisible(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await link.evaluate((el) => el === document.activeElement), true);
+  });
+
+  await t.test('サブフォルダーでも最後のファイル名だけを符号化し、無名ではファイル名つきを無効にする', async (t) => {
+    const fixture = await fixturePage(t, browser, payload('<h1 id="user-content-id">題</h1>', {
+      file: 'sub/空 白(題)%<>\u0001.md', headings: [{ id: 'id', level: 1, text: '題' }],
+    }));
+    const { page } = fixture;
+    await allowClipboard(page);
+    await openLink(page);
+    await page.locator('#gp-heading-link-file').click();
+    const copied = await clipboard(page);
+    assert.equal(copied, '[題](%E7%A9%BA%20%E7%99%BD%28%E9%A1%8C%29%25%3C%3E%01.md#id)');
+    assert.equal(copied.includes(new URL(page.url()).pathname), false);
+    assert.doesNotMatch(copied, /sub\/|127\.0\.0\.1|[A-Z]:|\\Users\\/);
+    for (const [i, file] of ['', '[無名]'].entries()) {
+      await fixture.send('render', payload('<h1 id="user-content-id">題</h1>', {
+        file, rev: i + 2, headings: [{ id: 'id', level: 1, text: '題' }],
+      }));
+      await settledRender(page, i + 2);
+      await openLink(page, 0, true);
+      assert.equal(await page.locator('#gp-heading-link-file').getAttribute('aria-disabled'), 'true');
+      assert.equal(await page.locator('#gp-heading-link-fragment').getAttribute('aria-disabled'), 'false');
+      assert.equal(await page.locator('#gp-heading-link-file').getAttribute('title'), '無名の文書では、ファイル名つきのリンクを作れません');
+      assert.equal(await page.locator('#gp-heading-link-fragment').getAttribute('title'), '');
+      await page.keyboard.press('Enter');
+      assert.equal(await clipboard(page), '[題](#id)');
+      // 無効の項目を押しても写さず、理由を知らせる。
+      await openLink(page);
+      // aria-disabled の項目は Playwright が押せないものとして待つので、force で押す。
+      await page.locator('#gp-heading-link-file').click({ force: true });
+      assert.equal(await page.locator('#gp-viewer-status').textContent(), '無名の文書では、ファイル名つきのリンクを作れません');
+      assert.equal(await clipboard(page), '[題](#id)');
+      await page.keyboard.press('Escape');
+    }
+  });
+
+  await t.test('複数行の見出しの題は、空白をまとめて 1 行にする', async (t) => {
+    const source = '一行目\n二行目\n===\n\n本文\n';
+    const { page } = await fixturePage(t, browser, undefined,
+      (root) => writeFileSync(join(root, 'README.md'), source), { live: true });
+    await allowClipboard(page);
+    await openLink(page);
+    await page.locator('#gp-heading-link-fragment').click();
+    await page.waitForFunction(() => document.querySelector('#gp-viewer-status').textContent === 'リンクをコピーしました');
+    const id = await page.evaluate(() => window.gpPreview.current().headings[0].id);
+    assert.equal(await clipboard(page), '[一行目 二行目](#' + encodeURIComponent(id) + ')');
+  });
+
+  await t.test('別の文書へ移動した先でも、そのファイル名だけのリンクをコピーする', async (t) => {
+    const name = '空 白(題)%.md';
+    const { page, server } = await fixturePage(t, browser, undefined, (root) => {
+      writeFileSync(join(root, 'README.md'), '# 最初\n');
+      mkdirSync(join(root, 'sub'));
+      writeFileSync(join(root, 'sub', name), '# 移動先\n');
+    }, { live: true });
+    const url = new URL(server.url);
+    url.searchParams.set('doc', 'sub/' + name);
+    await page.goto(url.href);
+    await page.waitForFunction(() => window.gpPreview?.current()?.file.startsWith('sub/'));
+    await allowClipboard(page);
+    await openLink(page);
+    await page.locator('#gp-heading-link-file').click();
+    assert.equal(await clipboard(page), '[移動先](%E7%A9%BA%20%E7%99%BD%28%E9%A1%8C%29%25.md#%E7%A7%BB%E5%8B%95%E5%85%88)');
+  });
+
+  await t.test('編集の見出しメニューに二項目を足し、未確定の入力や停止中でもサーバーへ送らずコピーする', async (t) => {
+    const { page } = await editablePage(t, browser, '# 題\n\n本文\n');
+    await allowClipboard(page);
+    const sent = [];
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith('/_/edit')) sent.push(request.postData());
+    });
+    await page.locator('#gp-outline a').click({ button: 'right' });
+    const menu = page.locator('#gp-edit-menu-heading');
+    assert.equal(await menu.isVisible(), true);
+    assert.equal(await page.locator('#gp-heading-link-menu').isVisible(), false);
+    assert.deepEqual((await menu.locator('[role="menuitem"]').allTextContents()).slice(-2),
+      ['リンクをコピー（ファイル名つき）', 'リンクをコピー（#id）']);
+    await page.locator('#gp-edit-link-file').click();
+    assert.equal(await clipboard(page), '[題](README.md#%E9%A1%8C)');
+    await page.locator('#gp-content h1').dblclick();
+    await page.locator('#gp-edit-input').fill('未確定の見出し');
+    await page.locator('#gp-edit-heading').click();
+    assert.equal(await page.locator('#gp-edit-heading-promote').getAttribute('aria-disabled'), 'true');
+    assert.equal(await page.locator('#gp-edit-link-fragment').getAttribute('aria-disabled'), 'false');
+    await page.locator('#gp-edit-link-fragment').click();
+    assert.equal(await clipboard(page), '[題](#%E9%A1%8C)');
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '未確定の見出し');
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => document.dispatchEvent(new Event('gp:stop')));
+    await page.locator('#gp-outline a').focus();
+    await page.keyboard.press('Shift+F10');
+    assert.equal(await page.locator('#gp-edit-link-file').getAttribute('aria-disabled'), 'false');
+    await page.locator('#gp-edit-link-file').click();
+    assert.deepEqual(sent, []);
+  });
+
+  await t.test('コピーの代替手段と失敗の知らせを本文の外へ出す', async (t) => {
+    const { page } = await fixturePage(t, browser, payload('<h1 id="user-content-id">題</h1>', {
+      headings: [{ id: 'id', level: 1, text: '題' }],
+    }));
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+      window.copyFallback = [];
+      document.execCommand = (command) => {
+        window.copyFallback.push([command, document.activeElement.value, document.querySelector('#gp-content textarea') === null]);
+        return true;
+      };
+    });
+    await openLink(page);
+    await page.locator('#gp-heading-link-fragment').click();
+    assert.deepEqual(await page.evaluate(() => window.copyFallback), [['copy', '[題](#id)', true]]);
+    assert.equal(await page.locator('.gp-copy-fallback').count(), 0);
+    await page.evaluate(() => { document.execCommand = () => false; });
+    await openLink(page);
+    await page.locator('#gp-heading-link-fragment').click();
+    assert.match(await page.locator('#gp-viewer-status').textContent(), /コピーできませんでした/);
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => Promise.reject(new Error('拒否')) },
+    }));
+    await page.evaluate(() => { document.execCommand = () => true; });
+    await openLink(page);
+    await page.locator('#gp-heading-link-fragment').click();
+    await page.waitForFunction(() => document.querySelector('#gp-viewer-status').textContent === 'リンクをコピーしました');
+    await page.evaluate(() => { document.execCommand = () => false; });
+    await openLink(page);
+    await page.locator('#gp-heading-link-fragment').click();
+    await page.waitForFunction(() => document.querySelector('#gp-viewer-status').textContent.includes('コピーできませんでした'));
+  });
+
+  await t.test('折りたたみの有無・入れ子・手での開閉に合わせ、差分更新と全置換で閉じた状態も保つ', async (t) => {
+    const html = '<p>残す</p><details open><summary>外</summary><details><summary>内</summary><p>内容</p></details></details>';
+    const fixture = await fixturePage(t, browser, payload('<p>折りたたみなし</p>'));
+    const { page } = fixture;
+    const button = page.locator('#gp-details-toggle');
+    assert.equal(await button.isVisible(), false);
+    await fixture.send('render', payload(html, { rev: 2 }));
+    await settledRender(page, 2);
+    assert.equal(await button.isVisible(), true);
+    assert.equal(await button.textContent(), 'すべて開く');
+    assert.equal(await button.getAttribute('aria-pressed'), null);
+    await button.click();
+    assert.deepEqual(await page.locator('#gp-content details').evaluateAll((els) => els.map((d) => d.open)), [true, true]);
+    assert.equal(await button.textContent(), 'すべて閉じる');
+    await button.click();
+    assert.deepEqual(await page.locator('#gp-content details').evaluateAll((els) => els.map((d) => d.open)), [false, false]);
+    await page.evaluate(() => { window.keptDetails = document.querySelector('details'); });
+    await fixture.send('render', payload(html.replace('残す', '変更'), { rev: 3 }));
+    await settledRender(page, 3);
+    assert.equal(await page.evaluate(() => window.keptDetails === document.querySelector('details')), true);
+    assert.deepEqual(await page.locator('details').evaluateAll((els) => els.map((d) => d.open)), [false, false]);
+    await page.locator('#gp-content > p').evaluate((el) => el.remove());
+    await fixture.send('render', payload(html.replace('残す', '全置換'), { rev: 4 }));
+    await settledRender(page, 4);
+    assert.equal(await page.evaluate(() => window.keptDetails.isConnected), false);
+    assert.deepEqual(await page.locator('details').evaluateAll((els) => els.map((d) => d.open)), [false, false]);
+    await page.locator('summary').first().click();
+    await page.locator('summary').nth(1).click();
+    await page.waitForFunction(() => document.querySelector('#gp-details-toggle').textContent === 'すべて閉じる');
+    await button.click();
+    await fixture.send('render', payload(html, { file: '別.md', rev: 5 }));
+    await settledRender(page, 5);
+    assert.deepEqual(await page.locator('details').evaluateAll((els) => els.map((d) => d.open)), [true, false]);
+    await page.reload();
+    await settledRender(page, 5);
+    assert.deepEqual(await page.locator('details').evaluateAll((els) => els.map((d) => d.open)), [true, false]);
+  });
+
+  await t.test('全幅表示の表の中も一括操作し、全置換でも原文の順で開閉を戻す', async (t) => {
+    const html = '<p>前</p><table><tbody><tr><td><details open><summary>表の中</summary>内容</details></td></tr></tbody></table>' +
+      '<details><summary>表の後</summary>後ろ</details>';
+    const fixture = await fixturePage(t, browser, payload(html));
+    const { page } = fixture;
+    await page.locator('#gp-sticky-toggle').click();
+    await page.locator('[data-md-table-sticky-action="float"]').click();
+    const inside = page.locator('[data-md-table-sticky-float-panel] details');
+    await inside.waitFor();
+    await page.locator('#gp-details-toggle').evaluate((el) => el.click());
+    assert.equal(await inside.evaluate((el) => el.open), true);
+    assert.equal(await page.locator('#gp-content details').evaluate((el) => el.open), true);
+    await page.locator('#gp-details-toggle').evaluate((el) => el.click());
+    assert.equal(await inside.evaluate((el) => el.open), false);
+    await page.locator('#gp-content details').evaluate((el) => { el.open = true; });
+    await page.locator('#gp-content > p').evaluate((el) => el.remove());
+    await fixture.send('render', payload(html.replace('前', '置換'), { rev: 2 }));
+    await settledRender(page, 2);
+    assert.deepEqual(await page.locator('details').evaluateAll((els) => els.map((d) => [d.querySelector('summary').textContent, d.open])),
+      [['表の中', false], ['表の後', true]]);
+  });
+
+  await t.test('原文の入力対象を隠す一括の閉じる操作を止め、入力とファイルを保つ', async (t) => {
+    const source = '<details open>\n<summary>題</summary>\n\n中の段落\n\n</details>\n\n外の段落\n';
+    const { page, file } = await editablePage(t, browser, source);
+    await page.locator('#gp-content details p').dblclick();
+    await page.locator('#gp-edit-input').fill('未確定の原文');
+    await page.locator('#gp-details-toggle').click();
+    assert.equal(await page.locator('details').evaluate((el) => el.open), true);
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '未確定の原文');
+    assert.equal(await page.locator('#gp-edit-input').isVisible(), true);
+    assert.match(await page.locator('#gp-edit-status').textContent(), /入力欄が隠れる/);
+    assert.equal(readFileSync(file, 'utf8'), source);
+    await page.locator('#gp-edit-input').focus();
+    await page.keyboard.press('Escape');
+    await page.locator('#gp-details-toggle').click();
+    assert.equal(await page.locator('details').evaluate((el) => el.open), false);
+    await page.locator('#gp-details-toggle').click();
+    await page.locator('#gp-content > p').dblclick();
+    await page.locator('#gp-edit-input').fill('外の下書き');
+    await page.locator('#gp-details-toggle').click();
+    assert.equal(await page.locator('details').evaluate((el) => el.open), false);
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '外の下書き');
+    assert.equal(readFileSync(file, 'utf8'), source);
+  });
+
+  const image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5S8AAAAASUVORK5CYII=';
+  await t.test('本文の画像を別の層で開き、Esc・背景・閉じるでフォーカスを戻す', async (t) => {
+    const html = '<p>残す本文</p><p><a class="no-attachment-icon" href="' + image + '"><img src="' + image + '" alt="&lt;b&gt;説明&lt;/b&gt;"></a></p>' +
+      '<p><img src="' + image + '" alt="包みなし"></p>';
+    const fixture = await fixturePage(t, browser, payload(html));
+    const { page } = fixture;
+    const dialog = page.locator('#gp-image-dialog');
+    const images = page.locator('#gp-content img');
+    await images.first().click();
+    assert.equal(await dialog.isVisible(), true);
+    assert.equal(await dialog.evaluate((el) => el.parentElement === document.body), true);
+    assert.equal(await dialog.locator('img').getAttribute('src'), image);
+    assert.equal(await page.locator('#gp-image-caption').textContent(), '<b>説明</b>');
+    assert.equal(await page.locator('#gp-image-caption b').count(), 0);
+    await page.keyboard.press('Escape');
+    assert.equal(await dialog.isVisible(), false);
+    assert.equal(await page.locator('#gp-content a').evaluate((el) => el === document.activeElement), true);
+    await images.nth(1).click();
+    await page.mouse.click(2, 2);
+    assert.equal(await dialog.isVisible(), false);
+    assert.equal(await images.nth(1).evaluate((el) => el === document.activeElement), true);
+    await images.nth(1).click();
+    await dialog.getByRole('button', { name: '閉じる' }).click();
+    assert.equal(await images.nth(1).evaluate((el) => el === document.activeElement), true);
+    await images.first().click();
+    await page.emulateMedia({ media: 'print' });
+    assert.equal(await dialog.isVisible(), false);
+    await page.emulateMedia({ media: 'screen' });
+    await page.keyboard.press('Escape');
+    // 開いたままのモーダルを印刷に残さないよう、印刷の前に閉じる。
+    await images.first().click();
+    assert.equal(await dialog.evaluate((el) => el.open), true);
+    await page.evaluate(() => window.dispatchEvent(new Event('beforeprint')));
+    assert.equal(await dialog.evaluate((el) => el.open), false);
+    // ダブルクリックの 2 回目が背景に当たっても、開いたままにする。
+    await images.nth(1).dblclick();
+    assert.equal(await dialog.evaluate((el) => el.open), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await dialog.evaluate((el) => el.open), false);
+    await page.evaluate(() => { window.keptImage = document.querySelector('#gp-content img'); window.keptParagraph = document.querySelector('#gp-content > p'); });
+    await images.first().click();
+    await fixture.send('render', payload(html.replace('残す本文', '差分の本文'), { rev: 2 }));
+    await settledRender(page, 2);
+    assert.equal(await dialog.isVisible(), false);
+    assert.equal(await page.evaluate(() => window.keptImage === document.querySelector('#gp-content img')), true);
+    assert.equal(await page.evaluate(() => window.keptParagraph === document.querySelector('#gp-content > p')), true);
+    await images.first().click();
+    await page.evaluate(() => document.dispatchEvent(new Event('gp:stop')));
+    assert.equal(await dialog.isVisible(), false);
+    await images.first().click();
+    await fixture.send('render', payload(html, { rev: 3, file: '次.md' }));
+    await settledRender(page, 3);
+    assert.equal(await dialog.isVisible(), false);
+  });
+
+  await t.test('描画が包んだ画像の修正済み URL を使い、本文の差分更新を妨げない', async (t) => {
+    const source = '![図の説明](image.png)\n\n残す本文\n\n| 図 |\n| --- |\n| ![表の図](image.png) |\n';
+    const { page, server } = await fixturePage(t, browser, undefined, (root) => {
+      writeFileSync(join(root, 'README.md'), source);
+      writeFileSync(join(root, 'image.png'), Buffer.from(image.split(',')[1], 'base64'));
+    }, { live: true });
+    const img = page.locator('#gp-content img').first();
+    const url = await img.getAttribute('src');
+    assert.equal(url, new URL('image.png', server.url).href);
+    assert.equal(await img.evaluate((el) => el.parentElement.classList.contains('no-attachment-icon')), true);
+    await page.evaluate(() => { window.keptImageParagraph = document.querySelector('#gp-content p'); });
+    await img.click();
+    assert.equal(await page.locator('#gp-image-dialog img').getAttribute('src'), url);
+    await server.setDocument({ name: 'README.md', text: source.replace('残す本文', '変更した本文'), rev: 2 });
+    await settledRender(page, 2);
+    assert.equal(await page.locator('#gp-image-dialog').isVisible(), false);
+    assert.equal(await page.evaluate(() => window.keptImageParagraph === document.querySelector('#gp-content p')), true);
+    await page.locator('#gp-sticky-toggle').click();
+    await page.locator('[data-md-table-sticky-action="float"]').click();
+    await page.locator('[data-md-table-sticky-float-panel] img').click();
+    assert.equal(await page.locator('#gp-image-dialog').isVisible(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#gp-image-dialog').isVisible(), false);
+    assert.equal(await page.locator('[data-md-table-sticky-float-panel]').isVisible(), true);
+    assert.equal(await page.locator('[data-md-table-sticky-float-panel] a.no-attachment-icon').evaluate((el) => el === document.activeElement), true);
+  });
+
+  await t.test('修飾キーと中ボタン・利用者のリンク・図・数式では画像の拡大を受け取らない', async (t) => {
+    const html = '<p><a class="no-attachment-icon" href="' + image + '"><img src="' + image + '"></a></p>' +
+      '<p><a href="#移動"><img src="' + image + '"></a></p>' +
+      '<a data-diagram="plantuml" href="' + image + '"><img src="' + image + '"></a>' +
+      '<span class="gp-math-inline"><img src="' + image + '"></span>';
+    const { page } = await fixturePage(t, browser, payload(html));
+    const prevented = await page.evaluate(() => {
+      const results = [];
+      const record = (event) => { results.push(event.defaultPrevented); event.preventDefault(); };
+      document.addEventListener('click', record);
+      const images = document.querySelectorAll('#gp-content img');
+      for (const key of ['ctrlKey', 'shiftKey', 'altKey', 'metaKey'])
+        images[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, [key]: true }));
+      images[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 1 }));
+      for (const img of Array.from(images).slice(1)) img.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      document.removeEventListener('click', record);
+      return results;
+    });
+    assert.deepEqual(prevented, [false, false, false, false, false, false, false, false]);
+    assert.equal(await page.locator('#gp-image-dialog').isVisible(), false);
+  });
+
+  await t.test('編集とコメントのモードでは画像を拡大しない', async (t) => {
+    const { page } = await editablePage(t, browser, '![説明](image.png)\n', { review: true });
+    await page.locator('#gp-content img').click();
+    assert.equal(await page.locator('#gp-image-dialog').isVisible(), false);
+    await page.locator('#gp-edit-toggle').click();
+    await page.locator('#gp-review-toggle').click();
+    await page.locator('#gp-content img').click();
+    assert.equal(await page.locator('#gp-image-dialog').isVisible(), false);
+  });
+});
+
 async function fixturePage(
   t,
   browser,
@@ -1839,7 +2205,9 @@ test('見出しの操作の画面・キー・送信とフォーカス', { skip, 
       const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
       element.dispatchEvent(event);
       return event.defaultPrevented;
-    }), false);
+    }), true, '編集モードの外ではリンクのコピーのメニューを開く');
+    assert.equal(await page.locator('#gp-heading-link-menu').isVisible(), true);
+    await page.keyboard.press('Escape');
     const plain = await editablePage(t, browser, '# 題\n', { edit: '' });
     assert.equal(await plain.page.locator('.gp-outline-actions').count(), 0);
   });
@@ -2045,7 +2413,7 @@ test('見出しの操作の画面・キー・送信とフォーカス', { skip, 
     assert.equal(await button.isVisible(), true);
     assert.equal(await button.isEnabled(), true);
     await page.locator('#gp-edit-input').fill('### 未確定');
-    assert.equal(await button.isDisabled(), true);
+    assert.equal(await button.isEnabled(), true, '書き込みができなくてもリンクのコピーのメニューは開ける');
     assert.equal(await button.getAttribute('title'), '原文の変更を確定するか取り消してから操作してください');
     await page.keyboard.press('Escape');
     await page.locator('#gp-content h3').dblclick();
@@ -5047,7 +5415,7 @@ test('本文の差分更新と編集用の接点', { skip, timeout: 120000 }, as
       await fixture.send('render', message);
       await settledRender(page, message.rev);
       assert.equal(await page.evaluate(() => !window.previousNode.isConnected), true);
-      if (message.rev === 4) assert.equal(await page.locator('details').evaluate((element) => element.open), true);
+      if (message.rev === 4) assert.equal(await page.locator('details').evaluate((element) => element.open), false);
     }
   });
 

@@ -1468,7 +1468,8 @@
     const context = headingSourceContext();
     headingButton.hidden = !context;
     headingButton.title = context ? reasonFor('headings', context) : '';
-    headingButton.disabled = Boolean(headingButton.title);
+    // 書き込みを断る状態でも、メニュー末尾のリンクのコピーは使える。
+    headingButton.disabled = !context;
   }
   function updateOutline() {
     for (const link of preview.outline()) {
@@ -1548,6 +1549,11 @@
   }
   function reasonFor(action, context = headingContext) {
     if (action === 'heading-cancel') return '';
+    // リンクのコピーは書き込まないので、編集の可否ではなくリンクを作れるかだけを見る。
+    if (action === 'link-file' || action === 'link-fragment') {
+      if (context?.render !== preview.current()?.render) return '描画が変わりました。メニューを開き直してください';
+      return preview.headingLinkReason(context?.index, action === 'link-file');
+    }
     if (action === 'headings' || action.startsWith('heading-')) {
       if (!mode || !allowed()) return '編集モードで操作してください';
       if (stopped) return 'プレビューが止まっています';
@@ -1768,6 +1774,7 @@
     ['heading-promoteSection', '節ごと 1 段上げる'], ['heading-demoteSection', '節ごと 1 段下げる'], null,
     ['heading-moveUp', '節を上へ移動'], ['heading-moveDown', '節を下へ移動'], null,
     ['heading-deleteHeading', '見出しだけを削除'], ['heading-deleteSection', '節ごと削除…'],
+    null, ['link-file', 'リンクをコピー（ファイル名つき）'], ['link-fragment', 'リンクをコピー（#id）'],
   ]);
   const headingDeleteMenu = buildMenu('heading-delete', '節ごとの削除の確認', [
     ['heading-cancel', 'やめる'], ['heading-confirm-delete', '削除する'],
@@ -1899,6 +1906,11 @@
     menu.items[0].focus({ preventScroll: true });
   }
   function runAction(action) {
+    if (action === 'link-file' || action === 'link-fragment') {
+      void preview.copyHeadingLink(headingContext?.index, action === 'link-file');
+      closeMenus(true);
+      return;
+    }
     if (action === 'document-start' || action === 'document-end') { beginDocumentInsert(action.slice('document-'.length)); return; }
     if (action === 'heading-cancel') { closeMenus(true); return; }
     const reason = reasonFor(action);
@@ -2145,6 +2157,7 @@
     // 列幅のドラッグを離したときの click は、md-table-sticky が後の受け手で捨てる。
     if (window.__mdTableSticky?.resizeClick || event.target.closest?.('[data-md-table-sticky-resizer]')) return;
     if (event.target.closest?.('#gp-outline-resizer')) return;
+    if (event.target.closest?.('#gp-details-toggle')) return;
     if (event.target.closest?.('.gp-outline-actions')) return;
     if (!mode || stopped || layer.contains(event.target)) return;
     // コメントへの切り替えは、入力を確定せず busy() の確認へ渡す。
@@ -2421,6 +2434,15 @@
   // 空の textarea でも Chromium の cut は届く。入力中はブラウザーのふつうのコピー・切り取りに任せる。
   window.addEventListener('copy', (event) => copySelection(event, clipboardIntent?.kind || 'copy'), true);
   window.addEventListener('cut', (event) => copySelection(event, 'cut'), true);
+  document.addEventListener('gp:before-details-close', (event) => {
+    if (!editor) return;
+    const element = blockPoint(editor.point) ? editor.element : selectionCell()?.element;
+    if (element && event.detail.some((details) => details !== element && details.contains(element) &&
+      !details.querySelector(':scope > summary')?.contains(element))) {
+      event.preventDefault();
+      notice('原文の入力欄が隠れるため閉じられません。編集を確定するか取り消してから操作してください', true);
+    }
+  });
   document.addEventListener('gp:render', () => {
     updateButtons();
     const render = preview.current()?.render;
