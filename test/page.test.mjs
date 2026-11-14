@@ -919,6 +919,296 @@ test('画面のコメント', { skip, timeout: 240000 }, async (t) => {
       },
     } });
   }, fail);
+  const addSectionComment = async (page, heading, text) => {
+    await heading.click();
+    await page.getByRole('checkbox', { name: '節全体へのコメントにする' }).check();
+    await page.locator('#gp-review-input').fill(text);
+    await page.locator('#gp-review-add').click();
+  };
+  const updateDocument = async ({ page, root, server }, text, rev) => {
+    writeFileSync(join(root, 'README.md'), text);
+    await server.setDocument({ path: join(root, 'README.md'), text, rev });
+    await page.waitForFunction((rev) => window.gpPreview.current().rev === rev &&
+      document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render), rev);
+  };
+
+  await t.test('最上位の見出しだけで節を選び、子の節の原文と行を送り、保存から戻す', async (t) => {
+    const text = '# 題\n\n## 対象\n\n本文。\n\n### 子\n\n子本文。\n\n## 次\n\n次本文。\n\n> ### 引用\n\n<div><h3>HTML の見出し</h3></div>\n';
+    const { page } = await reviewPage(t, text);
+    await enter(page);
+    const section = page.getByRole('checkbox', { name: '節全体へのコメントにする' });
+    assert.equal(await section.isVisible(), false);
+    for (const selector of ['#gp-content > p', '#gp-content blockquote h3', '#gp-content div h3']) {
+      await page.locator(selector).first().click();
+      assert.equal(await section.isVisible(), false, selector);
+    }
+    const target = page.locator('#gp-content > h2').first();
+    await target.click();
+    assert.equal(await section.isVisible(), true);
+    assert.equal(await section.isChecked(), false);
+    await section.check();
+    assert.equal(await page.locator('#gp-review-target').textContent(), '節: 対象');
+    await page.locator('#gp-content > p').first().click();
+    assert.equal(await section.isVisible(), false);
+    await target.click();
+    assert.equal(await section.isChecked(), false, '対象の選び直しではチェックを外す');
+    await page.locator('#gp-review-input').fill('見出しだけへ');
+    await page.locator('#gp-review-add').click();
+    await section.check();
+    await page.locator('#gp-review-input').fill('子を含む節全体へ');
+    await page.locator('#gp-review-add').click();
+    assert.equal(await card(page, '見出しだけへ').locator('h3').textContent(), '見出し: 対象');
+    assert.equal(await card(page, '子を含む節全体へ').locator('h3').textContent(), '節: 対象');
+    await page.locator('#gp-content > p').first().click();
+    await card(page, '子を含む節全体へ').getByRole('button', { name: '本文へ移る', exact: true }).click();
+    assert.equal(await section.isChecked(), true);
+    assert.equal(await page.locator('#gp-review-target').textContent(), '節: 対象');
+    await card(page, '見出しだけへ').getByRole('button', { name: '本文へ移る', exact: true }).click();
+    assert.equal(await section.isChecked(), false);
+    await card(page, '子を含む節全体へ').getByRole('button', { name: '本文へ移る', exact: true }).click();
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    t.after(() => release());
+    await page.route('**/_/review/prepare*', async (route) => { await held; await route.continue(); });
+    const response = page.waitForResponse((value) => value.url().includes('/_/review/prepare'));
+    const preparing = prepare(page);
+    await page.waitForFunction(() => document.querySelector('#gp-review-section').disabled);
+    assert.equal(await section.isDisabled(), true, '依頼文の作成中は節への切り替えを無効にする');
+    release();
+    const prompt = await preparing;
+    await page.unroute('**/_/review/prepare*');
+    assert.equal(await section.isDisabled(), false);
+    const targets = (await response).request().postDataJSON().comments.map((item) => item.target);
+    assert.deepEqual(targets, [{ kind: 'block', tag: 'h2', range: '3:1-3:9' }, { kind: 'section', tag: 'h2', range: '3:1-3:9' }]);
+    assert.ok(prompt.includes('## コメント 1: 見出し（3 行）\n原文:\n```markdown\n## 対象\n```'));
+    assert.ok(prompt.includes('## コメント 2: 節（3〜10 行）\n原文:\n```markdown\n## 対象\n\n本文。\n\n### 子\n\n子本文。\n\n```'));
+    const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current);
+    assert.match(saved[1].fp, /^s:[0-9a-f]{16}$/);
+    await page.reload();
+    await page.waitForSelector('#gp-review-toggle');
+    await enter(page);
+    assert.equal(await page.locator('.gp-review-card').count(), 2);
+    assert.doesNotMatch(await page.locator('#gp-review-cards').textContent(), /要確認/);
+    assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current.map((item) => [item.target, item.fp])),
+      saved.map((item) => [item.target, item.fp]));
+    await card(page, '子を含む節全体へ').getByRole('button', { name: '直す', exact: true }).click();
+    assert.equal(await section.isChecked(), true);
+    await section.uncheck();
+    await page.locator('#gp-review-add').click();
+    assert.equal(await card(page, '子を含む節全体へ').locator('h3').textContent(), '見出し: 対象');
+  });
+
+  await t.test('脚注の定義を表示位置でなく原文の節に含め、依頼文の行と一致させる', async (t) => {
+    for (const atEnd of [false, true]) await t.test(atEnd ? '末尾にある定義' : '最初の節の途中の定義', async (t) => {
+      const first = '## 最初\n\n前の参照[^note]。\n\n';
+      const last = '## 最後\n\n後の本文。\n';
+      const definition = '[^note]: 定義の本文。\n';
+      const text = atEnd ? first + last + '\n' + definition : first + definition + '\n' + last;
+      const fixture = await reviewPage(t, text);
+      const { page } = fixture;
+      await enter(page);
+      await addSectionComment(page, page.locator('#gp-content > h2').first(), '最初の節へ');
+      await addSectionComment(page, page.locator('#gp-content > h2').last(), '最後の節へ');
+      const prompt = await prepare(page);
+      assert.ok(prompt.includes('## コメント 1: 節（1〜' + (atEnd ? 4 : 6) + ' 行）\n原文:\n```markdown\n' +
+        first + (atEnd ? '' : definition + '\n') + '```'), prompt);
+      assert.ok(prompt.includes('## コメント 2: 節（' + (atEnd ? '5〜9' : '7〜9') + ' 行）\n原文:\n```markdown\n' +
+        last + (atEnd ? '\n' + definition : '') + '```'), prompt);
+      await updateDocument(fixture, text.replace('定義の本文。', '定義の変更。'), 2);
+      const states = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current.map((item) => item.stale));
+      assert.deepEqual(states, atEnd ? [false, true] : [true, false]);
+      assert.match(await card(page, atEnd ? '最後の節へ' : '最初の節へ').textContent(), /要確認/);
+      assert.doesNotMatch(await card(page, atEnd ? '最初の節へ' : '最後の節へ').textContent(), /要確認/);
+    });
+  });
+
+  await t.test('位置を持たない HTML の見出しでも節の指紋を止め、prepare は曖昧な節を断る', async (t) => {
+    const text = '## 対象\n\n本文。\n\n<h2>HTML の境</h2>\n\n境の後。\n';
+    const fixture = await reviewPage(t, text);
+    const { page } = fixture;
+    await enter(page);
+    assert.equal(await page.locator('#gp-content > h2').last().getAttribute('data-sourcepos'), null);
+    await addSectionComment(page, page.locator('#gp-content > h2').first(), 'HTML の前の節へ');
+    const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0]);
+    await updateDocument(fixture, text.replace('HTML の境', 'HTML の変更').replace('境の後。', '境の後を変更。'), 2);
+    assert.doesNotMatch(await card(page, 'HTML の前の節へ').textContent(), /要確認/);
+    assert.equal(await page.evaluate((target) => window.gpPreview.fingerprint(target), saved.target), saved.fp);
+    const response = page.waitForResponse((value) => value.url().includes('/_/review/prepare'));
+    await page.locator('#gp-review-prepare').click();
+    const result = await response;
+    assert.equal(result.status(), 422);
+    const data = await result.json();
+    assert.equal(data.error.failures[0].code, 'excluded');
+    await page.waitForFunction(() => document.querySelector('.gp-review-state').textContent.startsWith('誤り:'));
+    assert.match(await card(page, 'HTML の前の節へ').textContent(), /節の範囲を決められません/);
+  });
+
+  await t.test('節の段落の折り返しだけは畳み、本文の文字とコードの空白は区別する', async (t) => {
+    const text = '## 対象\n\n一つ目の文。\n続く文。\n\n```text\n字下げ\n  コード\n```\n\n## 次\n\n次本文。\n';
+    const fixture = await reviewPage(t, text);
+    const { page } = fixture;
+    await enter(page);
+    await addSectionComment(page, page.locator('#gp-content > h2').first(), '空白を確かめる節へ');
+    const wrapped = text.replace('一つ目の文。\n続く文。', '一つ目の文。 続く文。');
+    await updateDocument(fixture, wrapped, 2);
+    assert.doesNotMatch(await card(page, '空白を確かめる節へ').textContent(), /要確認/);
+    await updateDocument(fixture, wrapped.replace('続く文。', '続く文！'), 3);
+    assert.match(await card(page, '空白を確かめる節へ').textContent(), /要確認/);
+    await updateDocument(fixture, wrapped, 4);
+    assert.doesNotMatch(await card(page, '空白を確かめる節へ').textContent(), /要確認/);
+    await updateDocument(fixture, wrapped.replace('  コード', ' コード'), 5);
+    assert.match(await card(page, '空白を確かめる節へ').textContent(), /要確認/);
+  });
+
+  await t.test('節の目次は存在だけを比べ、節の外の見出しの改題では要確認にしない', async (t) => {
+    const text = '## 対象\n\n[[_TOC_]]\n\n本文。\n\n## 外の見出し\n\n外の本文。\n';
+    const fixture = await reviewPage(t, text);
+    const { page } = fixture;
+    await enter(page);
+    await addSectionComment(page, page.locator('#gp-content > h2').first(), '目次を含む節へ');
+    assert.match(await page.locator('#gp-content ul.section-nav').textContent(), /外の見出し/);
+    await updateDocument(fixture, text.replace('外の見出し', '外の改題'), 2);
+    assert.match(await page.locator('#gp-content ul.section-nav').textContent(), /外の改題/);
+    assert.doesNotMatch(await card(page, '目次を含む節へ').textContent(), /要確認/);
+    const prompt = await prepare(page);
+    assert.ok(prompt.includes('節（1〜6 行）\n原文:\n```markdown\n## 対象\n\n[[_TOC_]]\n\n本文。\n\n```'), prompt);
+  });
+
+  await t.test('前の節を削除したら節コメントを残る節の新しい位置へ移す', async (t) => {
+    const text = '# 題\n\n## 前\n\n前本文。\n\n## 対象\n\n対象本文。\n';
+    const { page, root } = await reviewPage(t, text, { edit: 'file' });
+    await enter(page);
+    await addSectionComment(page, page.locator('#gp-content > h2').last(), '前を消しても残す節へ');
+    const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0]);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    await page.locator('#gp-outline a').filter({ hasText: /^前$/ }).first().focus();
+    await page.keyboard.press('Shift+F10');
+    await page.locator('#gp-edit-heading-deleteSection').click();
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.locator('#gp-edit-heading-confirm-delete').click();
+    assert.equal((await response).status(), 200);
+    await editIdle(page);
+    await page.waitForFunction(() => !window.gpEditMode.writing() &&
+      document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render) &&
+      JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0].target.range.startsWith('3:'));
+    const item = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0]);
+    assert.equal(item.target.kind, 'section');
+    assert.equal(item.fp, saved.fp);
+    assert.equal(item.stale, false);
+    assert.equal(readFileSync(join(root, 'README.md'), 'utf8'), '# 題\n\n## 対象\n\n対象本文。\n');
+    await enter(page);
+    assert.ok((await prepare(page)).includes('節（3〜5 行）\n原文:\n```markdown\n## 対象\n\n対象本文。\n```'));
+  });
+
+  await t.test('写した変更区間に同じ指紋の節が二つあれば移さず要確認にする', async (t) => {
+    const { page } = await reviewPage(t, '## **同じ**\n', { edit: 'file' });
+    await enter(page);
+    await addSectionComment(page, page.locator('#gp-content > h2'), '区別できない節へ');
+    const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0]);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    await page.locator('#gp-content > h2').dblclick();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+    // 原文の行は全部変わるが、二つの見出しの表示と節の内容は元と同じになる。
+    await page.locator('#gp-edit-input').fill('前の段落。\n\n## __同じ__\n\n## __同じ__');
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.locator('#gp-edit-input').press('Control+Enter');
+    const result = await response;
+    assert.equal(result.status(), 200, await result.text());
+    assert.deepEqual((await result.json()).change.keep, []);
+    await editIdle(page);
+    await page.waitForFunction(() => !window.gpEditMode.writing() &&
+      document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render) &&
+      JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0].stale);
+    const fingerprints = await page.locator('#gp-content > h2').evaluateAll((elements) => elements.map((element) =>
+      window.gpPreview.fingerprint({ kind: 'section', tag: element.localName, range: element.getAttribute('data-sourcepos') })));
+    assert.deepEqual(fingerprints, [saved.fp, saved.fp]);
+    const item = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0]);
+    assert.deepEqual(item.target, saved.target);
+    await enter(page);
+    assert.match(await card(page, '区別できない節へ').textContent(), /要確認/);
+  });
+
+  await t.test('節の本文一文字と見出しの文字の変更を要確認にし、外の移動では付け替えない', async (t) => {
+    const text = '## 対象\n\n本文。\n\n### 子\n\n子本文。\n\n## 次\n\n次本文。\n';
+    const { page, root, server } = await reviewPage(t, text);
+    await enter(page);
+    await addComment(page, page.locator('#gp-content h2').first(), '見出しだけへ');
+    await page.getByRole('checkbox', { name: '節全体へのコメントにする' }).check();
+    await page.locator('#gp-review-input').fill('節の変更を確認');
+    await page.locator('#gp-review-add').click();
+    const update = async (next, rev) => {
+      writeFileSync(join(root, 'README.md'), next);
+      await server.setDocument({ path: join(root, 'README.md'), text: next, rev });
+      await page.waitForFunction((rev) => window.gpPreview.current().rev === rev &&
+        document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render), rev);
+    };
+    await update(text.replace('子本文。', '子本文！'), 2);
+    assert.match(await card(page, '節の変更を確認').textContent(), /要確認/);
+    assert.doesNotMatch(await card(page, '見出しだけへ').textContent(), /要確認/);
+    await page.locator('#gp-review-prepare').click();
+    assert.match(await page.locator('#gp-review-status').textContent(), /要確認のコメントが 1 件/);
+    await update(text.replace('## 対象', '## 改題'), 3);
+    assert.match(await card(page, '見出しだけへ').textContent(), /要確認/);
+    await update('前に追加。\n\n' + text, 4);
+    const list = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current);
+    assert.ok(list.every((item) => item.stale && item.target.range.startsWith('1:')));
+    await page.reload();
+    await page.waitForSelector('#gp-review-toggle');
+    await enter(page);
+    assert.match(await card(page, '節の変更を確認').textContent(), /要確認/);
+  });
+
+  await t.test('節の移動と節ごとのレベル変更に追従し、取り消しとやり直しでも節を保つ', async (t) => {
+    const text = '# 題\n\n## 前\n\n前本文。\n\n## 対象\n\n対象本文。\n\n### 子\n\n子本文。\n\n## 後\n\n後本文。\n';
+    const { page } = await reviewPage(t, text, { edit: 'file' });
+    await enter(page);
+    await page.locator('#gp-content h2').nth(1).click();
+    await page.getByRole('checkbox', { name: '節全体へのコメントにする' }).check();
+    await page.locator('#gp-review-input').fill('移す節へ');
+    await page.locator('#gp-review-add').click();
+    const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0]);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    const send = async (action) => {
+      const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+      await action();
+      const result = await response;
+      assert.equal(result.status(), 200, await result.text());
+      await editIdle(page);
+      await page.waitForFunction(() => !window.gpEditMode.writing() &&
+        document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render) &&
+        JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current.every((item) => !item.stale));
+    };
+    const outline = page.locator('#gp-outline a').filter({ hasText: '対象' }).first();
+    await outline.focus();
+    await send(() => page.keyboard.press('Alt+ArrowUp'));
+    await outline.focus();
+    await send(() => page.keyboard.press('Alt+Shift+ArrowRight'));
+    let item = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0]);
+    assert.equal(item.target.kind, 'section');
+    assert.equal(item.target.tag, 'h3');
+    assert.equal(item.target.range.split(':')[0], '3');
+    assert.equal(item.fp, saved.fp, '節の内容が同じなら、節ごとのレベル変更では指紋を保つ');
+    assert.equal(await page.locator('#gp-content > h4').textContent(), '子');
+    for (const selector of ['#gp-edit-undo', '#gp-edit-undo', '#gp-edit-redo', '#gp-edit-redo'])
+      await send(() => page.locator(selector).click());
+    item = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0]);
+    assert.equal(item.fp, saved.fp);
+    assert.equal(item.target.tag, 'h3');
+    // 子だけのレベル変更は、節の構造が変わるので要確認にする。
+    await page.locator('#gp-outline a').filter({ hasText: /^子$/ }).first().focus();
+    const childResponse = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await page.keyboard.press('Alt+ArrowRight');
+    assert.equal((await childResponse).status(), 200);
+    await editIdle(page);
+    await page.waitForFunction(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current[0].stale);
+    await send(() => page.locator('#gp-edit-undo').click());
+    await page.locator('#gp-review-toggle').click();
+    const prompt = await prepare(page);
+    assert.ok(prompt.includes('節（3〜10 行）\n原文:\n```markdown\n### 対象\n\n対象本文。\n\n#### 子\n\n子本文。\n\n```'));
+  });
 
   await t.test('列幅のつまみを本文の上で離しても、コメントの対象を変えない', async (t) => {
     const { page } = await reviewPage(t);

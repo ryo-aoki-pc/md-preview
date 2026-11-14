@@ -36,6 +36,17 @@
   const input = make('textarea', 'gp-review-input', panel);
   input.setAttribute('aria-label', 'コメント');
   input.rows = 4;
+  const sectionLabel = make('label', 'gp-review-section-label', panel);
+  const section = make('input', 'gp-review-section', sectionLabel);
+  section.type = 'checkbox';
+  make('span', '', sectionLabel, '節全体へのコメントにする');
+  section.addEventListener('change', () => {
+    if (!selected) return;
+    selected = { ...selected, target: { ...selected.target, kind: section.checked ? 'section' : 'block' },
+      label: (section.checked ? '節' : '見出し') + ': ' + shortText(elementsOf(selected.target)[0]?.textContent || '') };
+    draw();
+    refreshFrames();
+  });
   const add = button('gp-review-add', panel, '追加', addComment);
   const cards = make('div', 'gp-review-cards', panel);
   const actions = make('div', 'gp-review-actions', panel);
@@ -92,6 +103,8 @@
   function validTarget(value) {
     if (!plain(value)) return null;
     if (value.kind === 'block' && boundaryOK(value)) return { kind: 'block', tag: value.tag, range: value.range };
+    if (value.kind === 'section' && boundaryOK(value) && /^h[1-6]$/.test(value.tag))
+      return { kind: 'section', tag: value.tag, range: value.range };
     if (value.kind === 'cell' && [value.table, value.row, value.col].every(integer))
       return { kind: 'cell', table: value.table, row: value.row, col: value.col };
     if (value.kind !== 'html' || ['prev', 'next'].some((key) => Object.hasOwn(value, key) && !boundaryOK(value[key]))) return null;
@@ -104,8 +117,8 @@
   const length = (value) => Array.from(value).length;
   const textOK = (value) => typeof value === 'string' && value.trim() !== '' && length(value) <= 2000 && !controlPattern.test(value);
   const shortOK = (value, max) => typeof value === 'string' && length(value) <= max && !controlPattern.test(value);
-  // 内容の指紋（ブロック b:・生の HTML h:・セル c:）と、セルの行と列の鍵。版 1 で保存したものは空から始める。
-  const fingerprintPattern = /^(?:|[bhc]:[0-9a-f]{16})$/;
+  // 内容の指紋（ブロック b:・生の HTML h:・セル c:・節 s:）と、セルの行と列の鍵。版 1 で保存したものは空から始める。
+  const fingerprintPattern = /^(?:|[bhcs]:[0-9a-f]{16})$/;
   const keyPattern = /^[0-9a-f]{16}$/;
   const versionPattern = /^(?:|[0-9a-f]{32})$/i;
   // 1 つの文書の分を読む。形が違えば、その文書の分だけを捨てる（ほかの文書のコメントは残す）。
@@ -219,6 +232,9 @@
     quote.textContent = selected?.selection ? '選んだ文字: ' + selected.selection : '';
     quote.hidden = !selected?.selection;
     input.disabled = locked();
+    sectionLabel.hidden = !selected || !['block', 'section'].includes(selected.target.kind) ||
+      !/^h[1-6]$/.test(selected.target.tag) || elementsOf(selected.target)[0]?.parentElement !== content;
+    section.disabled = locked();
     // 直している間に別の対象を選ぶと、そのコメントの対象を変える。黙って変えないよう文言に出す。
     const original = editing && comments.find((item) => item.id === editing);
     add.textContent = !editing ? '追加' : original && selected && !sameTarget(original.target, selected.target) ? '保存（対象を変える）' : '保存';
@@ -257,6 +273,7 @@
       const fix = button('', buttons, '直す', () => {
         editing = item.id;
         selected = { target: item.target, label: item.label, ...(item.selection ? { selection: item.selection } : {}) };
+        section.checked = item.target.kind === 'section';
         input.value = item.text;
         draw();
         refreshFrames();
@@ -271,6 +288,7 @@
         const elements = elementsOf(item.target);
         if (!elements.length) { notice('コメントの対象が見つかりません。本文を確認して対象を選び直してください。'); return; }
         selected = { target: item.target, label: item.label, ...(item.selection ? { selection: item.selection } : {}) };
+        section.checked = item.target.kind === 'section';
         elements[0].scrollIntoView({ block: 'center', inline: 'nearest' });
         draw();
         refreshFrames();
@@ -290,7 +308,7 @@
     }
   }
   function elementsOf(target) {
-    if (target.kind === 'block') {
+    if (target.kind === 'block' || target.kind === 'section') {
       const element = preview.findSource(target.tag, target.range);
       return element ? [element] : [];
     }
@@ -337,6 +355,7 @@
     (!element.closest('td, th') && element.closest('input, textarea, select, button, [contenteditable]'));
   function selectTarget(point) {
     selected = point;
+    section.checked = false;
     draw();
     refreshFrames();
   }
@@ -588,7 +607,11 @@
   function followTarget(item, chain) {
     if (!item.fp) return null;
     let candidates = [];
-    if (item.target.kind === 'block') {
+    if (item.target.kind === 'section') {
+      // 見出しの開始行だけを版の鎖で写し、節全体の指紋が合う候補一つへだけ移す。
+      for (const [start, end] of mapped(startLine(item.target), chain))
+        candidates.push(...preview.targetsInRange(start, end).sections);
+    } else if (item.target.kind === 'block') {
       for (const [start, end] of mapped(startLine(item.target), chain))
         for (const block of preview.targetsInRange(start, end).blocks) {
           const tagOK = /^h[1-6]$/.test(item.target.tag) ? /^h[1-6]$/.test(block.tag) : block.tag === item.target.tag;

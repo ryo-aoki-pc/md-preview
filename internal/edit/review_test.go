@@ -60,6 +60,69 @@ func TestReviewBlocks(t *testing.T) {
 	}
 }
 
+func TestReviewSections(t *testing.T) {
+	e := testEngine(t)
+	for _, c := range []struct {
+		name, text, excerpt string
+		index, first, last  int
+	}{
+		{"末尾の節", "## A\n\n前\n\n## B\n\n末尾\n", "## B\n\n末尾\n", 1, 5, 7},
+		{"末尾の改行なし", "## A\n\n末尾", "## A\n\n末尾", 0, 1, 3},
+		{"子の節を含む", "## A\n\n本文\n\n### 子\n\n子本文\n\n## B\n", "## A\n\n本文\n\n### 子\n\n子本文\n\n", 0, 1, 8},
+		{"setext", "前\n\n見出し\n---\n\n本文\n\n## 次\n", "見出し\n---\n\n本文\n\n", 0, 3, 7},
+		{"同じ題の先", "## 同じ\n\n一\n\n## 同じ\n\n二\n", "## 同じ\n\n一\n\n", 0, 1, 4},
+		{"同じ題の後", "## 同じ\n\n一\n\n## 同じ\n\n二\n", "## 同じ\n\n二\n", 1, 5, 7},
+		{"front matter の後", "---\ntitle: 題\n---\n\n## A\n\n本文\n", "## A\n\n本文\n", 0, 5, 7},
+		{"取り込みの後", "::include{file=part.md}\n\n## A\n\n本文\n", "## A\n\n本文\n", 0, 3, 5},
+	} {
+		for _, ending := range []string{"\n", "\r\n"} {
+			t.Run(c.name+ending, func(t *testing.T) {
+				text := strings.ReplaceAll(c.text, "\n", ending)
+				s, h := testService(t, e, text, map[string]string{"part.md": "取り込み\n\n二段落\n"})
+				info := getTables(t, s, h).Headings[c.index]
+				_, items, err := s.Review(context.Background(), nil, h.src.Render, []ReviewTarget{{Kind: "section", Tag: info.Tag, Range: info.Range}})
+				want := []ReviewItem{{Kind: "節", StartLine: c.first, EndLine: c.last, Excerpt: c.excerpt}}
+				if err != nil || !reflect.DeepEqual(items, want) || disk(t, h) != text {
+					t.Fatalf("節=%+v、誤り=%+v、期待=%+v", items, err, want)
+				}
+			})
+		}
+	}
+}
+
+func TestReviewSectionsRejected(t *testing.T) {
+	e := testEngine(t)
+	for _, c := range []struct {
+		name, text, tag, public, code string
+	}{
+		{"取り込みを含む", "## A\n\n::include{file=part.md}\n\n## B\n", "h2", "1:1-1:4", "excluded"},
+		{"取り込んだ見出し", "::include{file=part.md}\n", "h3", "1:1-1:5", "excluded"},
+		{"front matter の位置", "---\n# A\n---\n\n## B\n", "h1", "2:1-2:3", "target"},
+		{"引用の見出し", "> ## A\n", "h2", "1:3-1:6", "excluded"},
+		{"曖昧な節の境", "## A\n\n> ## B\n", "h2", "1:1-1:4", "excluded"},
+		{"見出しでない対象", "本文\n", "p", "1:1-1:6", "invalid"},
+		{"一覧に無い見出し", "## A\n", "h2", "1:1-1:3", "target"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, h := testService(t, e, c.text, map[string]string{"part.md": "### C\n\n本文\n"})
+			_, _, err := s.Review(context.Background(), nil, h.src.Render, []ReviewTarget{
+				{Kind: "section", Tag: c.tag, Range: Range(c.public)}, {Kind: "section", Tag: "h1", Range: "99:1-99:3"}})
+			if err == nil {
+				t.Fatal("対象外の節を受けた")
+			}
+			if err.Code != c.code || err.Index == nil || *err.Index != 0 || len(err.Failures) != 2 ||
+				err.Failures[0].Index != 0 || err.Failures[0].Code != c.code || err.Failures[0].Message == "" ||
+				err.Failures[1].Index != 1 || err.Failures[1].Code != "target" || disk(t, h) != c.text {
+				t.Fatalf("誤り=%+v、失敗=%+v", err, err.Failures)
+			}
+		})
+	}
+	s, h := testService(t, e, "## A\n\n本文\n", nil)
+	if _, _, err := s.Review(context.Background(), nil, h.src.Render+1, []ReviewTarget{{Kind: "section", Tag: "h2", Range: "1:1-1:4"}}); err == nil || err.Code != "stale" || err.Index != nil {
+		t.Fatal("古い描画を受けた", err)
+	}
+}
+
 func TestReviewLineMapping(t *testing.T) {
 	e := testEngine(t)
 	for _, ending := range []string{"\n", "\r\n"} {

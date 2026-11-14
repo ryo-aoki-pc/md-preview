@@ -25,6 +25,8 @@ type Reviewer interface {
 	Review(context.Context, *string, uint64, []edit.ReviewTarget) (edit.ReviewDocument, []edit.ReviewItem, *edit.Error)
 }
 
+var reviewHeadingTagPattern = regexp.MustCompile(`^h[1-6]$`)
+
 // isReviewPath はコメントの口だけを見分ける。ほかのファイルの経路（docs/_/review/a.md など）には当てない。
 func isReviewPath(r *http.Request) bool {
 	p := pathOf(r)
@@ -73,13 +75,13 @@ func reviewTarget(value any) (edit.ReviewTarget, *edit.Error) {
 	}
 	target.Kind, _ = m["kind"].(string)
 	switch target.Kind {
-	case "block":
+	case "block", "section":
 		if len(m) != 3 || !onlyKeys(m, "kind", "tag", "range") {
 			return target, reviewInvalid()
 		}
 		tag, tagOK := m["tag"].(string)
 		r, rangeOK := m["range"].(string)
-		if !tagOK || !rangeOK || !tagPattern.MatchString(tag) {
+		if !tagOK || !rangeOK || !tagPattern.MatchString(tag) || target.Kind == "section" && !reviewHeadingTagPattern.MatchString(tag) {
 			return target, reviewInvalid()
 		}
 		var e *edit.Error

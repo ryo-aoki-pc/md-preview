@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"path/filepath"
+	"strings"
 
 	"github.com/ryo-aoki-pc/md-tools/internal/session"
 )
@@ -12,7 +13,7 @@ import (
 type ReviewTarget struct {
 	Kind            string
 	Tag             string
-	Range           Range
+	Range           Range // section でも節全体ではなく、見出しの要素の公開の範囲。
 	Prev, Next      *HTMLBoundary
 	Table, Row, Col int
 }
@@ -57,7 +58,7 @@ func (s *Service) Review(ctx context.Context, doc *string, render uint64, target
 			return document, nil, fault(422, "cancelled", "原文の読み取りを取り消しました。")
 		}
 		// 一覧や表の対応を作れないのは文書全体の誤りなので、対象の番号を付けずにすぐ返す。
-		if target.Kind == "block" || target.Kind == "html" {
+		if target.Kind == "block" || target.Kind == "html" || target.Kind == "section" {
 			if _, err := s.blocks(ctx, src); err != nil {
 				return document, nil, err
 			}
@@ -100,6 +101,34 @@ func (s *Service) Review(ctx context.Context, doc *string, render uint64, target
 // reviewTarget は 1 件の対象を今の描画の一覧で確かめ、原文の行と抜粋を返す。
 func (s *Service) reviewTarget(ctx context.Context, src session.Source, target ReviewTarget) (ReviewItem, *Error) {
 	switch target.Kind {
+	case "section":
+		if !headingTagPattern.MatchString(target.Tag) {
+			return ReviewItem{}, invalid()
+		}
+		if _, err := ParseSourceRange(target.Tag, string(target.Range)); err != nil {
+			return ReviewItem{}, err
+		}
+		m, err := s.blocks(ctx, src)
+		if err != nil {
+			return ReviewItem{}, err
+		}
+		headings, err := m.headingMapping(ctx, src)
+		if err != nil {
+			return ReviewItem{}, err
+		}
+		e := headings.targets[positionAttribute{target.Tag, "data-sourcepos", string(target.Range)}]
+		if e == nil {
+			return ReviewItem{}, blockFault("target")
+		}
+		if e.info.Reason != "" {
+			return ReviewItem{}, fault(422, "excluded", e.info.Reason)
+		}
+		if e.sectionReason != "" {
+			return ReviewItem{}, fault(422, "excluded", e.sectionReason)
+		}
+		// 公開の範囲は見出しの照合だけに使い、子の節を含む終端はサーバーの一覧で決める。
+		return ReviewItem{Kind: "節", StartLine: e.first + 1, EndLine: e.sectionEnd,
+			Excerpt: removeCR(strings.Join(headings.lines[e.first:e.sectionEnd], ""))}, nil
 	case "block", "html":
 		m, err := s.blocks(ctx, src)
 		if err != nil {
