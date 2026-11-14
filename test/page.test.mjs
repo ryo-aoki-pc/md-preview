@@ -6461,15 +6461,17 @@ test('本文のリンク切れの点検と再点検を確かめる', { skip, tim
 
   await t.test('リンク切れと未点検を分けて数え、既存の知らせと同じ操作で行へ移る', async (t) => {
     const text = '# 題\n\n' + Array.from({ length: 50 }, (_, i) =>
-      i === 20 ? '[ない](missing.txt) [外](../outside.txt)' : '行の位置を確かめる本文。'.repeat(12)).join('\n\n') + '\n';
+      i === 20 ? '[ない](missing.txt) [外](../outside.txt)' : i === 30 ? '[無い見出し](#ない見出し)' : '行の位置を確かめる本文。'.repeat(12)).join('\n\n') + '\n';
     const { page, jumpRequests } = await setup(t, text, { jump: true });
     await finished(page);
-    assert.equal(await page.locator('#gp-notices-toggle').textContent(), 'GitLab との違い 2');
+    assert.equal(await page.locator('#gp-notices-toggle').textContent(), 'GitLab との違い 3');
     await page.locator('#gp-notices-toggle').click();
-    assert.equal(await page.locator('#gp-notices [data-kind="broken"] h3').textContent(), 'リンク切れ（1件）');
+    assert.equal(await page.locator('#gp-notices [data-kind="broken"] h3').textContent(), 'リンク切れ（2件）');
+    // 描画の href は % で符号化されているが、欄には読める形で出す。
+    assert.match(await page.locator('#gp-notices [data-kind="broken"] button').nth(1).textContent(), /^63 行: #ない見出し — /);
     assert.equal(await page.locator('#gp-notices [data-kind="unchecked"] h3').textContent(), '点検していないリンク（1件）');
-    assert.match(await page.locator('#gp-notices [data-kind="broken"] button').textContent(), /^43 行: missing.txt/);
-    await page.locator('#gp-notices [data-kind="broken"] button').click();
+    assert.match(await page.locator('#gp-notices [data-kind="broken"] button').first().textContent(), /^43 行: missing.txt/);
+    await page.locator('#gp-notices [data-kind="broken"] button').first().click();
     await page.waitForFunction(() => {
       const line = document.querySelector('#gp-content [data-sourcepos^="43:"]');
       const top = document.querySelector('#gp-header').offsetHeight + document.querySelector('#gp-notices').offsetHeight;

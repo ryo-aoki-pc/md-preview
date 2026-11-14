@@ -250,11 +250,13 @@
       if (!response.ok) throw new Error('リンクを点検できませんでした。再点検してください。');
       const value = await response.json();
       if (request !== linksGeneration || last !== message || value.render !== message.render) return;
+      // 描画の href は日本語の見出しなどを % で符号化しているので、読めるよう戻して出す（戻せなければそのまま）。
+      const readableHref = (href) => { try { return decodeURI(href); } catch { return href; } };
       linkNotices = [];
       for (const kind of ['broken', 'unchecked']) {
         for (const item of Array.isArray(value[kind]) ? value[kind] : []) {
           if (item && typeof item.href === 'string' && typeof item.reason === 'string') {
-            linkNotices.push({ kind, line: item.line, text: item.href + ' — ' + item.reason });
+            linkNotices.push({ kind, line: item.line, text: readableHref(item.href) + ' — ' + item.reason });
           }
         }
       }
