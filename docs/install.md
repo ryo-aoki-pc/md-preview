@@ -5,7 +5,7 @@
 - どの項も単独で通せる。項のリードの前提を先に満たす
 - bash のブロックはブラケットペーストの効く端末に、PowerShell のブロックは PowerShell 7 に貼り、貼った後に Enter を押す。貼った後は、反転表示の「確認」から後ろの出力を箇条書きで確かめる
 - [PowerShell 7](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-windows)が入っていて、実行ポリシーが `RemoteSigned`（`Unrestricted`・`Bypass` でもよい）であることを確かめてある
-- PowerShell の貼り方は [Windows Terminal で複数行を 1 つの入力として貼る](https://github.com/ryo-aoki-pc/setup-notes/blob/main/docs/shell-terminal.md#windows-terminal-で複数行を-1-つの入力として貼る)に従う
+- PowerShell は、貼った全体が 1 つの入力になり、Enter で実行する設定の窓に貼る
 
 <details id="この文書の補足と注意点">
   <summary>この文書の補足と注意点</summary>
