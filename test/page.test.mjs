@@ -8250,6 +8250,199 @@ test('数式と図の原文を編集し、描き直しと編集の枠を確か�
   });
 });
 
+test('原文に貼った PNG の保存・挿入・確定と取り消しを確かめる', { skip, timeout: 180000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const open = async (page) => {
+    await page.locator('#gp-content > p').first().dblclick();
+    await page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+  };
+  // OS のクリップボードを使わず、PNG の File を持つ貼り付けのイベントだけを送る。
+  const paste = (page, { type = 'image/png', text = '', broken = false } = {}) => page.evaluate(({ type, text, broken }) => {
+    const data = new DataTransfer();
+    if (text) data.setData('text/plain', text);
+    if (type) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2; canvas.height = 3;
+      const bytes = Uint8Array.from(atob(canvas.toDataURL('image/png').split(',')[1]), (c) => c.charCodeAt(0));
+      data.items.add(new File([broken ? new Uint8Array([0, 1, 2]) : bytes], 'clipboard.png', { type }));
+    }
+    const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data });
+    document.querySelector('#gp-edit-input').dispatchEvent(event);
+    return event.defaultPrevented;
+  }, { type, text, broken });
+  const save = async (page, options) => {
+    const saved = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit/image'));
+    assert.equal(await paste(page, options), true);
+    const response = await saved;
+    assert.equal(response.status(), 200);
+    const path = await response.json();
+    assert.match(path, /^images\/img-\d{8}-\d{6}-[0-9a-f]{24}\.png$/);
+    assert.equal(response.request().headers()['content-type'], 'image/png');
+    await page.waitForFunction((path) => document.querySelector('#gp-edit-input').value.includes(path), path);
+    return path;
+  };
+
+  await t.test('カーソルへの参照と選択の置き換え、確定と描画、取り消しても画像を残す', async (t) => {
+    const original = '前後\n';
+    const { page, root, file } = await editablePage(t, browser, original);
+    await open(page);
+    const input = page.locator('#gp-edit-input');
+    await input.evaluate((e) => e.setSelectionRange(1, 1));
+    const first = await save(page, { text: 'PNG と同時に来た文字' });
+    assert.equal(await input.inputValue(), '前![](' + first + ')後');
+    assert.equal(readFileSync(file, 'utf8'), original);
+    assert.equal(readFileSync(join(root, first)).subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+    await input.evaluate((e) => e.setSelectionRange(0, e.value.length));
+    const second = await save(page);
+    assert.equal(await input.inputValue(), '![](' + second + ')');
+    assert.equal(await input.evaluate((e) => e.selectionStart === e.value.length && e.selectionEnd === e.value.length), true);
+    await page.keyboard.press('Control+Enter');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '![](' + second + ')\n');
+    await page.waitForFunction(() => {
+      const image = document.querySelector('#gp-content img');
+      return image?.complete && image.naturalWidth === 2 && image.naturalHeight === 3;
+    });
+    await page.keyboard.press('Control+z');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), original);
+    assert.equal(existsSync(join(root, first)), true);
+    assert.equal(existsSync(join(root, second)), true);
+    await open(page);
+    const cancelled = await save(page);
+    await page.keyboard.press('Escape');
+    assert.equal(existsSync(join(root, cancelled)), true);
+    assert.equal(readFileSync(file, 'utf8'), original);
+  });
+
+  await t.test('追加欄と表全体の原文にも貼ってから確定できる', async (t) => {
+    const { page, root, file } = await editablePage(t, browser, '本文\n');
+    await page.locator('#gp-edit-add').click();
+    await page.locator('#gp-edit-document-end').click();
+    const path = await save(page);
+    await page.keyboard.press('Control+Enter');
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), '本文\n\n![](' + path + ')\n');
+    assert.equal(existsSync(join(root, path)), true);
+
+    const table = await editablePage(t, browser, '| 列 |\n| --- |\n| 本文 |\n');
+    await table.page.locator('#gp-content td').click();
+    await table.page.locator('#gp-edit-table').click();
+    await table.page.locator('#gp-edit-table-source').click();
+    await table.page.waitForFunction(() => document.querySelector('#gp-edit-layer').dataset.typing === 'on');
+    await table.page.locator('#gp-edit-input').evaluate((e) => {
+      const start = e.value.indexOf('本文'); e.setSelectionRange(start, start + 2);
+    });
+    const tablePath = await save(table.page);
+    await table.page.keyboard.press('Control+Enter');
+    await editIdle(table.page);
+    assert.equal(readFileSync(table.file, 'utf8'), '| 列 |\n| --- |\n| ![](' + tablePath + ') |\n');
+    await table.page.waitForFunction(() => document.querySelector('#gp-content td img')?.naturalWidth === 2);
+  });
+
+  await t.test('PNG 以外と文字だけでは既定の貼り付けを止めず、セルの原文には画像を送らない', async (t) => {
+    const { page } = await editablePage(t, browser, '本文\n\n| 列 |\n| --- |\n| セル |\n');
+    let sent = 0;
+    page.on('request', (r) => { if (new URL(r.url()).pathname.endsWith('/_/edit/image')) sent++; });
+    await open(page);
+    assert.equal(await paste(page, { type: 'image/jpeg' }), false);
+    assert.equal(await paste(page, { type: '', text: '文字' }), false);
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '本文');
+    await page.keyboard.press('Escape');
+    await page.locator('#gp-content td').dblclick();
+    assert.equal(await paste(page), false);
+    assert.equal(sent, 0);
+  });
+
+  await t.test('送信待ちの二重貼り付けと確定を止め、失敗を安全な知らせで出す', async (t) => {
+    const { page, root, file } = await editablePage(t, browser, '本文\n');
+    await open(page);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    let sent = 0;
+    await page.route('**/_/edit/image?*', async (route) => { sent++; await gate; await route.continue(); });
+    const saved = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/_/edit/image'));
+    assert.equal(await paste(page), true);
+    await page.waitForFunction(() => document.querySelector('#gp-edit-input').readOnly);
+    assert.equal(await paste(page), true);
+    await page.keyboard.press('Control+Enter');
+    assert.equal(readFileSync(file, 'utf8'), '本文\n');
+    release();
+    assert.equal((await saved).status(), 200);
+    await page.waitForFunction(() => !document.querySelector('#gp-edit-input').readOnly);
+    assert.equal(sent, 1);
+    assert.equal(readdirSync(join(root, 'images')).length, 1);
+    await page.unroute('**/_/edit/image?*');
+    const value = await page.locator('#gp-edit-input').inputValue();
+    const rejected = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/_/edit/image'));
+    await paste(page, { broken: true });
+    assert.equal((await rejected).status(), 422);
+    await page.waitForFunction(() => document.querySelector('#gp-edit-status').textContent.includes('正しい PNG'));
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), value);
+    await page.route('**/_/edit/image?*', (route) => route.fulfill({ status: 422, json: { error: { message: '<b>画像の失敗</b>' } } }));
+    await paste(page);
+    await page.waitForFunction(() => document.querySelector('#gp-edit-status').textContent === '<b>画像の失敗</b>');
+    assert.equal(await page.locator('#gp-edit-status b').count(), 0);
+    assert.equal(readFileSync(file, 'utf8'), '本文\n');
+  });
+
+  await t.test('送信中に入力を取り消しても画像を残し、別の入力へ差し込まない', async (t) => {
+    const { page, root, file } = await editablePage(t, browser, '本文\n');
+    await open(page);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    await page.route('**/_/edit/image?*', async (route) => { await gate; await route.continue(); });
+    const saved = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/_/edit/image'));
+    await paste(page);
+    await page.keyboard.press('Escape');
+    await open(page);
+    release();
+    const response = await saved;
+    assert.equal(response.status(), 200);
+    const path = await response.json();
+    await page.waitForFunction(() => !document.querySelector('#gp-edit-input').readOnly);
+    assert.equal(await page.locator('#gp-edit-input').inputValue(), '本文');
+    assert.equal(existsSync(join(root, path)), true);
+    assert.equal(readFileSync(file, 'utf8'), '本文\n');
+  });
+
+  await t.test('Neovim の名前のあるバッファでは画像だけ作り、Markdown は行の置換で送る', async (t) => {
+    const root = temp(t), file = join(root, 'main.md');
+    writeFileSync(file, 'ディスクの本文\n');
+    const bridge = await startGoStdio(t);
+    const context = await browser.newContext();
+    t.after(() => context.close());
+    const page = await context.newPage();
+    await page.goto(bridge.url);
+    await bridge.send({ type: 'doc', path: file, name: 'main.md', text: 'バッファの本文\n', buf: 7, rev: 1 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 1);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    await open(page);
+    const path = await save(page);
+    assert.equal(existsSync(join(root, path)), true);
+    assert.equal(readFileSync(file, 'utf8'), 'ディスクの本文\n');
+    const text = await page.locator('#gp-edit-input').inputValue();
+    await page.keyboard.press('Control+Enter');
+    const edit = await bridge.waitFor('edit');
+    assert.deepEqual(edit.edits, [{ start: 0, end: 1, lines: [text] }]);
+    await bridge.send({ type: 'edit_result', id: edit.id, ok: true });
+    await bridge.send({ type: 'doc', path: file, name: 'main.md', text: text + '\n', buf: 7, rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 2);
+    await editIdle(page);
+    assert.equal(readFileSync(file, 'utf8'), 'ディスクの本文\n');
+    await bridge.send({ type: 'doc', path: null, name: '無名', text: '無名の本文\n', buf: 8, rev: 3 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 3);
+    await editIdle(page);
+    await open(page);
+    const rejected = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/_/edit/image'));
+    await paste(page);
+    assert.equal((await rejected).status(), 422);
+    await page.waitForFunction(() => document.querySelector('#gp-edit-status').textContent.includes('名前のある文書'));
+  });
+});
+
 test('表全体の原文の編集・拒否・取り消しと Neovim の行置換を確かめる', { skip, timeout: 180000 }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());

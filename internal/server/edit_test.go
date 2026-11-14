@@ -18,6 +18,7 @@ type testEditor struct {
 	apply  func(context.Context, *string, map[string]any) (any, *edit.Error)
 	tables func(context.Context) (any, *edit.Error)
 	text   func() (any, *edit.Error)
+	image  func(context.Context, *string, uint64, []byte) (string, *edit.Error)
 }
 
 func (*testEditor) Config() map[string]any { return map[string]any{"scope": "all", "undo": true} }
@@ -41,6 +42,13 @@ func (e *testEditor) Apply(ctx context.Context, doc *string, body map[string]any
 		return e.apply(ctx, doc, body)
 	}
 	return map[string]any{"ok": true, "doc": doc}, nil
+}
+
+func (e *testEditor) SaveImage(ctx context.Context, doc *string, render uint64, body []byte) (string, *edit.Error) {
+	if e.image != nil {
+		return e.image(ctx, doc, render, body)
+	}
+	return "images/img-test.png", nil
 }
 
 func TestEditGuards(t *testing.T) {
