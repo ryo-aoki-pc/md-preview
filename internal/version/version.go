@@ -2,4 +2,4 @@
 package version
 
 // Version は両コマンドの既定の版で、-ldflags "-X github.com/ryo-aoki-pc/md-tools/internal/version.Version=..." で変更する。
-var Version = "0.23.0"
+var Version = "0.24.0"
