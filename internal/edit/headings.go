@@ -508,27 +508,32 @@ func deleteHeadingLines(lines []headingLine, first, end int, newline string) []h
 }
 
 func moveHeadingLines(lines []headingLine, a, b *headingEntry, newline string) []headingLine {
-	aEnd, bEnd := a.sectionEnd, b.sectionEnd
-	for aEnd > a.first && headingBlank(lines[aEnd-1].text) {
+	return swapLineRegions(lines, a.first, b.first, b.sectionEnd, newline)
+}
+
+// 隣り合う二つの区画を入れ替える。区切りの空行数と文書の末尾の空行を保つ。
+func swapLineRegions(lines []headingLine, first, middle, end int, newline string) []headingLine {
+	aEnd, bEnd := middle, end
+	for aEnd > first && headingBlank(lines[aEnd-1].text) {
 		aEnd--
 	}
-	for bEnd > b.first && headingBlank(lines[bEnd-1].text) {
+	for bEnd > middle && headingBlank(lines[bEnd-1].text) {
 		bEnd--
 	}
-	part := append([]headingLine{}, lines[b.first:bEnd]...)
-	for range max(a.sectionEnd-aEnd, 1) {
+	part := append([]headingLine{}, lines[middle:bEnd]...)
+	for range max(middle-aEnd, 1) {
 		part = append(part, headingLine{newline, 0})
 	}
-	part = append(part, lines[a.first:aEnd]...)
-	if b.sectionEnd < len(lines) {
-		for range max(b.sectionEnd-bEnd, 1) {
+	part = append(part, lines[first:aEnd]...)
+	if end < len(lines) {
+		for range max(end-bEnd, 1) {
 			part = append(part, headingLine{newline, 0})
 		}
 	} else {
 		// 文書の末尾の空行は、入れ替えた後も文書の末尾に残す。
-		part = append(part, lines[bEnd:b.sectionEnd]...)
+		part = append(part, lines[bEnd:end]...)
 	}
-	return slices.Replace(lines, a.first, b.sectionEnd, part...)
+	return slices.Replace(lines, first, end, part...)
 }
 
 func (s *Service) editHeading(ctx context.Context, src session.Source, r request) (headingRewrite, []string, *headingFocus, *Error) {

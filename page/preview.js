@@ -1015,7 +1015,8 @@
   const htmlPosition = /^[1-9][0-9]*:[1-9][0-9]*-[1-9][0-9]*:[0-9]+$/;
   function htmlBoundary(node) {
     if (node.nodeType !== Node.ELEMENT_NODE) return null;
-    const source = node.matches('div.markdown-code-block') ? node.querySelector(':scope > pre') : node;
+    const source = node.matches('div.markdown-code-block') ? node.querySelector(':scope > pre')
+      : node.matches('a[data-diagram="plantuml"]') ? node.querySelector(':scope > img') : node;
     const range = source?.getAttribute('data-sourcepos');
     return htmlPosition.test(range || '') ? { tag: source.localName, range } : null;
   }

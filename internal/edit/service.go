@@ -133,6 +133,13 @@ func (s *Service) Tables(ctx context.Context, doc *string, render uint64) (any, 
 	// 外でファイルが変わっていても、コメントの位置は現在の描画に属する。
 	// 読み直した本文ではなく、描画のもとの本文の版を返す。
 	result.Version = s.version(src, src.Text)
+	result.BlockMoves = make([]*blockMoveInfo, len(result.Tables))
+	if moves, e := s.blockMoves(ctx, src, positions, m); e == nil {
+		for i := range result.Tables {
+			index := i
+			result.BlockMoves[i] = moves.information(src, blockMoveTarget{Table: &index})
+		}
+	}
 	if s.opts.Mode == File {
 		result.Undo = s.history.status(pathKey(src.Path), text)
 	}
@@ -188,7 +195,7 @@ func (s *Service) Text(ctx context.Context, doc *string, render uint64, tag stri
 	if ctx.Err() != nil {
 		return nil, fault(422, "cancelled", "原文の読み取りを取り消しました。")
 	}
-	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": b.kind, "outer": s.htmlOuter(ctx, src, m, b, m.outerBlocks(b)), "anchor": m.anchor(b)}, nil
+	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": b.kind, "outer": s.htmlOuter(ctx, src, m, b, m.outerBlocks(b)), "anchor": m.anchor(b), "move": s.blockMoveInformation(ctx, src, m, blockMoveTarget{Tag: tag, Range: r})}, nil
 }
 func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (any, *Error) {
 	s.mu.Lock()
@@ -230,6 +237,13 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 			return nil, e
 		}
 		switch r.kind {
+		case "moveBlock":
+			var rewritten headingRewrite
+			rewritten, warnings, e = s.moveBlock(ctx, src, r.blockMove)
+			if e != nil {
+				return nil, e
+			}
+			text, keep = rewritten.text, rewritten.keep
 		case "heading":
 			var rewritten headingRewrite
 			rewritten, warnings, focus, e = s.editHeading(ctx, src, r)
@@ -376,7 +390,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 		lines := bufferLines(old)
 		lines = append(append(append([]string{}, lines[:replacement.Start]...), replacement.Lines...), lines[replacement.End:]...)
 		text = strings.Join(lines, "\n") + "\n"
-		if r.kind != "heading" {
+		if r.kind != "heading" && r.kind != "moveBlock" {
 			keep = s.editKeep(old, text, editStart, editEnd)
 		}
 		if _, e = s.source(doc, r.render); e != nil {
@@ -416,7 +430,7 @@ func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (
 	if err := tableedit.WriteFile(ctx, src.Path, text, bom); err != nil {
 		return nil, fault(500, "write", "文書を書き込めません。")
 	}
-	if move == nil && r.kind != "heading" {
+	if move == nil && r.kind != "heading" && r.kind != "moveBlock" {
 		keep = s.editKeep(old, text, editStart, editEnd)
 	}
 	change, changeKnown := s.textChange(src, old, text, keep)

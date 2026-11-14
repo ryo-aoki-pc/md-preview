@@ -72,6 +72,14 @@
   const afterButton = make('button', 'gp-edit-after', blockBar);
   afterButton.type = 'button';
   afterButton.textContent = '後ろに追加';
+  const moveButtons = ['up', 'down'].map((direction) => {
+    const button = make('button', 'gp-edit-move-' + direction, blockBar);
+    button.type = 'button';
+    button.textContent = direction === 'up' ? '上へ移動' : '下へ移動';
+    button.hidden = true;
+    button.addEventListener('click', () => runAction('source-move-' + direction));
+    return button;
+  });
   const headingButton = make('button', 'gp-edit-heading', blockBar);
   headingButton.type = 'button';
   headingButton.textContent = '見出し…';
@@ -528,6 +536,7 @@
       origin = typeof data.origin === 'string' && /^[0-9a-f]{32}$/i.test(data.origin) ? data.origin : '';
       byCell = new WeakMap();
       models = data.tables.map((info, i) => {
+        info = { ...info, move: data.blockMoves?.[i] };
         const nested = tables[i].querySelector('table') || tables[i].parentElement.closest('table');
         const shape = info.editable && data.document.editable && !nested ? grid(tables[i], info) : null;
         const model = { info, table: tables[i], editable: Boolean(shape),
@@ -754,7 +763,7 @@
       let height = blockPoint(editor.point)
         ? Math.min(Math.max(64, editor.content), Math.max(64, innerHeight - rect.top - 8))
         : Math.min(Math.max(rect.height, editor.content), Math.max(rect.height, innerHeight - rect.top - 8));
-      blockBar.hidden = !blockPoint(editor.point) || (!editor.insert && !editor.outer?.length && !editor.inner?.length && !editor.anchor && headingButton.hidden);
+      blockBar.hidden = !blockPoint(editor.point) || (!editor.insert && !editor.outer?.length && !editor.inner?.length && !editor.anchor && headingButton.hidden && moveButtons.every((button) => button.hidden));
       if (editor.insert) {
         const header = document.getElementById('gp-header').getBoundingClientRect().bottom;
         height = Math.min(height, Math.max(64, innerHeight - header - 24));
@@ -884,6 +893,7 @@
       const value = saved?.original === data.text ? saved.value : data.text;
       drafts.delete(keyOf(point));
       openBlock({ point, kind: data.kind, element, target: source, render, version, original: data.text, value,
+        move: data.move,
         outer: Array.isArray(data.outer) ? data.outer : [], inner: pending.inner,
         anchor: data.anchor && typeof data.anchor.tag === 'string' && rangePattern.test(data.anchor.range || '') &&
           rangePattern.test(data.anchor.actual || '') ? data.anchor : null });
@@ -1048,7 +1058,7 @@
     operationStart();
     item.tableElement = models[item.point?.table]?.table;
     item.version = externalVersion;
-    item.structural = Boolean(item.headingOp || item.insert || item.history || item.tableSource || /^(insert|delete|duplicate|move|sort|convert|merge|unmerge)/.test(item.op?.type || ''));
+    item.structural = Boolean(item.blockMove || item.headingOp || item.insert || item.history || item.tableSource || /^(insert|delete|duplicate|move|sort|convert|merge|unmerge)/.test(item.op?.type || ''));
     if (first) queue.unshift(item);
     else queue.push(item);
     addMask(item);
@@ -1256,7 +1266,7 @@
     let change = null;
     try {
       // 待ち行列に入れたときの番号は使わず、直前に確かめた描画へ送る。
-      const body = item.heading ? { render, heading: item.heading, op: item.headingOp } : item.history ? { [item.history]: true } : item.checkbox
+      const body = item.heading ? { render, heading: item.heading, op: item.headingOp } : item.blockMove ? { render, op: item.blockMove } : item.history ? { [item.history]: true } : item.checkbox
         ? { render, checkbox: item.checkbox.getAttribute('data-checkbox-sourcepos'), checked: item.checked }
         : item.insert ? { render, insert: item.insert, text: item.value }
           : item.tableSource ? { render, table: item.tableIndex, op: { type: 'setTableSource', source: item.value } }
@@ -1502,11 +1512,59 @@
     return heading ? { index: heading.index, render: editor.render, outline: false } : null;
   }
   function updateHeadingButton() {
+    updateMoveButtons();
     const context = headingSourceContext();
     headingButton.hidden = !context;
     headingButton.title = context ? reasonFor('headings', context) : '';
     // 書き込みを断る状態でも、メニュー末尾のリンクのコピーは使える。
     headingButton.disabled = !context;
+  }
+  // 対象と上下それぞれの理由は、原文・表の応答から受け取る。
+  function moveInformation(action) {
+    if (action.startsWith('source-')) return editor?.move || models[editor?.tableIndex]?.info.move;
+    if (action.startsWith('block-')) return blockMenu?.data?.move;
+    const cell = selectionCell();
+    return cell && models[cell.table]?.info.move;
+  }
+  function blockMoveReason(action) {
+    if (!mode || !allowed()) return '編集モードで操作してください';
+    if (stopped) return 'プレビューが止まっています';
+    if (infoRender !== preview.current()?.render) return '文書の情報を読み込んでいます';
+    if (busy || queue.length || sourceFetching) return '前の書き込みの反映を待っています';
+    if (composing) return '文字の入力を終えてから操作してください';
+    if (!documentEditable) return documentReason || 'この文書は編集できません';
+    if (action.startsWith('source-') && (!editor || editor.render !== preview.current()?.render || editor.version !== externalVersion))
+      return '文書が変わりました。原文を開き直してください';
+    if (editor && input.value !== editor.original) return '原文の変更を確定するか取り消してから操作してください';
+    if (action.startsWith('block-')) {
+      const reason = blockMenuReason(action);
+      if (reason) return reason;
+    }
+    const info = moveInformation(action), direction = action.endsWith('-up') ? 'up' : 'down';
+    return typeof info?.[direction] === 'string' ? info[direction] : '移動できるブロックの対応を確かめられません';
+  }
+  function updateMoveButtons() {
+    for (const [i, button] of moveButtons.entries()) {
+      button.hidden = !blockPoint(editor?.point) || Boolean(editor?.insert);
+      const reason = button.hidden ? '' : blockMoveReason('source-move-' + (i ? 'down' : 'up'));
+      button.disabled = Boolean(reason);
+      button.title = reason;
+    }
+  }
+  function beginBlockMove(action) {
+    const info = moveInformation(action);
+    if (!info) return;
+    const render = preview.current().render;
+    const cell = selectionCell();
+    // 表は、表のメニューからでも表全体の原文の入力欄からでも、移動の対象の表の範囲で指す。
+    const range = info.target.range || models[info.target.table]?.info.anchor || (cell && models[cell.table]?.info.anchor) || editor?.anchor?.actual;
+    const direction = action.endsWith('-up') ? 'up' : 'down';
+    closeMenus();
+    cancelSource();
+    if (editor) endEdit(false);
+    clearSelection();
+    blockMenu = null;
+    enqueue({ blockMove: { type: 'moveBlock', target: info.target, direction }, point: { range }, render });
   }
   function updateOutline() {
     for (const link of preview.outline()) {
@@ -1585,6 +1643,7 @@
     return true;
   }
   function reasonFor(action, context = headingContext) {
+    if (/^(block|table|source)-move-(up|down)$/.test(action)) return blockMoveReason(action);
     if (action === 'heading-cancel') return '';
     // リンクのコピーは書き込まないので、編集の可否ではなくリンクを作れるかだけを見る。
     if (action === 'link-file' || action === 'link-fragment') {
@@ -1810,10 +1869,12 @@
     ['cell-align-left', '左揃え'], ['cell-align-center', '中央揃え'], ['cell-align-right', '右揃え'], ['cell-align-default', '揃えを既定に'], null,
     ['cell-header', '見出しセル（th）にする'], ['cell-data', '通常のセル（td）にする']]);
   buildMenu('table', '表の操作', [['table-before', '表の前にブロックを追加'], ['table-after', '表の後ろにブロックを追加'], null,
+    ['table-move-up', '上へ移動'], ['table-move-down', '下へ移動'], null,
     ['table-source', '表全体の原文を編集'],
     ['table-html', 'HTML の表にする'], ['table-pipe', 'パイプの表にする'], ['table-delete', '表を削除']]);
   buildMenu('document', '文書への追加', [['document-start', '文書の先頭に追加'], ['document-end', '文書の末尾に追加']]);
   buildMenu('block', 'ブロックの操作', [['block-source', '原文を編集'], ['block-outer', '外側を編集'], null,
+    ['block-move-up', '上へ移動'], ['block-move-down', '下へ移動'], null,
     ['block-before', '前にブロックを追加'], ['block-after', '後ろにブロックを追加'], ['headings', '見出し', 'block-headings']]);
   buildMenu('heading', '見出しの操作', [
     ['heading-promote', '見出しだけ 1 段上げる'], ['heading-demote', '見出しだけ 1 段下げる'],
@@ -1853,6 +1914,7 @@
       else if (data.render !== context.render || typeof data.range !== 'string' || !rangePattern.test(data.range))
         throw new Error('原文の応答の形が正しくありません');
       else context.data = { outer: Array.isArray(data.outer) ? data.outer : [],
+        move: data.move,
         anchor: Boolean(data.anchor && typeof data.anchor.tag === 'string' && rangePattern.test(data.anchor.range || '') &&
           rangePattern.test(data.anchor.actual || '')) };
     } catch (error) {
@@ -1969,6 +2031,7 @@
       return;
     }
     operationStart();
+    if (/^(block|table|source)-move-(up|down)$/.test(action)) { beginBlockMove(action); return; }
     if (action.startsWith('heading-')) {
       const heading = headingAt(), context = { ...headingContext };
       if (action === 'heading-deleteSection') {

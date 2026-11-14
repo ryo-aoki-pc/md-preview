@@ -43,6 +43,15 @@ func (m *blockMapping) htmlBoundary(n *html.Node) *HTMLBoundary {
 			}
 		}
 	}
+	// PlantUML の図の包みも、原文を持つ内側の画像で指す。
+	if n.Data == "a" && htmltree.Get(n, "data-diagram") == "plantuml" {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type == html.ElementNode && c.Data == "img" {
+				n = c
+				break
+			}
+		}
+	}
 	r := Range(htmltree.Get(n, "data-sourcepos"))
 	if _, e := ParseSourceRange(n.Data, string(r)); e != nil || m.positionReason(n, "data-sourcepos") != nil {
 		return nil
@@ -585,7 +594,7 @@ func (s *Service) HTMLText(ctx context.Context, doc *string, render uint64, prev
 	if e != nil {
 		return nil, e
 	}
-	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": "html", "outer": []OuterBlock{}, "anchor": &InsertAnchor{"html", b.actual, b.actual}}, nil
+	return map[string]any{"text": removeCR(src.Text[b.start:b.end]), "render": src.Render, "range": b.actual, "kind": "html", "outer": []OuterBlock{}, "anchor": &InsertAnchor{"html", b.actual, b.actual}, "move": s.blockMoveInformation(ctx, src, m, blockMoveTarget{Tag: "html", Range: b.actual})}, nil
 }
 
 func validateHTMLBoundaries(prev, next *HTMLBoundary) *Error {

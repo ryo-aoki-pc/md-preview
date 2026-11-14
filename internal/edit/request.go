@@ -11,6 +11,7 @@ import (
 )
 
 type request struct {
+	blockMove           blockMoveOperation
 	headingTag          string
 	headingOp           headingOperation
 	render              uint64
@@ -100,6 +101,15 @@ func parseRequest(m map[string]any) (request, *Error) {
 	}
 	r.render = uint64(render)
 	switch {
+	case fields(m, "render", "op"):
+		r.kind = "moveBlock"
+		op, valid := m["op"].(map[string]any)
+		if !valid {
+			return r, invalid()
+		}
+		var e *Error
+		r.blockMove, e = parseBlockMove(op)
+		return r, e
 	case fields(m, "render", "heading", "op"):
 		r.kind = "heading"
 		h, valid := m["heading"].(map[string]any)
