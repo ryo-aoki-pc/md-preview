@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = await readFile(new URL("../src/sticky-table.js", import.meta.url), "utf8");
 const context = { module: { exports: {} } };
 vm.runInNewContext(source, context, { filename: "src/sticky-table.js" });
-const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, clampColumnWidth, resizableColumns, columnShape, reconcileColumnWidths, cellColumnWidths, cellManualWrap, pickBoundaries, crossCells, searchMatches, filterRows, tableMatrix, toTsv, toHtml } = context.module.exports;
+const { buildGrid, frozenRegion, rebuildBorders, usableRowBoundaries, usableColBoundaries, stepBoundary, headerRowCount, columnLabels, initialWrap, cellWrapModes, columnMinWidths, clampColumnWidth, resizableColumns, columnShape, reconcileColumnWidths, cellColumnWidths, cellManualWrap, pickBoundaries, crossCells, searchMatches, columnSearchMatches, intersectSearchRows, searchConditions, filterRows, tableMatrix, toTsv, toHtml } = context.module.exports;
 const th = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: true });
 const td = (rowspan = 1, colspan = 1) => ({ rowspan, colspan, header: false });
 const many = (count, make = td) => Array.from({ length: count }, () => make());
@@ -908,6 +908,80 @@ test("結合セルの検索も行・列のセルの順で返す", () => {
   assert.deepEqual(matches, [0, 1, 2, 4]);
   assert.equal(model.cells[matches[0]].rowspan, 2);
   assert.equal(model.cells[matches[0]].colspan, 2);
+});
+
+test("列の検索は格子で結合セルが覆う列を調べ、列名の重複と空の列を番号で区別する", () => {
+  const model = buildGrid(body([[th(), th(), th(), th()], [td(2, 2), td(), td()], [td()]]));
+  const texts = ["同名", "同名", "", "", "対象", "対象", "", "別"];
+  assert.deepEqual(plain(columnLabels(model, texts)), ["同名", "同名", "", ""]);
+  assert.deepEqual(plain(columnSearchMatches(model, texts, "同名", 0)), [0]);
+  assert.deepEqual(plain(columnSearchMatches(model, texts, "同名", 1)), [1]);
+  assert.deepEqual(plain(columnSearchMatches(model, texts, "対象", 0)), [4]);
+  assert.deepEqual(plain(columnSearchMatches(model, texts, "対象", 1)), [4]);
+  assert.deepEqual(plain(columnSearchMatches(model, texts, "対象", 2)), [5]);
+  assert.deepEqual(plain(columnSearchMatches(model, texts, "対象", 3)), []);
+  assert.deepEqual(plain(columnSearchMatches(model, texts, "対象")), [4, 5]);
+  for (const column of [-1, 4, 0.5, "0"]) assert.deepEqual(plain(columnSearchMatches(model, texts, "対象", column)), []);
+});
+
+test("列の検索も NFKC と小文字で部分一致し、正規表現の記号は文字として比べる", () => {
+  const model = buildGrid(body([many(2), many(2)]));
+  const texts = ["ＡｂＣ　［ｘ］．＊", "abc [x].*", "abc xxxxx", "別"];
+  assert.deepEqual(plain(columnSearchMatches(model, texts, "aBc [x].*", 0)), [0]);
+  assert.deepEqual(plain(columnSearchMatches(model, texts, "[x].*")), [0, 1]);
+  assert.deepEqual(plain(columnSearchMatches(model, texts, "[")), [0, 1]);
+  assert.deepEqual(plain(columnSearchMatches(model, texts, " ")), []);
+});
+
+test("AND は rowspan が覆う論理行の交わりを取り、別の行の条件を混ぜない", () => {
+  const model = buildGrid(body([many(3, th), [td(2), td(), td()], [td(), td()], many(3)]));
+  const texts = ["地域", "担当", "状態", "東", "赤", "完了", "青", "保留", "西", "赤", "保留"];
+  const conditions = [{ query: "東", column: 0 }, { query: "青", column: 1 }];
+  const before = JSON.stringify({ model, texts, conditions });
+  const matched = searchConditions(model, texts, conditions);
+  assert.deepEqual(plain(matched), { active: true, matches: [3, 6], rows: [2] });
+  assert.deepEqual(plain(intersectSearchRows(model, [[3], [6]])), [2]);
+  assert.deepEqual(plain(filterRows(model, matched.matches, 1, matched.rows)), [3]);
+  const disjoint = searchConditions(model, texts, [...conditions, { query: "完了", column: 2 }]);
+  assert.deepEqual(plain(disjoint.rows), []);
+  assert.deepEqual(plain(filterRows(model, disjoint.matches, 1, disjoint.rows)), [1, 2, 3]);
+  assert.equal(JSON.stringify({ model, texts, conditions }), before);
+});
+
+test("空の条件を無視し、最初の条件が空でも追加した条件で絞り込む", () => {
+  const model = buildGrid(body([many(2), many(2)]));
+  const texts = ["東", "赤", "西", "青"];
+  assert.deepEqual(plain(searchConditions(model, texts, [{ query: "　", column: 0 }, { query: "青", column: 1 }])),
+    { active: true, matches: [3], rows: [1] });
+  assert.deepEqual(plain(searchConditions(model, texts, [{ query: "", column: null }])),
+    { active: false, matches: [], rows: [] });
+  assert.deepEqual(plain(intersectSearchRows(model, [])), []);
+  assert.deepEqual(plain(intersectSearchRows(model, [[0], []])), []);
+});
+
+test("見出しだけの一致も論理行に含め、ほかの条件と交わらなければ行を返さない", () => {
+  const model = buildGrid(body([many(2, th), many(2)]));
+  const texts = ["地域", "担当", "東", "青"];
+  const conditions = [{ query: "地域", column: 0 }];
+  const heading = searchConditions(model, texts, conditions);
+  assert.deepEqual(plain(heading), { active: true, matches: [0], rows: [0] });
+  assert.deepEqual(plain(filterRows(model, heading.matches, 1, heading.rows)), [1]);
+  for (const query of ["青", "見つからない"]) {
+    const disjoint = searchConditions(model, texts, [...conditions, { query, column: 1 }]);
+    assert.deepEqual(plain(disjoint), { active: true, matches: query === "青" ? [0, 3] : [0], rows: [] });
+    assert.deepEqual(plain(filterRows(model, disjoint.matches, 1, disjoint.rows)), [1]);
+  }
+});
+
+test("条件は空の欄も含めて 5 個までとし、6 個目を検索に使わない", () => {
+  const model = buildGrid(body([many(1), many(1)]));
+  const texts = ["ＡｂＣ [x].*", "別"];
+  const conditions = Array.from({ length: 5 }, () => ({ query: "abc", column: 0 }));
+  const before = JSON.stringify(conditions);
+  assert.deepEqual(plain(searchConditions(model, texts, [...conditions, { query: "不一致", column: 0 }]).rows), [0]);
+  assert.deepEqual(plain(searchConditions(model, texts, [...Array.from({ length: 5 }, () => ({ query: "" })), { query: "別" }])),
+    { active: false, matches: [], rows: [] });
+  assert.equal(JSON.stringify(conditions), before);
 });
 
 test("表 A の 6 行のまとまりは 2 行目だけの一致でも全体を残す", () => {
