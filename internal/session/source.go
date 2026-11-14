@@ -16,6 +16,7 @@ type Source struct {
 	SourceposInput        string // HasSourcepos が真のときの、エンジンの入力の SHA-256
 	Text, HTML            string
 	Lines                 pipeline.SourceMap
+	Headings              []pipeline.Heading
 	Root, Path, File, Dir string
 	Current               bool // 編集中の文書か
 	Stale                 bool // この描画の後に新しい本文が積まれているか
