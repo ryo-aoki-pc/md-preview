@@ -113,7 +113,9 @@
   const maxTransferBytes = 4 * 1024 * 1024;
   const transferFormat = 'gitlab-preview-comments';
   // 編集中の文書と、?doc= で開いたファイルを混同しない。
-  const documentKey = preview.doc === null ? 'current' : 'file:' + preview.doc;
+  const currentDocumentKey = () => preview.doc !== null ? 'file:' + preview.doc :
+    preview.config.reviewBuffer ? preview.current()?.reviewKey ?? null : 'current';
+  let documentKey = currentDocumentKey();
   const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
   const integer = (value) => Number.isSafeInteger(value) && value >= 0;
   const boundaryOK = (value) => plain(value) && typeof value.tag === 'string' && /^[a-z0-9]+$/.test(value.tag) &&
@@ -224,6 +226,7 @@
     status.hidden = !text;
   }
   function transferDocument() {
+    if (preview.config.reviewBuffer && preview.doc === null && documentKey?.startsWith('nvim:unnamed')) return null;
     const file = preview.current()?.file;
     return typeof file !== 'string' ? undefined : file === '[無名]' ? null : file;
   }
@@ -332,6 +335,7 @@
     } finally { copying = false; draw(); }
   }
   function save() {
+    if (documentKey === null) return;
     saved.docs[documentKey] = comments;
     try { sessionStorage.setItem(storageKey, JSON.stringify(saved)); } catch { /* 保存できなくてもメモリーで続ける。 */ }
   }
@@ -987,6 +991,26 @@
   }
   document.addEventListener('gp:render', () => {
     const render = preview.current()?.render;
+    const nextKey = currentDocumentKey();
+    if (nextKey !== documentKey) {
+      save();
+      documentKey = nextKey;
+      comments = saved.docs[documentKey] || [];
+      bulkSkipped.clear();
+      adoptable.clear();
+      for (const item of comments) if (!item.fp && !item.stale) adoptable.add(item.id);
+      selected = editing = hoverPoint = null;
+      input.value = '';
+      section.checked = false;
+      importArea.hidden = true;
+      importInput.value = '';
+      changes.length = 0;
+      keepCount = 0;
+      models = [];
+      byCell = new WeakMap();
+      infoRender = 0;
+      notice('');
+    }
     stopped = false;
     if (render !== observedRender) {
       prepareNumber++;

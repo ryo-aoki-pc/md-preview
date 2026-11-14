@@ -25,24 +25,25 @@ import (
 )
 
 type request struct {
-	ID         int              `json:"id"`
-	Op         string           `json:"op"`
-	Root       string           `json:"root"`
-	Live       bool             `json:"live"`
-	Edit       string           `json:"edit"`
-	Review     bool             `json:"review"`
-	LaunchFail bool             `json:"launchFail"`
-	Jump       bool             `json:"jump"`
-	Directory  bool             `json:"directory"`
-	Plantuml   bool             `json:"plantuml"`
-	Render     session.Data     `json:"render"`
-	Scroll     session.Data     `json:"scroll"`
-	AssetsDir  string           `json:"assetsDir"`
-	AssetsLock string           `json:"assetsLock"`
-	Document   session.Document `json:"document"`
-	Name       string           `json:"name"`
-	Data       session.Data     `json:"data"`
-	Reason     string           `json:"reason"`
+	ID           int              `json:"id"`
+	Op           string           `json:"op"`
+	Root         string           `json:"root"`
+	Live         bool             `json:"live"`
+	Edit         string           `json:"edit"`
+	Review       bool             `json:"review"`
+	ReviewBuffer bool             `json:"reviewBuffer"`
+	LaunchFail   bool             `json:"launchFail"`
+	Jump         bool             `json:"jump"`
+	Directory    bool             `json:"directory"`
+	Plantuml     bool             `json:"plantuml"`
+	Render       session.Data     `json:"render"`
+	Scroll       session.Data     `json:"scroll"`
+	AssetsDir    string           `json:"assetsDir"`
+	AssetsLock   string           `json:"assetsLock"`
+	Document     session.Document `json:"document"`
+	Name         string           `json:"name"`
+	Data         session.Data     `json:"data"`
+	Reason       string           `json:"reason"`
 }
 
 // ジャンプと偽の起動は HTTP の goroutine からも届くので、JSON の行が混ざらないようにする。
@@ -153,7 +154,7 @@ func (a *application) start(r request, out *output) error {
 		if err != nil {
 			return err
 		}
-		a.live, err = session.New(session.Options{Root: r.Root, Renderer: pipeline.New(a.engine), Plantuml: r.Plantuml})
+		a.live, err = session.New(session.Options{Root: r.Root, Renderer: pipeline.New(a.engine), Plantuml: r.Plantuml, ReviewBuffer: r.ReviewBuffer})
 		if err != nil {
 			return err
 		}
@@ -170,7 +171,7 @@ func (a *application) start(r request, out *output) error {
 		a.fixture = &fixtureState{root: root, render: r.Render, scroll: r.Scroll}
 		state = a.fixture
 	}
-	pageOptions := pagefiles.Options{Jump: r.Jump, Directory: r.Directory, Review: r.Review}
+	pageOptions := pagefiles.Options{Jump: r.Jump, Directory: r.Directory, Review: r.Review, ReviewBuffer: r.ReviewBuffer}
 	var editor *edit.Service
 	if r.Edit == "file" {
 		var mu sync.Mutex
@@ -192,10 +193,14 @@ func (a *application) start(r request, out *output) error {
 		opts.Edit = editor
 	}
 	if r.Review {
-		if editor == nil {
+		if r.ReviewBuffer {
+			opts.Review = edit.New(edit.Options{Host: a.live, Mode: edit.BufferReview})
+		} else if editor == nil {
 			editor = edit.New(edit.Options{Host: a.live, Mode: edit.File})
 		}
-		opts.Review = editor
+		if opts.Review == nil {
+			opts.Review = editor
+		}
 		opts.Launch = func(_ context.Context, root string) error {
 			if err := out.send(map[string]any{"type": "launch", "root": root}); err != nil {
 				return err

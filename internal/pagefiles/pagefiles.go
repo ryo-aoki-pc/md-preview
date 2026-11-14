@@ -19,6 +19,7 @@ type Options struct {
 	Jump, Directory bool
 	Edit            any
 	Review          bool
+	ReviewBuffer    bool
 }
 type Page struct{ HTML, JS, CopyCodeJS, EditGridJS, EditTargetsJS, EditJS, ReviewJS, CSS, Fallback string }
 
@@ -35,6 +36,9 @@ func Load(o Options) (Page, error) {
 	}
 	if o.Review {
 		config["review"] = true
+		if o.ReviewBuffer {
+			config["reviewBuffer"] = true
+		}
 	}
 	p := Page{}
 	for name, dest := range map[string]*string{"index.html": &p.HTML, "preview.js": &p.JS, "copy-code.js": &p.CopyCodeJS, "edit-grid.js": &p.EditGridJS, "edit-targets.js": &p.EditTargetsJS, "edit.js": &p.EditJS, "review.js": &p.ReviewJS, "preview.css": &p.CSS, "fallback.css": &p.Fallback} {

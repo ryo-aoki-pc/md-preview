@@ -233,7 +233,7 @@ func Run(ctx context.Context, args []string, streams IO, deps Dependencies) int 
 		assets, notice = deps.LoadAssets(dir)
 	}
 	if o.Stdio {
-		return stdio.Run(ctx, stdio.Options{Stdin: streams.Stdin, Stdout: streams.Stdout, Port: o.Port, Version: version.Version, Renderer: deps.Renderer, Plantuml: plantuml, Assets: assets, AssetsNotice: notice, OnStart: func(s *server.Server, state *session.Session) error {
+		return stdio.Run(ctx, stdio.Options{Stdin: streams.Stdin, Stdout: streams.Stdout, Port: o.Port, Version: version.Version, Renderer: deps.Renderer, Plantuml: plantuml, Assets: assets, AssetsNotice: notice, Launch: deps.Launch, OnStart: func(s *server.Server, state *session.Session) error {
 			if deps.OnStart != nil {
 				return deps.OnStart(&App{Server: s, Session: state, URL: s.URL, Close: func() error {
 					if c, ok := streams.Stdin.(io.Closer); ok {

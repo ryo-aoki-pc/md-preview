@@ -25,6 +25,8 @@ type Mode int
 const (
 	File Mode = iota
 	Buffer
+	// BufferReview は描画のバッファを読み、依頼文を作るときだけディスクと照合する。
+	BufferReview
 )
 
 type Options struct {
@@ -200,6 +202,9 @@ func (s *Service) Text(ctx context.Context, doc *string, render uint64, tag stri
 func (s *Service) Apply(ctx context.Context, doc *string, body map[string]any) (any, *Error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.opts.Mode == BufferReview {
+		return nil, fault(403, "excluded", "コメントの経路からは編集できません。")
+	}
 	r, e := parseRequest(body)
 	if e != nil {
 		return nil, e

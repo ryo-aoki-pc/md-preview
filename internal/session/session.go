@@ -4,6 +4,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -31,6 +32,7 @@ type Options struct {
 	RenderTimeout, ReleaseDelay time.Duration
 	MaxBytes, MaxDocuments      int
 	Plantuml                    bool
+	ReviewBuffer                bool
 }
 type Document struct {
 	Path, Name, Text string
@@ -216,6 +218,17 @@ func (s *Session) publish(j *job, data Data, source *Source, actions *[]func()) 
 	}
 	s.renders++
 	d := Data{"file": j.context.file, "dir": j.context.dir, "rev": j.rev, "render": s.renders}
+	if s.opts.ReviewBuffer {
+		// 絶対パスや表示名を保存の鍵へ渡さず、無名のバッファも区別する。
+		key := "nvim:file:" + j.context.file
+		if j.context.path == "" {
+			key = "nvim:unnamed"
+			if j.buf != nil {
+				key += ":" + fmt.Sprint(j.buf)
+			}
+		}
+		d["reviewKey"] = key
+	}
 	for k, v := range data {
 		d[k] = v
 	}

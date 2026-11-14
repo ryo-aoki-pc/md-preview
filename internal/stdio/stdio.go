@@ -17,6 +17,7 @@ import (
 	"github.com/ryo-aoki-pc/md-tools/internal/resolve"
 	"github.com/ryo-aoki-pc/md-tools/internal/server"
 	"github.com/ryo-aoki-pc/md-tools/internal/session"
+	"github.com/ryo-aoki-pc/md-tools/internal/vscode"
 )
 
 const MaxLineBytes = 96 * 1024 * 1024
@@ -34,6 +35,7 @@ type readyMessage struct {
 	Version  string `json:"version"`
 	URL      string `json:"url"`
 	Edit     int    `json:"edit,omitempty"`
+	Review   int    `json:"review,omitempty"`
 }
 type clientsMessage struct {
 	Type  string `json:"type"`
@@ -190,6 +192,7 @@ type Options struct {
 	Assets       server.OfficialAssets
 	AssetsNotice string
 	EditTimeout  time.Duration
+	Launch       func(context.Context, string) error
 	OnStart      func(*server.Server, *session.Session) error
 }
 
@@ -259,7 +262,8 @@ func Run(ctx context.Context, o Options) int {
 				width = v
 			}
 			var e error
-			state, e = session.New(session.Options{Renderer: o.Renderer, Plantuml: o.Plantuml != nil})
+			reviewing := value["review"] == float64(1)
+			state, e = session.New(session.Options{Renderer: o.Renderer, Plantuml: o.Plantuml != nil, ReviewBuffer: reviewing})
 			if e != nil {
 				return report("プレビューのサーバーを起動できません", true)
 			}
@@ -272,7 +276,7 @@ func Run(ctx context.Context, o Options) int {
 				editor = edit.New(edit.Options{Host: state, Mode: edit.Buffer, Send: bridge.send})
 				editConfig = editor.Config()
 			}
-			page, e := pagefiles.Load(pagefiles.Options{Theme: theme, Width: width, Jump: true, Edit: editConfig})
+			page, e := pagefiles.Load(pagefiles.Options{Theme: theme, Width: width, Jump: true, Edit: editConfig, Review: reviewing, ReviewBuffer: reviewing})
 			if e != nil {
 				return report("プレビューのサーバーを起動できません", true)
 			}
@@ -285,6 +289,15 @@ func Run(ctx context.Context, o Options) int {
 			if editor != nil {
 				serverOptions.Edit = editor
 			}
+			reviewVersion := 0
+			if reviewing {
+				reviewVersion = 1
+				serverOptions.Review = edit.New(edit.Options{Host: state, Mode: edit.BufferReview})
+				serverOptions.Launch = o.Launch
+				if serverOptions.Launch == nil {
+					serverOptions.Launch = vscode.Open
+				}
+			}
 			httpServer, e = server.New(serverOptions)
 			if e != nil {
 				return report("プレビューのサーバーを起動できません", true)
@@ -292,7 +305,7 @@ func Run(ctx context.Context, o Options) int {
 			// 状態側が通知と取り消しを直列化し、休止より後に古い描画を流さない。
 			state.SetCallbacks(func(d session.Data) { _ = httpServer.Broadcast("render", d) }, func(d session.Data) { _ = httpServer.Broadcast("scroll", d) })
 			greeted = true
-			output.send(readyMessage{"ready", 1, o.Version, httpServer.URL, editVersion})
+			output.send(readyMessage{"ready", 1, o.Version, httpServer.URL, editVersion, reviewVersion})
 			output.send(clientsMessage{"clients", httpServer.ClientCount()})
 			if o.OnStart != nil {
 				if o.OnStart(httpServer, state) != nil {

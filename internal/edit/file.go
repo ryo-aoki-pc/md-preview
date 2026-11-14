@@ -24,11 +24,11 @@ func pathKey(path string) string {
 	return path
 }
 func (s *Service) readFile(src session.Source) (string, bool, *Error) {
-	if s.opts.Mode == Buffer {
-		if !src.Current {
+	if s.opts.Mode == Buffer || s.opts.Mode == BufferReview {
+		if s.opts.Mode == Buffer && !src.Current {
 			return "", false, fault(403, "excluded", "Neovim で開いている文書だけ編集できます。")
 		}
-		if src.Buf == nil || s.opts.Send == nil {
+		if s.opts.Mode == Buffer && (src.Buf == nil || s.opts.Send == nil) {
 			return "", false, fault(422, "unsupported", "この文書の編集には対応していません。")
 		}
 		if len(src.Text) > maxDocumentBytes {
@@ -42,6 +42,11 @@ func (s *Service) readFile(src session.Source) (string, bool, *Error) {
 	if s.opts.Mode != File {
 		return "", false, fault(422, "unsupported", "この文書の編集には対応していません。")
 	}
+	return readDisk(src)
+}
+
+// readDisk は Resolve で実ファイルを確かめ、文書の上限まで読み取る。
+func readDisk(src session.Source) (string, bool, *Error) {
 	if src.Path == "" || src.Root == "" {
 		return "", false, fault(422, "excluded", "保存先のあるファイルだけ編集できます。")
 	}
@@ -49,7 +54,7 @@ func (s *Service) readFile(src session.Source) (string, bool, *Error) {
 	if r.Status != 200 || pathKey(r.Path) != pathKey(src.Path) {
 		return "", false, fault(422, "excluded", "文書の保存先を確かめられません。")
 	}
-	f, err := fileopen.Open(src.Path)
+	f, err := fileopen.Open(r.Path)
 	if err != nil {
 		return "", false, fault(422, "read", "文書を読み直せません。")
 	}

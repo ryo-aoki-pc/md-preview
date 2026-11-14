@@ -55,7 +55,7 @@ export async function renderGoPageDocument({ file, root, output, embedImages = f
 }
 
 // 製品の --stdio を起こし、試験が Lua の代わりに JSON の行を送り、種類ごとに待つ。
-export async function startGoStdio(t, { edit = true } = {}) {
+export async function startGoStdio(t, { edit = true, review = false } = {}) {
   const commands = await prepareGoPageTests();
   assert.equal(commands.skip, false, 'Neovim の橋渡しのコマンドが使える');
   const child = spawn(commands.command, ['--stdio', '--no-plantuml', '--no-official-style'], {
@@ -121,7 +121,7 @@ export async function startGoStdio(t, { edit = true } = {}) {
     }
   })());
   t.after(close);
-  await send({ type: 'hello', protocol: 1, ...(edit ? { edit: 1 } : {}) });
+  await send({ type: 'hello', protocol: 1, ...(edit ? { edit: 1 } : {}), ...(review ? { review: 1 } : {}) });
   const ready = await waitFor('ready');
   return { ready, url: ready.url, send, waitFor, close };
 }

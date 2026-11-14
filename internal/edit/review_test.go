@@ -228,6 +228,22 @@ func TestReviewRejectedIndex(t *testing.T) {
 	}
 }
 
+// Neovim のコメントの経路の Service は、書き込みと履歴の操作をどれも断る。
+func TestBufferReviewRejectsEdits(t *testing.T) {
+	_, h := testService(t, testEngine(t), "段落\n\n二つ目\n", nil)
+	s := New(Options{Host: h, Mode: BufferReview})
+	for _, body := range []map[string]any{
+		{"render": h.src.Render, "op": map[string]any{"type": "moveBlock", "target": map[string]any{"tag": "p", "range": "1:1-1:6"}, "direction": "down"}},
+		{"render": h.src.Render, "op": map[string]any{"type": "insertBlock", "anchor": "end", "value": "足す"}},
+		{"undo": true},
+		{"redo": true},
+	} {
+		if _, e := s.Apply(context.Background(), nil, body); e == nil || e.Status != 403 || e.Code != "excluded" || disk(t, h) != "段落\n\n二つ目\n" {
+			t.Fatalf("要求=%v、拒否=%v、本文=%q", body, e, disk(t, h))
+		}
+	}
+}
+
 func TestReviewDocumentGuards(t *testing.T) {
 	e := testEngine(t)
 	targets := []ReviewTarget{{Kind: "block", Tag: "p", Range: "1:1-1:6"}}
