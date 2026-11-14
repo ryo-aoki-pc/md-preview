@@ -149,6 +149,7 @@
   let pendingInsert = null;
   let clipboardIntent = null;
   let editor = null;
+  let imageUploading = false;
   let composing = false;
   let models = [];
   let headings = [];
@@ -1014,6 +1015,7 @@
   }
   function endEdit(commit) {
     if (!editor) return;
+    if (commit && imageUploading) { notice('画像を保存しています。完了してから確定してください'); return; }
     closeInsertPicker();
     const draft = { ...editor, point: { ...editor.point }, value: input.value };
     editor = null;
@@ -2545,7 +2547,45 @@
     updateHeadingButton();
     updateMenus();
   }, true);
+  async function pasteImage(file) {
+    const currentEditor = editor, render = preview.current()?.render, version = externalVersion;
+    const start = input.selectionStart, end = input.selectionEnd;
+    imageUploading = true;
+    input.readOnly = true;
+    const target = url('/image');
+    target.searchParams.set('render', render);
+    try {
+      const response = await fetch(target, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: file });
+      const path = await response.json();
+      if (!response.ok) throw new Error(messageOf(path) || '画像を保存できませんでした');
+      if (typeof path !== 'string' || !/^images\/img-[0-9]{8}-[0-9]{6}-[0-9a-f]{24}\.png$/.test(path)) {
+        throw new Error('画像の応答の形が正しくありません');
+      }
+      // 取り消しや文書の変更後に、別の入力欄へ画像を差し込まない。保存した画像は残す。
+      if (!mode || stopped || editor !== currentEditor || render !== preview.current()?.render || version !== externalVersion) return;
+      input.setRangeText('![](' + path + ')', start, end, 'end');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      focusInput();
+    } catch (error) {
+      notice(error.message || '画像を保存できませんでした', true);
+    } finally {
+      imageUploading = false;
+      input.readOnly = false;
+    }
+  }
   window.addEventListener('paste', (event) => {
+    if (mode && !stopped && event.target === input && blockPoint(editor?.point)) {
+      const png = Array.from(event.clipboardData?.items || []).find((item) => item.kind === 'file' && item.type === 'image/png');
+      if (png) {
+        event.preventDefault();
+        if (!imageUploading) {
+          const file = png.getAsFile();
+          if (file) void pasteImage(file);
+          else notice('貼り付けた PNG を読み取れませんでした', true);
+        }
+        return;
+      }
+    }
     if (!mode || stopped || document.activeElement !== input || !selected || editor) return;
     const custom = event.clipboardData?.getData(editGrid.TYPE);
     const text = event.clipboardData?.getData('text/plain');

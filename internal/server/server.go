@@ -395,7 +395,7 @@ func (s *Server) handle(conn net.Conn, r *http.Request) {
 	}
 	authorized := subtle.ConstantTimeCompare([]byte(segment), []byte(s.Token)) == 1
 	jumpRoute := s.opts.OnJump != nil && authorized && rest == "/_/jump"
-	editRoute := s.opts.Edit != nil && authorized && rest == "/_/edit"
+	editRoute := s.opts.Edit != nil && authorized && (rest == "/_/edit" || rest == "/_/edit/image")
 	editGet := s.opts.Edit != nil && authorized && (rest == "/_/edit/tables" || rest == "/_/edit/source")
 	reviewRoute := s.opts.Review != nil && authorized && rest == "/_/review/prepare"
 	reviewGet := s.opts.Review != nil && authorized && (rest == "/_/review/tables" || rest == "/_/review/source")

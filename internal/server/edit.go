@@ -27,6 +27,7 @@ type Editor interface {
 	sourceReader
 	Config() map[string]any
 	Apply(context.Context, *string, map[string]any) (any, *edit.Error)
+	SaveImage(context.Context, *string, uint64, []byte) (string, *edit.Error)
 }
 
 func editJSON(conn net.Conn, r *http.Request, status int, value any) {
@@ -64,7 +65,7 @@ func editError(conn net.Conn, r *http.Request, e *edit.Error) {
 }
 func isEditPath(r *http.Request) bool {
 	p := pathOf(r)
-	return strings.HasSuffix(p, "/_/edit") || strings.HasSuffix(p, "/_/edit/tables") || strings.HasSuffix(p, "/_/edit/source")
+	return strings.HasSuffix(p, "/_/edit") || strings.HasSuffix(p, "/_/edit/tables") || strings.HasSuffix(p, "/_/edit/source") || strings.HasSuffix(p, "/_/edit/image")
 }
 func (s *Server) reject(conn net.Conn, r *http.Request, status int) {
 	review := s.opts.Review != nil && isReviewPath(r)
@@ -114,6 +115,10 @@ func (s *Server) edit(conn net.Conn, r *http.Request, route string) {
 		origin := strings.Join(r.Header.Values("Origin"), ", ")
 		if (site != "" && site != "same-origin") || origin != "http://"+r.Host {
 			s.reject(conn, r, 403)
+			return
+		}
+		if route == "/_/edit/image" {
+			s.editImage(conn, r, doc)
 			return
 		}
 		body, e := postJSON(conn, r, 2*1024*1024)
