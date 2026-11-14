@@ -11,6 +11,7 @@ import (
 )
 
 type request struct {
+	listIndent          listIndentOperation
 	blockMove           blockMoveOperation
 	headingTag          string
 	headingOp           headingOperation
@@ -108,6 +109,11 @@ func parseRequest(m map[string]any) (request, *Error) {
 			return r, invalid()
 		}
 		var e *Error
+		if op["type"] == "listIndent" {
+			r.kind = "listIndent"
+			r.listIndent, e = parseListIndent(op)
+			return r, e
+		}
 		r.blockMove, e = parseBlockMove(op)
 		return r, e
 	case fields(m, "render", "heading", "op"):

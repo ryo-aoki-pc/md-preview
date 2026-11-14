@@ -9078,6 +9078,158 @@ test('ブロックを上下へ移動する', { skip, timeout: 240000 }, async (t
   });
 });
 
+test('リストの段を下げ上げし、理由・取り消し・Neovim の行置換を確かめる', { skip, timeout: 180000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+  t.after(() => browser.close());
+  const open = async (page, locator) => {
+    const loaded = page.waitForResponse((r) => r.url().includes('/_/edit/source'));
+    await locator.click({ button: 'right' });
+    await loaded;
+    await page.waitForFunction(() => document.querySelector('#gp-edit-block-list-indent').title !== '原文の情報を読み込んでいます');
+  };
+  const send = async (page, action) => {
+    const response = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/_/edit'));
+    await action();
+    const result = await response;
+    assert.equal(result.status(), 200, await result.text());
+    await editIdle(page);
+    return result.json();
+  };
+  await t.test('右クリックの項目と理由・書き込み・描画・一手の取り消し', async (t) => {
+    const text = '- 前\n- 対象\n- 後\n\n段落\n';
+    const { page, file } = await editablePage(t, browser, text);
+    const down = page.locator('#gp-edit-block-list-indent'), up = page.locator('#gp-edit-block-list-outdent');
+    await open(page, page.locator('#gp-content > ul > li').first());
+    assert.equal(await down.isVisible(), true);
+    assert.equal(await down.getAttribute('aria-disabled'), 'true');
+    await down.focus();
+    assert.match(await page.locator('#gp-edit-menu-block-reason').textContent(), /先頭/);
+    assert.match(await up.getAttribute('title'), /いちばん外側/);
+    await page.keyboard.press('Escape');
+    await open(page, page.locator('#gp-content > ul > li').nth(1));
+    assert.equal(await down.getAttribute('aria-disabled'), 'false');
+    const changed = await send(page, () => down.click());
+    assert.ok(changed.change.keep.some((part) => part[0] <= 2 && part[0] + part[2] > 2));
+    assert.equal(readFileSync(file, 'utf8'), '- 前\n  - 対象\n- 後\n\n段落\n');
+    assert.equal(await page.locator('#gp-content > ul > li > ul > li').textContent(), '対象');
+    await open(page, page.locator('#gp-content > ul > li > ul > li'));
+    assert.equal(await up.getAttribute('aria-disabled'), 'false');
+    await send(page, () => up.click());
+    assert.equal(readFileSync(file, 'utf8'), text);
+    await send(page, () => page.locator('#gp-edit-undo').click());
+    assert.equal(readFileSync(file, 'utf8'), '- 前\n  - 対象\n- 後\n\n段落\n');
+    await send(page, () => page.locator('#gp-edit-undo').click());
+    assert.equal(readFileSync(file, 'utf8'), text);
+    await open(page, page.locator('#gp-content > p'));
+    assert.equal(await down.isVisible(), false);
+    assert.equal(await up.isVisible(), false);
+    const nested = await editablePage(t, browser, '- 親\n  - 対象\n  - 後\n');
+    await open(nested.page, nested.page.locator('#gp-content ul ul > li').first());
+    assert.match(await nested.page.locator('#gp-edit-block-list-outdent').getAttribute('title'), /後ろの項目から上げて/);
+  });
+  await t.test('ゆるいリストは項目の段落の右クリックから下げ上げできる', async (t) => {
+    const text = '* 前\n\n* 対象\n\n後の段落\n';
+    const { page, file } = await editablePage(t, browser, text);
+    const down = page.locator('#gp-edit-block-list-indent'), up = page.locator('#gp-edit-block-list-outdent');
+    await open(page, page.locator('#gp-content > ul > li > p').nth(1));
+    await page.waitForFunction(() => !document.querySelector('#gp-edit-block-list-indent').hidden);
+    assert.equal(await down.getAttribute('aria-disabled'), 'false');
+    assert.match(await up.getAttribute('title'), /いちばん外側/);
+    await send(page, () => down.click());
+    assert.equal(readFileSync(file, 'utf8'), '* 前\n\n  * 対象\n\n後の段落\n');
+    await send(page, () => page.locator('#gp-edit-undo').click());
+    assert.equal(readFileSync(file, 'utf8'), text);
+    // リストの外の段落では出さない。
+    await open(page, page.locator('#gp-content > p'));
+    assert.equal(await down.isVisible(), false);
+  });
+  await t.test('原文の操作欄で下書き中は無効にし、元へ戻したら下げられる', async (t) => {
+    const { page, file } = await editablePage(t, browser, '- [ ] 前\n- [x] 対象\n');
+    await page.locator('#gp-content > ul > li').last().dblclick({ position: { x: 55, y: 10 } });
+    const input = page.locator('#gp-edit-input'), down = page.locator('#gp-edit-list-indent');
+    await page.waitForFunction(() => !document.querySelector('#gp-edit-list-indent').hidden && !document.querySelector('#gp-edit-list-indent').disabled);
+    const original = await input.inputValue();
+    assert.equal(await page.locator('#gp-edit-list-outdent').isDisabled(), true);
+    await input.fill(original + '下書き');
+    assert.equal(await down.isDisabled(), true);
+    assert.match(await down.getAttribute('title'), /変更を確定するか取り消して/);
+    await input.fill(original);
+    await send(page, () => down.click());
+    assert.equal(readFileSync(file, 'utf8'), '- [ ] 前\n  - [x] 対象\n');
+    assert.equal(await page.locator('#gp-content li ul li input').isChecked(), true);
+    await page.locator('#gp-content li ul li').dblclick({ position: { x: 55, y: 10 } });
+    await page.waitForFunction(() => !document.querySelector('#gp-edit-list-outdent').hidden && !document.querySelector('#gp-edit-list-outdent').disabled);
+    await send(page, () => page.locator('#gp-edit-list-outdent').click());
+    assert.equal(readFileSync(file, 'utf8'), '- [ ] 前\n- [x] 対象\n');
+  });
+  await t.test('古い描画のメニューと入力欄から段を変えない', async (t) => {
+    const { page, file, server } = await editablePage(t, browser, '- 前\n- 対象\n');
+    await open(page, page.locator('#gp-content > ul > li').last());
+    const old = await page.evaluate(() => window.gpPreview.current().render);
+    writeFileSync(file, '- 前\n- 新しい対象\n');
+    await server.setDocument({ path: file, text: '- 前\n- 新しい対象\n', rev: 20 });
+    await page.waitForFunction((old) => window.gpPreview.current().render !== old, old);
+    assert.equal(await page.locator('#gp-edit-menu-block').isVisible(), false);
+    assert.equal(readFileSync(file, 'utf8'), '- 前\n- 新しい対象\n');
+    await page.locator('#gp-content > ul > li').last().dblclick();
+    await page.waitForFunction(() => !document.querySelector('#gp-edit-list-indent').disabled);
+    const sourceRender = await page.evaluate(() => window.gpPreview.current().render);
+    writeFileSync(file, '- 前\n- さらに変更\n');
+    await server.setDocument({ path: file, text: '- 前\n- さらに変更\n', rev: 21 });
+    await page.waitForFunction((old) => window.gpPreview.current().render !== old, sourceRender);
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-edit-list-indent').evaluate((button) => button.hidden || button.disabled), true);
+    assert.equal(readFileSync(file, 'utf8'), '- 前\n- さらに変更\n');
+  });
+  await t.test('段を変えた項目のコメントが取り消しとやり直しにも追従する', async (t) => {
+    const { page } = await editablePage(t, browser, '- 前\n- 対象\n', { review: true });
+    const items = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current);
+    await page.locator('#gp-review-toggle').click();
+    await page.waitForFunction(() => document.querySelector('#gp-review-layer').dataset.render === String(window.gpPreview.current().render));
+    await page.locator('#gp-content > ul > li').last().click();
+    await page.locator('#gp-review-input').fill('段を変える項目へ');
+    await page.locator('#gp-review-add').click();
+    const [before] = await items();
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    await open(page, page.locator('#gp-content > ul > li').last());
+    await send(page, () => page.locator('#gp-edit-block-list-indent').click());
+    const settled = async (range) => page.waitForFunction((range) => {
+      const [item] = JSON.parse(sessionStorage.getItem('gitlab-preview-review')).docs.current;
+      return !window.gpEditMode.writing() && !item.stale && item.target.range === range;
+    }, range);
+    await settled('2:3-2:10');
+    assert.equal((await items())[0].fp, before.fp);
+    await send(page, () => page.locator('#gp-edit-undo').click());
+    await settled(before.target.range);
+    await send(page, () => page.locator('#gp-edit-redo').click());
+    await settled('2:3-2:10');
+  });
+  await t.test('Neovim へ一個の行置換を頼み、応答後の描画を待つ', async (t) => {
+    const bridge = await startGoStdio(t);
+    const context = await browser.newContext();
+    t.after(() => context.close());
+    const page = await context.newPage();
+    await page.goto(bridge.url);
+    await bridge.send({ type: 'doc', path: null, name: '段.md', text: '- 前\n- 対象\n  - 子\n', buf: 7, rev: 1 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 1);
+    await page.locator('#gp-edit-toggle').click();
+    await editIdle(page);
+    // 既存の子の上を押さないよう、親項目の先頭の文字を指す。
+    await open(page, page.locator('#gp-content > ul > li').last().locator('text=対象').first());
+    await page.locator('#gp-edit-block-list-indent').click();
+    const edit = await bridge.waitFor('edit');
+    assert.deepEqual(edit, { type: 'edit', id: 1, path: null, buf: 7, rev: 1,
+      edits: [{ start: 1, end: 3, lines: ['  - 対象', '    - 子'] }] });
+    assert.equal(await page.locator('#gp-content > ul > li').count(), 2);
+    await bridge.send({ type: 'edit_result', id: edit.id, ok: true });
+    await bridge.send({ type: 'doc', path: null, name: '段.md', text: '- 前\n  - 対象\n    - 子\n', buf: 7, rev: 2 });
+    await page.waitForFunction(() => window.gpPreview.current()?.rev === 2);
+    await editIdle(page);
+    assert.equal(await page.locator('#gp-content > ul > li').count(), 1);
+  });
+});
+
 test('表メニューで変換・削除・一手の取り消しと選択を確かめる', { skip }, async (t) => {
   const browser = await chromium.launch({ executablePath: browserPath, headless: true });
   t.after(() => browser.close());

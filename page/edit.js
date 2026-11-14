@@ -80,6 +80,14 @@
     button.addEventListener('click', () => runAction('source-move-' + direction));
     return button;
   });
+  const listIndentButtons = ['indent', 'outdent'].map((direction) => {
+    const button = make('button', 'gp-edit-list-' + direction, blockBar);
+    button.type = 'button';
+    button.textContent = direction === 'indent' ? '段を下げる' : '段を上げる';
+    button.hidden = true;
+    button.addEventListener('click', () => runAction('source-list-' + direction));
+    return button;
+  });
   const headingButton = make('button', 'gp-edit-heading', blockBar);
   headingButton.type = 'button';
   headingButton.textContent = '見出し…';
@@ -894,6 +902,7 @@
       drafts.delete(keyOf(point));
       openBlock({ point, kind: data.kind, element, target: source, render, version, original: data.text, value,
         move: data.move,
+        listIndent: data.listIndent,
         outer: Array.isArray(data.outer) ? data.outer : [], inner: pending.inner,
         anchor: data.anchor && typeof data.anchor.tag === 'string' && rangePattern.test(data.anchor.range || '') &&
           rangePattern.test(data.anchor.actual || '') ? data.anchor : null });
@@ -1526,7 +1535,7 @@
     const cell = selectionCell();
     return cell && models[cell.table]?.info.move;
   }
-  function blockMoveReason(action) {
+  function blockStructureReason(action) {
     if (!mode || !allowed()) return '編集モードで操作してください';
     if (stopped) return 'プレビューが止まっています';
     if (infoRender !== preview.current()?.render) return '文書の情報を読み込んでいます';
@@ -1540,10 +1549,21 @@
       const reason = blockMenuReason(action);
       if (reason) return reason;
     }
+    return '';
+  }
+  function blockMoveReason(action) {
+    const common = blockStructureReason(action);
+    if (common) return common;
     const info = moveInformation(action), direction = action.endsWith('-up') ? 'up' : 'down';
     return typeof info?.[direction] === 'string' ? info[direction] : '移動できるブロックの対応を確かめられません';
   }
   function updateMoveButtons() {
+    for (const [i, button] of listIndentButtons.entries()) {
+      button.hidden = !blockPoint(editor?.point) || Boolean(editor?.insert) || editor?.target?.tag !== 'li' && !editor?.listIndent;
+      const reason = button.hidden ? '' : listIndentReason('source-list-' + (i ? 'outdent' : 'indent'));
+      button.disabled = Boolean(reason);
+      button.title = reason;
+    }
     for (const [i, button] of moveButtons.entries()) {
       button.hidden = !blockPoint(editor?.point) || Boolean(editor?.insert);
       const reason = button.hidden ? '' : blockMoveReason('source-move-' + (i ? 'down' : 'up'));
@@ -1565,6 +1585,30 @@
     clearSelection();
     blockMenu = null;
     enqueue({ blockMove: { type: 'moveBlock', target: info.target, direction }, point: { range }, render });
+  }
+  function listIndentInformation(action) {
+    return action.startsWith('source-') ? editor?.listIndent : blockMenu?.data?.listIndent;
+  }
+  function listIndentReason(action) {
+    // 段変更も上下移動と同じ待機・版・下書きの検査を通す。方向の理由だけを専用の応答から引く。
+    const common = blockStructureReason(action);
+    if (common) return common;
+    const info = listIndentInformation(action), direction = action.endsWith('-outdent') ? 'outdent' : 'indent';
+    return info?.target?.tag === 'li' && rangePattern.test(info.target.range || '') && typeof info[direction] === 'string'
+      ? info[direction] : '段を変える項目の対応を確かめられません';
+  }
+  function beginListIndent(action) {
+    const info = listIndentInformation(action);
+    if (!info) return;
+    const render = preview.current().render, range = info.target.range;
+    const direction = action.endsWith('-outdent') ? 'outdent' : 'indent';
+    closeMenus();
+    cancelSource();
+    if (editor) endEdit(false);
+    clearSelection();
+    blockMenu = null;
+    // 送信と 1 手の構造の変更の扱いはブロックの移動と同じなので、op を blockMove の欄に入れて送る。
+    enqueue({ blockMove: { type: 'listIndent', target: info.target, direction }, point: { range }, render });
   }
   function updateOutline() {
     for (const link of preview.outline()) {
@@ -1643,6 +1687,7 @@
     return true;
   }
   function reasonFor(action, context = headingContext) {
+    if (/^(block|source)-list-(indent|outdent)$/.test(action)) return listIndentReason(action);
     if (/^(block|table|source)-move-(up|down)$/.test(action)) return blockMoveReason(action);
     if (action === 'heading-cancel') return '';
     // リンクのコピーは書き込まないので、編集の可否ではなくリンクを作れるかだけを見る。
@@ -1769,6 +1814,8 @@
   function updateMenus() {
     for (const { menu, action, item, description } of menuItems) {
       if (!openMenus.some((entry) => entry.menu === menu)) continue;
+      // ゆるいリストの項目の最初の段落は、応答が項目の段の情報を返したときだけ出す。
+      if (/^block-list-/.test(action)) item.hidden = blockMenu?.target?.tag !== 'li' && !blockMenu?.data?.listIndent;
       if (action === 'headings') {
         const heading = headingForTarget(blockMenu?.target);
         // 理由のある見出しも項目を出し、理由の欄で読めるようにする。見出しでないブロックだけ隠す。
@@ -1874,7 +1921,7 @@
     ['table-html', 'HTML の表にする'], ['table-pipe', 'パイプの表にする'], ['table-delete', '表を削除']]);
   buildMenu('document', '文書への追加', [['document-start', '文書の先頭に追加'], ['document-end', '文書の末尾に追加']]);
   buildMenu('block', 'ブロックの操作', [['block-source', '原文を編集'], ['block-outer', '外側を編集'], null,
-    ['block-move-up', '上へ移動'], ['block-move-down', '下へ移動'], null,
+    ['block-move-up', '上へ移動'], ['block-move-down', '下へ移動'], ['block-list-indent', '段を下げる'], ['block-list-outdent', '段を上げる'], null,
     ['block-before', '前にブロックを追加'], ['block-after', '後ろにブロックを追加'], ['headings', '見出し', 'block-headings']]);
   buildMenu('heading', '見出しの操作', [
     ['heading-promote', '見出しだけ 1 段上げる'], ['heading-demote', '見出しだけ 1 段下げる'],
@@ -1915,6 +1962,7 @@
         throw new Error('原文の応答の形が正しくありません');
       else context.data = { outer: Array.isArray(data.outer) ? data.outer : [],
         move: data.move,
+        listIndent: data.listIndent,
         anchor: Boolean(data.anchor && typeof data.anchor.tag === 'string' && rangePattern.test(data.anchor.range || '') &&
           rangePattern.test(data.anchor.actual || '')) };
     } catch (error) {
@@ -2031,6 +2079,7 @@
       return;
     }
     operationStart();
+    if (/^(block|source)-list-(indent|outdent)$/.test(action)) { beginListIndent(action); return; }
     if (/^(block|table|source)-move-(up|down)$/.test(action)) { beginBlockMove(action); return; }
     if (action.startsWith('heading-')) {
       const heading = headingAt(), context = { ...headingContext };
