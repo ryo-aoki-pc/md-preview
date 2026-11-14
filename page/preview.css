@@ -457,9 +457,22 @@ body {
 #gp-image-dialog::backdrop {
   background: #000b;
 }
+/* 「閉じる」は操作欄のボタンと同じ見た目にする。 */
 #gp-image-dialog button {
   display: block;
+  box-sizing: border-box;
   margin: 0 0 8px auto;
+  border: 1px solid var(--gp-border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  background: var(--gp-bg);
+  color: var(--gp-fg);
+  font: inherit;
+  cursor: pointer;
+}
+#gp-image-dialog button:hover,
+#gp-image-dialog button:focus-visible {
+  background: var(--gp-subtle);
 }
 #gp-image-dialog img {
   display: block;
